@@ -47,10 +47,10 @@
 
 | Task | Subtask | Scope | Status |
 |---|---|---|---|
-| **P2-T01** Catalogue import | **-A** | Audit: NASA Exoplanet Archive export format, fields needed (name, tier, star type, distance), licensing | Not started |
-| | **-B** | Import script: fetch/parse archive → typed dataset (JSON/TS), size check | Not started |
-| | **-C** | Edge cases: missing fields, duplicate names, format drift | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
+| **P2-T01** Catalogue import | **-A** | Audit: NASA Exoplanet Archive export format, fields needed (name, tier, star type, distance), licensing | **Complete** — docs/P2_T01_A_AUDIT.md; TAP source verified live (6,336 confirmed planets), 7-field set + derived tier, half-open tier mapping, public-domain licensing, snapshot-not-live, decisions A–G |
+| | **-B** | Import script: fetch/parse archive → typed dataset (JSON/TS), size check | **Complete** — scripts/import-planets.mjs (zero-dep) + pinned CSV (ps-export-2026-08-08.csv) → src/sim/data/planets.ts (6,321 planets, PLANET_SNAPSHOT), 7 columns SELECTed, radius-first tier, drift gate |
+| | **-C** | Edge cases: missing fields, duplicate names, format drift | **Complete** — 3 test files: import negatives (width/dedupe/schema/empty), exact boundary semantics, sha-pinned drift gate, min-row guard (6,000), missing-field policy; +45 tests + sim-purity +3 |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P2_T01_EVIDENCE.md; Codex PASS per subtask + whole task; full suite 16 files/265 tests PASS, tsc 0, build 0, lint 0, --check OK |
 | **P2-T02** Planet model | **-A** | Audit: tier system (T1–T5), stats mapping, structure slots | Not started |
 | | **-B** | Implement: planet entity — tier, stats, slots, baseline income by tier | Not started |
 | | **-C** | Negative paths: tier bounds, slot overflow | Not started |
