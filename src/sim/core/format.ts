@@ -1,19 +1,37 @@
-export function formatNumber(value: number): string {
+const SUFFIX_THRESHOLDS: ReadonlyArray<{ threshold: number; suffix: string }> = [
+  { threshold: 1e12, suffix: 'T' },
+  { threshold: 1e9, suffix: 'B' },
+  { threshold: 1e6, suffix: 'M' },
+  { threshold: 1e3, suffix: 'K' },
+]
+
+const SCIENTIFIC_THRESHOLD = 1e15
+
+export function formatNumber(value: number | null | undefined): string {
+  if (value == null) {
+    return '0'
+  }
   if (!Number.isFinite(value)) {
     return '∞'
   }
 
   const abs = Math.abs(value)
-  if (abs >= 1e9) {
-    return `${trim(value / 1e9)}B`
+  if (abs >= SCIENTIFIC_THRESHOLD) {
+    return scientific(value)
   }
-  if (abs >= 1e6) {
-    return `${trim(value / 1e6)}M`
-  }
-  if (abs >= 1e3) {
-    return `${trim(value / 1e3)}K`
+
+  for (const { threshold, suffix } of SUFFIX_THRESHOLDS) {
+    if (abs >= threshold) {
+      return `${trim(value / threshold)}${suffix}`
+    }
   }
   return trim(value)
+}
+
+function scientific(value: number): string {
+  const [mantissa, exponent] = value.toExponential(2).split('e')
+  const trimmedMantissa = mantissa.replace(/\.?0+$/, '')
+  return `${trimmedMantissa}e${exponent}`
 }
 
 function trim(value: number): string {

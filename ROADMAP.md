@@ -16,10 +16,10 @@
 
 | Task | Subtask | Scope | Status |
 |---|---|---|---|
-| **P1-T01** Scaffold | **-A** | Audit: confirm empty project, tool versions (node, npm, uv), decide Vite+TS+vitest layout | Not started |
-| | **-B** | Scaffold Vite+TS project, vitest config, folder structure (src/sim, src/ui, tests), git init + main/staging branches | Not started |
-| | **-C** | Smoke test: dev server starts, vitest runs a trivial test, build passes | Not started |
-| | **-D** | Evidence: scaffold SHA, branch state, Codex PASS | Not started |
+| **P1-T01** Scaffold | **-A** | Audit: confirm empty project, tool versions (node, npm, uv), decide Vite+TS+vitest layout | **Complete** — audit doc committed (3f1ebe6); decisions: flat root, latest majors, drop uv, skip re-init, lockfile committed |
+| | **-B** | Scaffold Vite+TS project, vitest config, folder structure (src/sim, src/ui, tests), git init + main/staging branches | **Complete** — scaffold committed (fe9c8b4); vite react-ts, pinned deps, vitest 5/5 smoke PASS |
+| | **-C** | Smoke test: dev server starts, vitest runs a trivial test, build passes | **Complete** — sim core 4 modules (economy/population/offline/format), 39 tests PASS, tsc 0, build 0 |
+| | **-D** | Evidence: scaffold SHA, branch state, Codex PASS | **Complete** — docs/P1_T01_EVIDENCE.md, Codex PASS, see evidence |
 | **P1-T02** Core sim engine | **-A** | Audit: module layout for sim (pure TS, no DOM), types, in/out scope | Not started |
 | | **-B** | Implement: baseline passive income (10×tier/sec), ×1.15 cost curve, population growth (2/sec), offline calc (100% rate, 8h cap), number formatting (K/M/B/T…) | Not started |
 | | **-C** | Negative paths: zero/negative inputs, offline cap edge, formatting edge cases | Not started |
