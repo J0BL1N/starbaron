@@ -13,7 +13,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = join(ROOT, 'scripts', 'import-planets.mjs')
@@ -54,6 +54,7 @@ function runScript(args: string[]): Promise<{ code: number; combined: string }> 
 
 async function runScriptInSandbox(
   csvContent: string,
+  existingOut?: string,
 ): Promise<{ code: number; combined: string; generated: string | null }> {
   const sandbox = mkdtempSync(join(tmpdir(), 'starbaron-import-'))
   try {
@@ -62,8 +63,12 @@ async function runScriptInSandbox(
     mkdirSync(dataDir, { recursive: true })
     copyFileSync(SCRIPT, join(scriptDir, 'import-planets.mjs'))
     writeFileSync(join(dataDir, 'ps-export-2999-12-31.csv'), csvContent)
-    const result = await runScriptAt(join(scriptDir, 'import-planets.mjs'), [], sandbox)
     const out = join(sandbox, 'src', 'sim', 'data', 'planets.ts')
+    if (existingOut !== undefined) {
+      mkdirSync(dirname(out), { recursive: true })
+      writeFileSync(out, existingOut)
+    }
+    const result = await runScriptAt(join(scriptDir, 'import-planets.mjs'), [], sandbox)
     const generated = existsSync(out) ? readFileSync(out, 'utf8') : null
     return { ...result, generated }
   } finally {
@@ -188,11 +193,12 @@ describe('P2-T01-C import script negative paths', () => {
     expect(result.combined).toContain('empty CSV — no header row')
   })
 
-  it('rejects a header-only file via the drift gate (no crash)', async () => {
+  it('rejects a header-only file via the minimum-row guard (not OK, no crash)', async () => {
     const headerOnly = 'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist\n'
     const result = await runWithTempCsv(headerOnly, ['--check'])
     expect(result.code).toBe(1)
-    expect(result.combined).toContain('DRIFT')
+    expect(result.combined).toContain('insufficient data rows')
+    expect(result.combined).not.toContain('OK:')
   })
 
   it('rejects a drifted header with the schema check', async () => {
@@ -222,6 +228,36 @@ describe('P2-T01-C import script negative paths', () => {
     const result = await runWithTempCsv(spaceLine, ['--check'])
     expect(result.code).toBe(1)
     expect(result.combined).toContain('row width mismatch')
+  })
+})
+
+describe('P2-T01-C minimum-row guard', () => {
+  const HEADER_ONLY = 'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist\n'
+  const SENTINEL_OUT = '// pre-existing committed catalogue (must survive a failed import)'
+  const truncatedCsv = () =>
+    `${HEADER_ONLY}${COMMITTED_CSV.split('\n').slice(1, 5).join('\n')}`
+
+  it('fails loudly on header-only input in write mode without touching an existing planets.ts', async () => {
+    const result = await runScriptInSandbox(HEADER_ONLY, SENTINEL_OUT)
+    expect(result.code).toBe(1)
+    expect(result.combined).toContain('insufficient data rows')
+    expect(result.combined).toContain('expected >= 6000')
+    expect(result.generated).toBe(SENTINEL_OUT)
+  })
+
+  it('fails loudly on truncated input in write mode without touching an existing planets.ts', async () => {
+    const result = await runScriptInSandbox(truncatedCsv(), SENTINEL_OUT)
+    expect(result.code).toBe(1)
+    expect(result.combined).toContain('insufficient data rows')
+    expect(result.combined).toContain('expected >= 6000')
+    expect(result.generated).toBe(SENTINEL_OUT)
+  })
+
+  it('--check on truncated input reports FAIL, never OK', async () => {
+    const result = await runWithTempCsv(truncatedCsv(), ['--check'])
+    expect(result.code).toBe(1)
+    expect(result.combined).toContain('insufficient data rows')
+    expect(result.combined).not.toContain('OK:')
   })
 })
 

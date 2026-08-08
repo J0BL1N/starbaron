@@ -37,6 +37,11 @@ const QUERY =
 
 const EXPECTED_HEADER = ['pl_name', 'hostname', 'sy_snum', 'pl_rade', 'pl_bmassj', 'st_spectype', 'sy_dist']
 
+// Minimum accepted data rows. The pinned NASA snapshot is ~6336 rows; any
+// header-only or truncated input below this floor is a safety failure and must
+// never silently overwrite the committed planets.ts.
+const MIN_PLANET_ROWS = 6000
+
 // Half-open tier boundaries (lower-inclusive, upper-exclusive).
 // Radius in Earth radii; mass fallback in Jupiter masses (mirrors radius split).
 const RADIUS_TIERS = [
@@ -146,6 +151,12 @@ function processRows(rawCsv, sha) {
       `schema drift: expected header [${EXPECTED_HEADER.join(',')}] got [${header.join(',')}]`,
     )
   }
+  const rowsTotal = rows.length - 1
+  if (rowsTotal < MIN_PLANET_ROWS) {
+    throw new Error(
+      `insufficient data rows: got ${rowsTotal}, expected >= ${MIN_PLANET_ROWS} — refusing to emit planets.ts (truncated or header-only input?)`,
+    )
+  }
   const nameIdx = header.indexOf('pl_name')
   const hostIdx = header.indexOf('hostname')
   const snumIdx = header.indexOf('sy_snum')
@@ -195,7 +206,7 @@ function processRows(rawCsv, sha) {
 
   entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 
-  return { entries, dropped, sha, rowsTotal: rows.length - 1 }
+  return { entries, dropped, sha, rowsTotal }
 }
 
 function renderModule(entries, meta) {
