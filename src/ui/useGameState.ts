@@ -210,8 +210,14 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       elapsedSec,
       credits: calculateOfflineEarnings(derived.creditsPerSec, elapsedSec),
       alloys: calculateOfflineEarnings(derived.alloysPerSec, elapsedSec),
-      population: calculateOfflineEarnings(derived.populationPerSec, elapsedSec),
-      garrison: calculateOfflineEarnings(derived.garrisonPerSec, elapsedSec),
+      population: Math.min(
+        calculateOfflineEarnings(derived.populationPerSec, elapsedSec),
+        Math.max(0, derived.populationCap - before.population),
+      ),
+      garrison: Math.min(
+        calculateOfflineEarnings(derived.garrisonPerSec, elapsedSec),
+        Math.max(0, derived.garrisonCap - before.garrison),
+      ),
       fleet: calculateOfflineEarnings(0, elapsedSec),
     })
   }, [bankElapsed, nowFn, simulatedGapMs])
