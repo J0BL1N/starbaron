@@ -24,10 +24,10 @@
 | | **-B** | Implement: Ore Mine, Trade Hub, Housing, Hydroponics, Barracks, Shipyard, Defense Turret — cost, build time, effect per level | **Complete** — src/sim/structures (types/data/effects), 7 structures, discriminated effects, nextBuildCost wrapper, +64 tests (d04f9c3) |
 | | **-C** | Negative paths: level/id validation, cost regression, large levels, data integrity (wallet "cannot afford" deferred to T03/04 per audit) | **Complete** — cost regression ×1.15, large levels (100/1,000) finite, data integrity, runtime id guard +19 tests (a116feb) |
 | | **-D** | Evidence + Codex PASS | **Complete** — docs/P1_T02_EVIDENCE.md; Codex PASS per subtask; full suite 6 files/83 tests PASS, tsc 0, build 0, lint 0 |
-| **P1-T03** Web preview UI (NEXT) | **-A** | Audit: screen spec (§5c DESIGN.md) — Planet View, structure grid, build menu, resource bar, offline summary modal | Not started |
-| | **-B** | Implement Planet View: planet display, structure grid, build menu, live resource bar | Not started |
-| | **-C** | Offline summary modal ("While you were away…"), empty states, rapid-click safety | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
+| **P1-T03** Web preview UI | **-A** | Audit: screen spec (§5c DESIGN.md) — Planet View, structure grid, build menu, resource bar, offline summary modal | **Complete** — docs/P1_T03_A_AUDIT.md (584d700); component tree + sim inventory verified, exclusions, decisions A–F recommended + G/H resolved (simulated preview-only offline, 8h cap all paths) |
+| | **-B** | Implement Planet View: planet display, structure grid, build menu, live resource bar | **Complete** — PlanetView + 5 components + useGameState, UI wallet (1,000cr/0/1,000pop), capped tick accrual, dark theme, +92 tests (e1ff985) |
+| | **-C** | Offline summary modal ("While you were away…"), empty states, rapid-click safety | **Complete** — negative-path coverage; offline-summary cap-clamp bug fixed (+57.6K → +4K, test strengthened), sim-purity guard, +34 tests (5f1cb0d) |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P1_T03_EVIDENCE.md; Codex PASS per subtask; full suite 9 files/126 tests PASS, tsc 0, build 0, lint 0, dev 200 |
 | **P1-T04** Save/load + onboarding | **-A** | Audit: save schema, tutorial steps (§5c), polish list | Not started |
 | | **-B** | Implement: localStorage save/load, onboarding tutorial (claim planet → housing → ore mine → offline reveal → map intro) | Not started |
 | | **-C** | Corrupt save handling, version migration, tutorial skip/resume | Not started |
