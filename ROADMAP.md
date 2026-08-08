@@ -20,10 +20,10 @@
 | | **-B** | Scaffold Vite+TS project, vitest config, folder structure (src/sim, src/ui, tests), git init + main/staging branches | **Complete** — scaffold committed (fe9c8b4); vite react-ts, pinned deps, vitest 5/5 smoke PASS |
 | | **-C** | Smoke test: dev server starts, vitest runs a trivial test, build passes | **Complete** — sim core 4 modules (economy/population/offline/format), 39 tests PASS, tsc 0, build 0 |
 | | **-D** | Evidence: scaffold SHA, branch state, Codex PASS | **Complete** — docs/P1_T01_EVIDENCE.md, Codex PASS, see evidence |
-| **P1-T02** Core sim engine | **-A** | Audit: module layout for sim (pure TS, no DOM), types, in/out scope | Not started |
-| | **-B** | Implement: baseline passive income (10×tier/sec), ×1.15 cost curve, population growth (2/sec), offline calc (100% rate, 8h cap), number formatting (K/M/B/T…) | Not started |
-| | **-C** | Negative paths: zero/negative inputs, offline cap edge, formatting edge cases | Not started |
-| | **-D** | Evidence: test counts, SHA, Codex PASS | Not started |
+| **P1-T02** Structures v1 | **-A** | Audit: structure interface, data shape for all 7 structures | **Complete** — docs/P1_T02_A_AUDIT.md (2fa0733); 7-structure roster + data model locked to DESIGN §4c/§4d; Shipyard income blocker resolved by Jay (+50cr/min, DESIGN §4d); exclusions + 5 bounded decisions |
+| | **-B** | Implement: Ore Mine, Trade Hub, Housing, Hydroponics, Barracks, Shipyard, Defense Turret — cost, build time, effect per level | **Complete** — src/sim/structures (types/data/effects), 7 structures, discriminated effects, nextBuildCost wrapper, +64 tests (d04f9c3) |
+| | **-C** | Negative paths: level/id validation, cost regression, large levels, data integrity (wallet "cannot afford" deferred to T05/06 per audit) | **Complete** — cost regression ×1.15, large levels (100/1,000) finite, data integrity, runtime id guard +19 tests (a116feb) |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P1_T02_EVIDENCE.md; Codex PASS per subtask; full suite 6 files/83 tests PASS, tsc 0, build 0, lint 0 |
 | **P1-T03** Structures v1 | **-A** | Audit: structure interface, data shape for all 7 structures | Not started |
 | | **-B** | Implement: Ore Mine, Trade Hub, Housing, Hydroponics, Barracks, Shipyard, Defense Turret — cost, build time, effect per level | Not started |
 | | **-C** | Negative paths: cannot build without resources, level cap, duplicate build | Not started |
