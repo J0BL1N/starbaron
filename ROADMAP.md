@@ -74,8 +74,8 @@
 
 | Task | Subtask | Scope | Status |
 |---|---|---|---|
-| **P3-T01** Supabase schema | **-A** | Audit: schema design — players, planets, structures, population, attack timers, RLS | Not started |
-| | **-B** | Implement: forward-only migrations, tables + RLS + indexes | Not started |
+| **P3-T01** Supabase schema | **-A** | Audit: schema design — players, planets, structures, population, attack timers, RLS | **Complete** — docs/P3_T01_A_AUDIT.md (b8f5b24); 12 decisions D1–D12 approved by Jay 2026-08-09 (anon auth, JSONB grids, no server catalogue, game_config balance seed, DB-function resolve, server-authoritative) |
+| | **-B** | Implement: forward-only migrations, tables + RLS + indexes | **Complete** — supabase/migrations 0001–0006 (players/owned_planets JSONB grids + uniqueness, meta tables, claim/colonise RPCs, attacks/attack_members, attack RPCs, game_config seed); zero remote contact; **Codex PASS after 6 audit rounds** (8+3+3+2+2 findings all fixed: anon sign-ins, resolve gating, RLS recursion, NaN/∞ guards, game_config ordering, FOR UPDATE, doc sync) |
 | | **-C** | RLS probes: anon/authenticated/service_role behaviour | Not started |
 | | **-D** | Evidence + Codex PASS | Not started |
 | **P3-T02** Attack flow | **-A** | Audit: scout → commit → launch → travel (real distance) → resolve | Not started |
