@@ -5,6 +5,8 @@ import ResourceBar from './components/ResourceBar'
 import StructureGrid from './components/StructureGrid'
 import BuildMenu from './components/BuildMenu'
 import OfflineSummary from './components/OfflineSummary'
+import Onboarding from './components/Onboarding'
+import SaveNotice from './components/SaveNotice'
 import './App.css'
 
 interface PlanetViewProps {
@@ -22,6 +24,16 @@ export default function PlanetView({ options }: PlanetViewProps) {
         <StructureGrid levels={game.state.levels} derived={game.derived} />
         <BuildMenu state={game.state} onBuy={game.buy} />
       </div>
+      {game.saveNotice ? (
+        <SaveNotice message={game.saveNotice} onClose={game.dismissSaveNotice} />
+      ) : null}
+      {!game.tutorial.done && !game.tutorial.skipped ? (
+        <Onboarding
+          step={game.tutorial.step}
+          onAdvance={game.advanceTutorial}
+          onSkip={game.skipTutorial}
+        />
+      ) : null}
       {game.offlineGain ? (
         <OfflineSummary gain={game.offlineGain} onClose={game.dismissOffline} />
       ) : null}

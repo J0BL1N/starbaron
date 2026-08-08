@@ -12,20 +12,22 @@ import {
 } from '@testing-library/react'
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
+import { seedLocalStorageGap } from './saveHelpers'
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
   vi.useRealTimers()
 })
 
-function renderPlanet(options?: { simulatedGapMs?: number }) {
+function renderPlanet() {
   vi.useFakeTimers()
-  return render(<PlanetView options={options} />)
+  return render(<PlanetView />)
 }
 
 describe('PlanetView — starter state', () => {
   it('renders starter resources and all 7 structures', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     expect(screen.getByText('Home Planet')).toBeInTheDocument()
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
     expect(screen.getByTestId('resource-alloys')).toHaveTextContent('0')
@@ -39,7 +41,7 @@ describe('PlanetView — starter state', () => {
   })
 
   it('shows next build costs via formatNumber on every structure card', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     const grid = screen.getByRole('region', { name: 'Structures' })
     expect(within(grid).getByText('Next: 300 cr')).toBeInTheDocument()
     expect(within(grid).getByText('Next: 500 cr')).toBeInTheDocument()
@@ -50,7 +52,7 @@ describe('PlanetView — starter state', () => {
 
 describe('PlanetView — build flow', () => {
   it('buying a structure increments its level and deducts credits', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     const grid = screen.getByRole('region', { name: 'Structures' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
@@ -65,7 +67,7 @@ describe('PlanetView — build flow', () => {
   })
 
   it('buys twice at escalating cost without double-build/double-deduct', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     const grid = screen.getByRole('region', { name: 'Structures' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
@@ -78,7 +80,7 @@ describe('PlanetView — build flow', () => {
   })
 
   it('disables buy buttons when unaffordable', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     expect(screen.getByRole('button', { name: 'Build Shipyard' })).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'Build Defense Turret' }),
@@ -89,8 +91,9 @@ describe('PlanetView — build flow', () => {
 })
 
 describe('PlanetView — offline summary', () => {
-  it('shows the offline summary modal on mount from the simulated gap', () => {
+  it('shows the offline summary modal on mount from a real stored gap', () => {
     vi.useFakeTimers()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     render(<PlanetView />)
     const dialog = screen.getByRole('dialog')
     expect(dialog).toBeInTheDocument()
@@ -101,6 +104,7 @@ describe('PlanetView — offline summary', () => {
 
   it('dismisses the offline summary modal', () => {
     vi.useFakeTimers()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     render(<PlanetView />)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Close offline summary/ }))
@@ -111,7 +115,7 @@ describe('PlanetView — offline summary', () => {
 describe('useGameState — accrual', () => {
   it('caps a single accrual window at the 8h offline cap', () => {
     vi.useFakeTimers()
-    const { result } = renderHook(() => useGameState({ simulatedGapMs: 0 }))
+    const { result } = renderHook(() => useGameState())
     const base = Date.now()
 
     act(() => {
@@ -128,7 +132,7 @@ describe('useGameState — accrual', () => {
 
   it('banks elapsed on buy actions through the same capped path', () => {
     vi.useFakeTimers()
-    const { result } = renderHook(() => useGameState({ simulatedGapMs: 0 }))
+    const { result } = renderHook(() => useGameState())
     const base = Date.now()
 
     act(() => {

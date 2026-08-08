@@ -8,12 +8,21 @@ import { populationCap, populationGrowthPerSec } from '../sim/core/population'
 import { STRUCTURES } from '../sim/structures/data'
 import { nextBuildCost, structureEffect } from '../sim/structures/effects'
 import type { StructureId } from '../sim/structures/types'
+import {
+  emptyStructureLevels,
+  loadSave,
+  OFFLINE_SUMMARY_THRESHOLD_MS,
+  saveGame,
+  SAVE_SCHEMA_VERSION,
+  TUTORIAL_LAST_STEP,
+} from './save'
+import type { SaveGameV1, TutorialState } from './save'
 
 export const STARTING_TIER = 1
 export const STARTER_CREDITS = 1_000
 export const STARTER_ALLOYS = 0
 export const STARTER_POPULATION = 1_000
-export const DEFAULT_SIMULATED_GAP_MS = 12 * 60 * 60 * 1_000
+export const AUTOSAVE_DEBOUNCE_MS = 5_000
 
 const OFFLINE_CAP_MS = MAX_OFFLINE_BANK_SECONDS * 1_000
 
@@ -49,8 +58,8 @@ export interface OfflineGain {
 }
 
 export interface UseGameStateOptions {
-  simulatedGapMs?: number
   now?: () => number
+  storage?: Storage
 }
 
 export interface UseGameStateReturn {
@@ -60,18 +69,12 @@ export interface UseGameStateReturn {
   bankElapsed: (at?: number) => number
   offlineGain: OfflineGain | null
   dismissOffline: () => void
-}
-
-function emptyLevels(): Record<StructureId, number> {
-  return {
-    oreMine: 0,
-    tradeHub: 0,
-    housing: 0,
-    hydroponics: 0,
-    barracks: 0,
-    shipyard: 0,
-    defenseTurret: 0,
-  }
+  tutorial: TutorialState
+  advanceTutorial: () => void
+  skipTutorial: () => void
+  offlineSummarySeen: boolean
+  saveNotice: string | null
+  dismissSaveNotice: () => void
 }
 
 function initialState(now: number): GameState {
@@ -82,8 +85,21 @@ function initialState(now: number): GameState {
     population: STARTER_POPULATION,
     garrison: 0,
     fleet: 0,
-    levels: emptyLevels(),
+    levels: emptyStructureLevels(),
     lastTickAt: now,
+  }
+}
+
+function resolveStorage(storage?: Storage): Storage | null {
+  if (storage != null) {
+    return storage
+  }
+  try {
+    return typeof window !== 'undefined' && window.localStorage != null
+      ? window.localStorage
+      : null
+  } catch {
+    return null
   }
 }
 
@@ -140,18 +156,84 @@ function accrue(
 
 export function useGameState(options: UseGameStateOptions = {}): UseGameStateReturn {
   const nowFn = options.now ?? Date.now
-  const simulatedGapMs = options.simulatedGapMs ?? DEFAULT_SIMULATED_GAP_MS
+  const nowRef = useRef(nowFn)
+  nowRef.current = nowFn
+  const storageRef = useRef<Storage | null>(resolveStorage(options.storage))
 
   const ref = useRef<GameState>(initialState(nowFn()))
   const [snapshot, setSnapshot] = useState<GameState>(ref.current)
   const [offlineGain, setOfflineGain] = useState<OfflineGain | null>(null)
 
-  const commit = useCallback(() => {
-    setSnapshot({ ...ref.current })
+  const initialTutorial: TutorialState = { step: 0, done: false, skipped: false }
+  const tutorialRef = useRef<TutorialState>(initialTutorial)
+  const [tutorial, setTutorialState] = useState<TutorialState>(initialTutorial)
+  const offlineSeenRef = useRef(false)
+  const [offlineSummarySeen, setOfflineSummarySeen] = useState(false)
+  const [saveNotice, setSaveNotice] = useState<string | null>(null)
+
+  const saveRef = useRef<SaveGameV1 | null>(null)
+  const debounceRef = useRef<number | null>(null)
+  const quotaNoticedRef = useRef(false)
+  const loadedRef = useRef(false)
+
+  const writeSave = useCallback((payload: SaveGameV1) => {
+    const store = storageRef.current
+    if (!saveGame(payload, store) && !quotaNoticedRef.current) {
+      quotaNoticedRef.current = true
+      setSaveNotice("Couldn't save progress this session.")
+    }
   }, [])
 
+  const buildPayload = useCallback((): SaveGameV1 => {
+    const s = ref.current
+    return {
+      schemaVersion: SAVE_SCHEMA_VERSION,
+      savedAt: nowRef.current(),
+      game: {
+        tier: s.tier,
+        credits: s.credits,
+        alloys: s.alloys,
+        population: s.population,
+        garrison: s.garrison,
+        fleet: s.fleet,
+        levels: { ...s.levels },
+        lastTickAt: s.lastTickAt,
+      },
+      tutorial: { ...tutorialRef.current },
+      offlineSummarySeen: offlineSeenRef.current,
+    }
+  }, [])
+
+  const scheduleSave = useCallback(() => {
+    saveRef.current = buildPayload()
+    if (debounceRef.current != null) {
+      return
+    }
+    debounceRef.current = window.setTimeout(() => {
+      debounceRef.current = null
+      const payload = saveRef.current
+      if (payload != null) {
+        writeSave(payload)
+      }
+    }, AUTOSAVE_DEBOUNCE_MS)
+  }, [buildPayload, writeSave])
+
+  const flushSave = useCallback(() => {
+    if (debounceRef.current != null) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+    }
+    saveRef.current = buildPayload()
+    writeSave(saveRef.current)
+  }, [buildPayload, writeSave])
+
+  const commit = useCallback(() => {
+    setSnapshot({ ...ref.current })
+    scheduleSave()
+  }, [scheduleSave])
+
   const bankElapsed = useCallback(
-    (at = nowFn()): number => {
+    (at = nowRef.current()): number => {
       const current = ref.current
       const elapsedMs = at - current.lastTickAt
       if (elapsedMs <= 0) {
@@ -164,8 +246,31 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       commit()
       return cappedMs
     },
-    [commit, nowFn],
+    [commit],
   )
+
+  const advanceTutorial = useCallback(() => {
+    const t = tutorialRef.current
+    if (t.done || t.skipped) {
+      return
+    }
+    let next: TutorialState
+    if (t.step >= TUTORIAL_LAST_STEP) {
+      next = { ...t, done: true }
+    } else {
+      next = { ...t, step: t.step + 1 }
+    }
+    tutorialRef.current = next
+    setTutorialState(next)
+    flushSave()
+  }, [flushSave])
+
+  const skipTutorial = useCallback(() => {
+    const next = { ...tutorialRef.current, skipped: true }
+    tutorialRef.current = next
+    setTutorialState(next)
+    flushSave()
+  }, [flushSave])
 
   const buy = useCallback(
     (id: StructureId): void => {
@@ -184,43 +289,107 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         levels: { ...current.levels, [id]: level + 1 },
       }
       commit()
+      flushSave()
     },
-    [bankElapsed, commit],
+    [bankElapsed, commit, flushSave],
   )
+
+  useEffect(() => {
+    if (tutorial.done || tutorial.skipped) {
+      return
+    }
+    const levels = snapshot.levels
+    if (tutorial.step === 1 && levels.housing >= 1) {
+      advanceTutorial()
+    } else if (tutorial.step === 2 && levels.oreMine >= 1) {
+      advanceTutorial()
+    }
+  }, [tutorial, snapshot, advanceTutorial])
 
   const dismissOffline = useCallback(() => {
     setOfflineGain(null)
+    offlineSeenRef.current = true
+    setOfflineSummarySeen(true)
+    const t = tutorialRef.current
+    if (t.step === TUTORIAL_LAST_STEP && !t.done && !t.skipped) {
+      advanceTutorial()
+    } else {
+      flushSave()
+    }
+  }, [advanceTutorial, flushSave])
+
+  const dismissSaveNotice = useCallback(() => {
+    setSaveNotice(null)
   }, [])
 
-  const simulatedRef = useRef(false)
   useEffect(() => {
-    if (simulatedRef.current) {
+    if (loadedRef.current) {
       return
     }
-    simulatedRef.current = true
-    if (simulatedGapMs <= 0) {
+    loadedRef.current = true
+
+    const now = nowRef.current()
+    const result = loadSave(storageRef.current)
+
+    if (result.kind === 'absent') {
+      ref.current = initialState(now)
+      tutorialRef.current = { step: 0, done: false, skipped: false }
+      setTutorialState(tutorialRef.current)
+      commit()
       return
     }
-    const before = ref.current
-    ref.current = { ...before, lastTickAt: nowFn() - simulatedGapMs }
-    const cappedMs = bankElapsed()
-    const derived = computeDerived(ref.current.levels, ref.current.tier)
-    const elapsedSec = cappedMs / 1_000
-    setOfflineGain({
-      elapsedSec,
-      credits: calculateOfflineEarnings(derived.creditsPerSec, elapsedSec),
-      alloys: calculateOfflineEarnings(derived.alloysPerSec, elapsedSec),
-      population: Math.min(
-        calculateOfflineEarnings(derived.populationPerSec, elapsedSec),
-        Math.max(0, derived.populationCap - before.population),
-      ),
-      garrison: Math.min(
-        calculateOfflineEarnings(derived.garrisonPerSec, elapsedSec),
-        Math.max(0, derived.garrisonCap - before.garrison),
-      ),
-      fleet: calculateOfflineEarnings(0, elapsedSec),
-    })
-  }, [bankElapsed, nowFn, simulatedGapMs])
+
+    if (result.kind === 'corrupt' || result.kind === 'future') {
+      ref.current = initialState(now)
+      tutorialRef.current = { step: 0, done: false, skipped: false }
+      setTutorialState(tutorialRef.current)
+      commit()
+      setSaveNotice("Saved game couldn't be read — starting a new game.")
+      return
+    }
+
+    const save = result.save
+    ref.current = {
+      tier: save.game.tier,
+      credits: save.game.credits,
+      alloys: save.game.alloys,
+      population: save.game.population,
+      garrison: save.game.garrison,
+      fleet: save.game.fleet,
+      levels: { ...save.game.levels },
+      lastTickAt: save.game.lastTickAt,
+    }
+    tutorialRef.current = { ...save.tutorial }
+    setTutorialState(tutorialRef.current)
+    offlineSeenRef.current = save.offlineSummarySeen
+    setOfflineSummarySeen(save.offlineSummarySeen)
+
+    const before = { ...ref.current }
+    const gapMs = now - before.lastTickAt
+    const bankedMs = bankElapsed(now)
+
+    if (gapMs > OFFLINE_SUMMARY_THRESHOLD_MS) {
+      offlineSeenRef.current = false
+      setOfflineSummarySeen(false)
+      const derived = computeDerived(ref.current.levels, ref.current.tier)
+      const elapsedSec = bankedMs / 1_000
+      setOfflineGain({
+        elapsedSec,
+        credits: calculateOfflineEarnings(derived.creditsPerSec, elapsedSec),
+        alloys: calculateOfflineEarnings(derived.alloysPerSec, elapsedSec),
+        population: Math.min(
+          calculateOfflineEarnings(derived.populationPerSec, elapsedSec),
+          Math.max(0, derived.populationCap - before.population),
+        ),
+        garrison: Math.min(
+          calculateOfflineEarnings(derived.garrisonPerSec, elapsedSec),
+          Math.max(0, derived.garrisonCap - before.garrison),
+        ),
+        fleet: calculateOfflineEarnings(0, elapsedSec),
+      })
+    }
+    commit()
+  }, [bankElapsed, commit, scheduleSave])
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -229,6 +398,29 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     return () => window.clearInterval(id)
   }, [bankElapsed])
 
+  useEffect(() => {
+    const handleHide = () => {
+      flushSave()
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushSave()
+      }
+    }
+    window.addEventListener('beforeunload', handleHide)
+    window.addEventListener('pagehide', handleHide)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('beforeunload', handleHide)
+      window.removeEventListener('pagehide', handleHide)
+      document.removeEventListener('visibilitychange', handleVisibility)
+      if (debounceRef.current != null) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+    }
+  }, [flushSave])
+
   return {
     state: snapshot,
     derived: computeDerived(snapshot.levels, snapshot.tier),
@@ -236,5 +428,11 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     bankElapsed,
     offlineGain,
     dismissOffline,
+    tutorial,
+    advanceTutorial,
+    skipTutorial,
+    offlineSummarySeen,
+    saveNotice,
+    dismissSaveNotice,
   }
 }

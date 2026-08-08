@@ -13,22 +13,24 @@ import {
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { STRUCTURE_IDS } from '../src/sim/structures/data'
+import { seedLocalStorageGap } from './saveHelpers'
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
   vi.useRealTimers()
 })
 
-function renderPlanet(options?: { simulatedGapMs?: number }) {
+function renderPlanet() {
   vi.useFakeTimers()
-  return render(<PlanetView options={options} />)
+  return render(<PlanetView />)
 }
 
 function renderState() {
   vi.useFakeTimers()
   let clock = 1_000_000_000
   const api = renderHook(() =>
-    useGameState({ simulatedGapMs: 0, now: () => clock }),
+    useGameState({ now: () => clock }),
   )
   return {
     result: api.result,
@@ -55,7 +57,7 @@ describe('P1-T03-C buy-flow negative paths', () => {
   })
 
   it('disables unaffordable buy buttons and makes buys a no-op', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     expect(screen.getByRole('button', { name: 'Build Shipyard' })).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'Build Defense Turret' }),
@@ -98,7 +100,7 @@ describe('P1-T03-C buy-flow negative paths', () => {
   })
 
   it('double-click before re-render does not double-deduct at the UI level', () => {
-    renderPlanet({ simulatedGapMs: 0 })
+    renderPlanet()
     const button = screen.getByRole('button', { name: 'Build Housing' })
     act(() => {
       fireEvent.click(button)
@@ -187,7 +189,7 @@ describe('P1-T03-C accrual regressions', () => {
   it('interval path banks exactly 8h worth when elapsed exceeds the cap', () => {
     vi.useFakeTimers()
     const base = Date.now()
-    const { result } = renderHook(() => useGameState({ simulatedGapMs: 0 }))
+    const { result } = renderHook(() => useGameState())
 
     act(() => {
       vi.setSystemTime(base + 12 * 60 * 60 * 1_000)
@@ -246,6 +248,7 @@ describe('P1-T03-C trade hub multiplier', () => {
 describe('P1-T03-C offline summary', () => {
   it('appears exactly once on mount and stays a single modal across re-renders', () => {
     vi.useFakeTimers()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     const { rerender } = render(<PlanetView />)
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
 
@@ -260,6 +263,7 @@ describe('P1-T03-C offline summary', () => {
 
   it('content shows the 8h-capped amounts', () => {
     vi.useFakeTimers()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     render(<PlanetView />)
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('8h')).toBeInTheDocument()
@@ -271,6 +275,7 @@ describe('P1-T03-C offline summary', () => {
 
   it('announced population/garrison gains equal what the wallet banks', () => {
     vi.useFakeTimers()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     const { result } = renderHook(() => useGameState())
     const gain = result.current.offlineGain
     expect(gain).not.toBeNull()
@@ -284,6 +289,7 @@ describe('P1-T03-C offline summary', () => {
 
   it('close button dismisses the summary', () => {
     vi.useFakeTimers()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     render(<PlanetView />)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     fireEvent.click(
@@ -295,6 +301,7 @@ describe('P1-T03-C offline summary', () => {
   it('does not reappear after close for the session', () => {
     vi.useFakeTimers()
     const base = Date.now()
+    seedLocalStorageGap(12 * 60 * 60 * 1_000)
     render(<PlanetView />)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
