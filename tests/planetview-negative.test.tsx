@@ -33,6 +33,7 @@ function renderPlanet() {
 function renderState() {
   vi.useFakeTimers()
   let clock = 1_000_000_000
+  seedSave(window.localStorage, makeSave({ player: { lastTickAt: clock } }))
   const api = renderHook(() =>
     useGameState({ now: () => clock }),
   )
@@ -216,10 +217,12 @@ describe('P1-T03-C accrual regressions', () => {
     seedSave(
       window.localStorage,
       makeSave({
-        game: {
-          population: 5_000,
-          garrison: 0,
-          levels: { barracks: 2 },
+        player: {
+          wallet: {
+            population: 5_000,
+            garrison: 0,
+          },
+          structureLevels: { barracks: 2 },
           lastTickAt: clock - 5 * 60 * 1_000,
         },
       }),
@@ -251,10 +254,12 @@ describe('P1-T03-C accrual regressions', () => {
     seedSave(
       window.localStorage,
       makeSave({
-        game: {
-          population: 5_000,
-          garrison: 0,
-          levels: { barracks: 2 },
+        player: {
+          wallet: {
+            population: 5_000,
+            garrison: 0,
+          },
+          structureLevels: { barracks: 2 },
           lastTickAt: clock - 8 * 60 * 60 * 1_000,
         },
       }),
@@ -283,10 +288,12 @@ describe('P1-T03-C accrual regressions', () => {
     seedSave(
       window.localStorage,
       makeSave({
-        game: {
-          population: 5_000,
-          garrison: 2_500,
-          levels: { barracks: 2 },
+        player: {
+          wallet: {
+            population: 5_000,
+            garrison: 2_500,
+          },
+          structureLevels: { barracks: 2 },
           lastTickAt: clock - 8 * 60 * 60 * 1_000,
         },
       }),
@@ -321,6 +328,10 @@ describe('P1-T03-C accrual regressions', () => {
   })
 
   it('credits grow without a cap across multiple bank windows', () => {
+    seedSave(
+      window.localStorage,
+      makeSave({ player: { lastTickAt: 1_000_000_000 } }),
+    )
     const { result, advanceMs } = renderState()
     for (let i = 0; i < 5; i += 1) {
       advanceMs(8 * 60 * 60 * 1_000)
@@ -335,6 +346,7 @@ describe('P1-T03-C accrual regressions', () => {
   it('interval path banks exactly 8h worth when elapsed exceeds the cap', () => {
     vi.useFakeTimers()
     const base = Date.now()
+    seedSave(window.localStorage, makeSave())
     const { result } = renderHook(() => useGameState())
 
     act(() => {

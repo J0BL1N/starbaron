@@ -1,5 +1,7 @@
-import { emptyStructureLevels, SAVE_KEY } from '../src/ui/save'
-import type { SaveGameV1 } from '../src/ui/save'
+import { createPlayer } from '../src/sim/player'
+import type { OwnedPlanet, PlayerState } from '../src/sim/player'
+import { SAVE_V2_KEY } from '../src/ui/save'
+import type { SaveGameV2 } from '../src/ui/save'
 import type { StructureId } from '../src/sim/structures/types'
 
 export const GAP_12H = 12 * 60 * 60 * 1_000
@@ -64,67 +66,71 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
 }
 
-export function makeSave(overrides: DeepPartial<SaveGameV1> = {}): SaveGameV1 {
+export const TEST_PLAYER_ID = 'fixture-player'
+
+export function makeSave(overrides: DeepPartial<SaveGameV2> = {}): SaveGameV2 {
   const now = Date.now()
-  const base: SaveGameV1 = {
-    schemaVersion: 1,
-    savedAt: now,
-    game: {
-      tier: 1,
-      credits: 1_000,
-      alloys: 0,
-      population: 1_000,
-      garrison: 0,
-      fleet: 0,
-      levels: emptyStructureLevels(),
-      lastTickAt: now,
+  const playerOverrides = overrides.player ?? {}
+  const playerId = playerOverrides.playerId ?? TEST_PLAYER_ID
+  const defaultPlayer = createPlayer(playerId, now)
+
+  const homePlanet = playerOverrides.homePlanet ?? {}
+  const player: PlayerState = {
+    playerId,
+    homePlanet: {
+      ...defaultPlayer.homePlanet,
+      ...homePlanet,
+      entry: {
+        ...defaultPlayer.homePlanet.entry,
+        ...(homePlanet.entry ?? {}),
+      },
     },
-    tutorial: { step: 0, done: false, skipped: false },
-    offlineSummarySeen: false,
+    colonies: (playerOverrides.colonies as OwnedPlanet[] | undefined) ?? [],
+    wallet: {
+      credits: playerOverrides.wallet?.credits ?? defaultPlayer.wallet.credits,
+      alloys: playerOverrides.wallet?.alloys ?? defaultPlayer.wallet.alloys,
+      population:
+        playerOverrides.wallet?.population ?? defaultPlayer.wallet.population,
+      garrison: playerOverrides.wallet?.garrison ?? defaultPlayer.wallet.garrison,
+      fleet: playerOverrides.wallet?.fleet ?? defaultPlayer.wallet.fleet,
+    },
+    structureLevels: {
+      ...defaultPlayer.structureLevels,
+      ...(playerOverrides.structureLevels ?? {}),
+    } as Record<StructureId, number>,
+    lastTickAt: playerOverrides.lastTickAt ?? now,
   }
-  const game = overrides.game ?? {}
+
   return {
-    schemaVersion: overrides.schemaVersion ?? base.schemaVersion,
-    savedAt: overrides.savedAt ?? base.savedAt,
-    game: {
-      tier: game.tier ?? base.game.tier,
-      credits: game.credits ?? base.game.credits,
-      alloys: game.alloys ?? base.game.alloys,
-      population: game.population ?? base.game.population,
-      garrison: game.garrison ?? base.game.garrison,
-      fleet: game.fleet ?? base.game.fleet,
-      levels: {
-        ...base.game.levels,
-        ...(game.levels ?? {}),
-      } as Record<StructureId, number>,
-      lastTickAt: game.lastTickAt ?? base.game.lastTickAt,
-    },
+    schemaVersion: overrides.schemaVersion ?? 2,
+    savedAt: overrides.savedAt ?? now,
+    player,
     tutorial: {
-      step: overrides.tutorial?.step ?? base.tutorial.step,
-      done: overrides.tutorial?.done ?? base.tutorial.done,
-      skipped: overrides.tutorial?.skipped ?? base.tutorial.skipped,
+      step: overrides.tutorial?.step ?? 0,
+      done: overrides.tutorial?.done ?? false,
+      skipped: overrides.tutorial?.skipped ?? false,
     },
-    offlineSummarySeen: overrides.offlineSummarySeen ?? base.offlineSummarySeen,
+    offlineSummarySeen: overrides.offlineSummarySeen ?? false,
   }
 }
 
-export function seedSave(storage: Storage, save: SaveGameV1): void {
-  storage.setItem(SAVE_KEY, JSON.stringify(save))
+export function seedSave(storage: Storage, save: SaveGameV2): void {
+  storage.setItem(SAVE_V2_KEY, JSON.stringify(save))
 }
 
 export function seedLocalStorageGap(
   gapMs: number,
-  overrides: Partial<SaveGameV1> = {},
+  overrides: DeepPartial<SaveGameV2> = {},
 ): void {
   const save = makeSave(overrides)
-  save.game.lastTickAt = Date.now() - gapMs
-  window.localStorage.setItem(SAVE_KEY, JSON.stringify(save))
+  save.player.lastTickAt = Date.now() - gapMs
+  window.localStorage.setItem(SAVE_V2_KEY, JSON.stringify(save))
 }
 
-export function readSave(storage: Storage): SaveGameV1 {
-  const raw = storage.getItem(SAVE_KEY)
+export function readSave(storage: Storage): SaveGameV2 {
+  const raw = storage.getItem(SAVE_V2_KEY)
   if (raw === null) {
     throw new Error('no save present in storage')
   }
-  return JSON.parse(raw) as SaveGameV1
+  return JSON.parse(raw) as SaveGameV2
 }

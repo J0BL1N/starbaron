@@ -18,7 +18,11 @@ export default function PlanetView({ options }: PlanetViewProps) {
 
   return (
     <main className="planet-view">
-      <PlanetDisplay tier={game.state.tier} defensePower={game.derived.defensePower} />
+      <PlanetDisplay
+        homePlanet={game.homePlanet}
+        identity={game.homeIdentity}
+        defensePower={game.derived.defensePower}
+      />
       <ResourceBar state={game.state} derived={game.derived} />
       <div className="planet-view-main">
         <StructureGrid levels={game.state.levels} derived={game.derived} />
@@ -30,6 +34,7 @@ export default function PlanetView({ options }: PlanetViewProps) {
       {!game.tutorial.done && !game.tutorial.skipped ? (
         <Onboarding
           step={game.tutorial.step}
+          planetName={game.homePlanet.name}
           onAdvance={game.advanceTutorial}
           onSkip={game.skipTutorial}
         />

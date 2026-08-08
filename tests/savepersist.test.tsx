@@ -14,6 +14,7 @@ import {
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { SAVE_KEY } from '../src/ui/save'
+import { claimHomePlanet } from '../src/sim/player'
 import {
   GAP_12H,
   makeSave,
@@ -59,15 +60,17 @@ describe('P1-T04 save persistence — hook round-trip', () => {
       vi.advanceTimersByTime(12_000)
     })
     const saved = readSave(storage)
-    expect(saved.game.credits).toBeGreaterThan(1_000)
+    expect(saved.player.wallet.credits).toBeGreaterThan(1_000)
 
     first.unmount()
     const second = renderHook(() => useGameState({ storage, now: () => clock }))
     expect(second.result.current.state.credits).toBeCloseTo(
-      saved.game.credits,
+      saved.player.wallet.credits,
       6,
     )
-    expect(second.result.current.state.levels).toEqual(saved.game.levels)
+    expect(second.result.current.state.levels).toEqual(
+      saved.player.structureLevels,
+    )
   })
 })
 
@@ -87,7 +90,9 @@ describe('P1-T04 real offline gap', () => {
       vi.advanceTimersByTime(6_000)
     })
     const save = readSave(window.localStorage)
-    expect(save.game.credits).toBeGreaterThanOrEqual(1_000 + 10 * 8 * 3_600)
+    expect(save.player.wallet.credits).toBeGreaterThanOrEqual(
+      1_000 + 10 * 8 * 3_600,
+    )
   })
 
   it('announced offline gains equal what the wallet banks on a real load', () => {
@@ -96,7 +101,7 @@ describe('P1-T04 real offline gap', () => {
     const storage = new MemoryStorage()
     seedSave(
       storage,
-      makeSave({ game: { lastTickAt: clock - GAP_12H } }),
+      makeSave({ player: { lastTickAt: clock - GAP_12H } }),
     )
     const { result } = renderHook(() => useGameState({ storage, now: () => clock }))
     const gain = result.current.offlineGain
@@ -115,10 +120,10 @@ describe('P1-T04 real offline gap', () => {
     const storage = new MemoryStorage()
     seedSave(
       storage,
-      makeSave({ game: { lastTickAt: clock - GAP_12H } }),
+      makeSave({ player: { lastTickAt: clock - GAP_12H } }),
     )
     renderHook(() => useGameState({ storage, now: () => clock }))
-    expect(readSave(storage).game.lastTickAt).toBe(clock)
+    expect(readSave(storage).player.lastTickAt).toBe(clock)
   })
 
   it('dismissing the summary persists the seen flag and saves', () => {
@@ -161,7 +166,7 @@ describe('P1-T04 real offline gap', () => {
     act(() => {
       vi.advanceTimersByTime(6_000)
     })
-    expect(readSave(window.localStorage).game.credits).toBeGreaterThanOrEqual(
+    expect(readSave(window.localStorage).player.wallet.credits).toBeGreaterThanOrEqual(
       1_000 + 10 * 8 * 3_600,
     )
   })
@@ -183,7 +188,10 @@ describe('P1-T04 failure paths', () => {
   it('starts fresh with a notice when the save is from a future version', () => {
     vi.useFakeTimers()
     localStorage.clear()
-    seedSave(window.localStorage, { ...makeSave(), schemaVersion: 2 })
+    seedSave(window.localStorage, {
+      ...makeSave(),
+      schemaVersion: 3,
+    } as unknown as ReturnType<typeof makeSave>)
     render(<PlanetView />)
     expect(screen.getByRole('status')).toHaveTextContent(/couldn't be read/i)
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
@@ -216,9 +224,9 @@ describe('P1-T04 onboarding', () => {
     expect(
       screen.getByRole('region', { name: 'Tutorial' }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/Welcome, Commander/)).toBeInTheDocument()
+    expect(screen.getByText(/You now own/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Claim your planet' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(screen.getByText(/Grow your population/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
@@ -232,12 +240,12 @@ describe('P1-T04 onboarding', () => {
     vi.useFakeTimers()
     localStorage.clear()
     render(<PlanetView />)
-    expect(screen.getByText(/Welcome, Commander/)).toBeInTheDocument()
+    expect(screen.getByText(/You now own/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
-    expect(screen.getByText(/Welcome, Commander/)).toBeInTheDocument()
+    expect(screen.getByText(/You now own/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Claim your planet' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(screen.getByText(/Mine the ore/)).toBeInTheDocument()
   })
 
@@ -247,9 +255,9 @@ describe('P1-T04 onboarding', () => {
     render(<PlanetView />)
     fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
     fireEvent.click(screen.getByRole('button', { name: 'Build Ore Mine' }))
-    expect(screen.getByText(/Welcome, Commander/)).toBeInTheDocument()
+    expect(screen.getByText(/You now own/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Claim your planet' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(screen.getByText(/Offline earnings/)).toBeInTheDocument()
   })
 
@@ -302,5 +310,52 @@ describe('P1-T04 onboarding', () => {
     }))
     render(<PlanetView />)
     expect(screen.getByText(/Grow your population/)).toBeInTheDocument()
+  })
+})
+
+describe('P2-T03-B automatic first-boot claim', () => {
+  it('claims on first load with no UI action, persists the claim, and remounts the same planet', () => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    const first = render(<PlanetView />)
+    act(() => {
+      vi.advanceTimersByTime(6_000)
+    })
+    const saved = readSave(window.localStorage)
+    expect(saved.schemaVersion).toBe(2)
+    expect(saved.player.playerId).toBeTruthy()
+    expect(saved.player.homePlanet.isHome).toBe(true)
+    expect(saved.player.homePlanet.unconquerable).toBe(true)
+    expect(saved.player.colonies).toEqual([])
+    expect(saved.player.wallet.credits).toBeGreaterThanOrEqual(1_000)
+
+    const playerId = saved.player.playerId
+    const homeName = saved.player.homePlanet.name
+    first.unmount()
+
+    render(<PlanetView />)
+    act(() => {
+      vi.advanceTimersByTime(6_000)
+    })
+    const reloaded = readSave(window.localStorage)
+    expect(reloaded.player.playerId).toBe(playerId)
+    expect(reloaded.player.homePlanet.name).toBe(homeName)
+  })
+
+  it('rehydrates the claimed home planet from a seeded v2 save', () => {
+    vi.useFakeTimers()
+    const clock = 1_000_000
+    const storage = new MemoryStorage()
+    seedSave(storage, makeSave({ player: { playerId: 'fixture-player' } }))
+    const { result } = renderHook(() =>
+      useGameState({ storage, now: () => clock }),
+    )
+    expect(result.current.playerId).toBe('fixture-player')
+    expect(result.current.homePlanet.name).toBe(
+      claimHomePlanet('fixture-player', clock).name,
+    )
+    expect(result.current.homePlanet.isHome).toBe(true)
+    expect(result.current.homePlanet.unconquerable).toBe(true)
+    expect(result.current.state.credits).toBe(1_000)
   })
 })

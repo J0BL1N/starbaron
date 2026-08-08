@@ -12,7 +12,8 @@ import {
 } from '@testing-library/react'
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
-import { seedLocalStorageGap } from './saveHelpers'
+import { PLANETS } from '../src/sim/data/planets'
+import { makeSave, seedLocalStorageGap, seedSave } from './saveHelpers'
 
 afterEach(() => {
   cleanup()
@@ -26,9 +27,12 @@ function renderPlanet() {
 }
 
 describe('PlanetView — starter state', () => {
-  it('renders starter resources and all 7 structures', () => {
+  it('renders starter resources, the claimed planet name, and all 7 structures', () => {
     renderPlanet()
-    expect(screen.getByText('Home Planet')).toBeInTheDocument()
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(PLANETS.some((planet) => planet.name === heading.textContent)).toBe(
+      true,
+    )
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
     expect(screen.getByTestId('resource-alloys')).toHaveTextContent('0')
     expect(screen.getByTestId('resource-population')).toHaveTextContent('1K')
@@ -115,6 +119,7 @@ describe('PlanetView — offline summary', () => {
 describe('useGameState — accrual', () => {
   it('caps a single accrual window at the 8h offline cap', () => {
     vi.useFakeTimers()
+    seedSave(window.localStorage, makeSave())
     const { result } = renderHook(() => useGameState())
     const base = Date.now()
 
@@ -132,6 +137,7 @@ describe('useGameState — accrual', () => {
 
   it('banks elapsed on buy actions through the same capped path', () => {
     vi.useFakeTimers()
+    seedSave(window.localStorage, makeSave())
     const { result } = renderHook(() => useGameState())
     const base = Date.now()
 

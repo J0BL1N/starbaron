@@ -32,6 +32,13 @@
   margin-top: 4px;
 }
 
+.planet-desc {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 6px;
+  max-width: 520px;
+}
+
 /* ResourceBar */
 .resource-bar {
   display: grid;
@@ -352,13 +359,13 @@
   transition: background 0.15s, color 0.15s;
 }
 
-.onboarding-actions .claim-button {
+.onboarding-actions .continue-button {
   border: 1px solid var(--accent-border);
   background: var(--accent-bg);
   color: var(--accent);
 }
 
-.onboarding-actions .claim-button:hover {
+.onboarding-actions .continue-button:hover {
   background: var(--accent);
   color: var(--bg-deep);
 }
