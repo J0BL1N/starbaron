@@ -98,7 +98,7 @@ An **idle planet-conquest game set in the real universe**: every player starts w
 | Barracks | 1,500 cr | 1min | Converts 10 civilians/sec → soldiers (while running) |
 | Trade Hub | 2,000 cr | 2min | +10% baseline passive income |
 | Defense Turret | 2,000 cr + 1,000 alloys | 3min | +500 DP |
-| Shipyard | 5,000 cr | 5min | +1,000 fleet cap + small shipbuilding income |
+| Shipyard | 5,000 cr | 5min | +1,000 fleet cap + **+50 credits/min shipbuilding income** (per level) |
 
 **Population:** start 1,000 pop, cap 5,000. Cap = `5,000 × (1 + 0.2 × Housing levels)`. Base growth 2/sec, boosted by Hydroponics.
 
