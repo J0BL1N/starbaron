@@ -85,6 +85,9 @@ An **idle planet-conquest game set in the real universe**: every player starts w
 *All numbers are starting points for the sim; balance is tuned from player data in the soft-launch phase.*
 
 **Planet tiers** (from catalogue data): Tier 1 (small rocky) → Tier 5 (super-Earth/giant). Higher tier = more structure slots + higher base income + higher pop cap.
+- **Structure slots (Jay 2026-08-08): UNLIMITED** — no hard slot cap. Instead, **diminishing returns per structure type**: fully effective up to level 10; each level beyond 10 counts as **half** (effective level = `min(level,10) + max(0,level−10)×0.5`). Keeps everything buildable forever, kills the "one type only" exploit.
+- **Tier → pop cap (Jay 2026-08-08): higher caps in general.** Pop-cap multiplier by tier: T1 ×1.0, T2 ×1.2, T3 ×1.4, T4 ×1.7, T5 ×2.0 (applies on top of the 5,000×(1+0.2×housing) base).
+- **Renaming (note for later, Jay 2026-08-08):** players can rename their planets (e.g. "Lardelli Prime"). Parked — UI/backend work, not P2 core.
 
 **Baseline passive income:** `10 × tier` credits/sec, always running. Trade Hub multiplies it; nothing else touches the floor.
 
