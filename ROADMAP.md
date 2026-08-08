@@ -51,10 +51,10 @@
 | | **-B** | Import script: fetch/parse archive → typed dataset (JSON/TS), size check | **Complete** — scripts/import-planets.mjs (zero-dep) + pinned CSV (ps-export-2026-08-08.csv) → src/sim/data/planets.ts (6,321 planets, PLANET_SNAPSHOT), 7 columns SELECTed, radius-first tier, drift gate |
 | | **-C** | Edge cases: missing fields, duplicate names, format drift | **Complete** — 3 test files: import negatives (width/dedupe/schema/empty), exact boundary semantics, sha-pinned drift gate, min-row guard (6,000), missing-field policy; +45 tests + sim-purity +3 |
 | | **-D** | Evidence + Codex PASS | **Complete** — docs/P2_T01_EVIDENCE.md; Codex PASS per subtask + whole task; full suite 16 files/265 tests PASS, tsc 0, build 0, lint 0, --check OK |
-| **P2-T02** Planet model | **-A** | Audit: tier system (T1–T5), stats mapping, structure slots | Not started |
-| | **-B** | Implement: planet entity — tier, stats, slots, baseline income by tier | Not started |
-| | **-C** | Negative paths: tier bounds, slot overflow | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
+| **P2-T02** Planet model | **-A** | Audit: tier system (T1–T5), stats mapping, structure slots | **Complete** — docs/P2_T02_A_AUDIT.md + DESIGN lock-ins (unlimited slots, tier pop-cap, renaming note); entity shape + derived stats + generator design, D1–D4, B3–B5 |
+| | **-B** | Implement: planet entity — tier, stats, slots, baseline income by tier | **Complete** — src/sim/planets (9 modules): PlanetState immutable snapshot, 10×tier income, tier pop-cap 1.0/1.2/1.4/1.7/2.0, effectiveLevel (half-after-10) wired into all 7 structure effects, FNV-1a+mulberry32 generator (visual/quirk/description), 7-quirk table, D4 fallbacks, 317 tests |
+| | **-C** | Negative paths: tier bounds, slot overflow | **Complete** — planets-model/planet-identity/planets-deep coverage: seed uniqueness (all 6,321), trigger >=/< boundaries, D4 fallback paths, deep immutability, purity +9 modules; showcase page (docs/showcase.html); full suite 20 files/338 tests PASS, tsc 0, build 0, lint 0, --check OK |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P2_T02_EVIDENCE.md; Codex PASS per subtask + whole task; decisions B1–B5 resolved (incl. renaming parked); findings fixed (immutable copy, seed-uniqueness test, palette-combinatorics resolved empirically) |
 | **P2-T03** Claim flow | **-A** | Audit: new-player claim (1 unique planet), colonise empty planets | Not started |
 | | **-B** | Implement: claim pool (unclaimed index), assign on signup, colonise flow | Not started |
 | | **-C** | Edge: pool exhaustion, double-claim prevention | Not started |
