@@ -43,6 +43,8 @@
 
 ## Phase 2 — Real Universe + Planets
 
+> **STATUS: COMPLETE** — whole-phase Codex PASS. 4 tasks, 502 tests / 31 files (3.44s), tsc/build/lint all 0, drift gate OK. Evidence: `docs/P2_PHASE2_EVIDENCE.md`. Whole-phase finding (effectiveLevel live-path bypass) fixed in `3addad9`; binary quirk Option A/B still PENDING Jay (§7 of evidence).
+
 **Goal:** real exoplanet catalogue import, planet claiming, multi-planet economies.
 
 | Task | Subtask | Scope | Status |
