@@ -1,7 +1,7 @@
 import { createPlayer } from '../src/sim/player'
-import type { OwnedPlanet, PlayerState } from '../src/sim/player'
-import { SAVE_V2_KEY } from '../src/ui/save'
-import type { SaveGameV2 } from '../src/ui/save'
+import type { OwnedPlanet, PlayerState, StructureGrid } from '../src/sim/player'
+import { SAVE_V3_KEY } from '../src/ui/save'
+import type { SaveGameV3 } from '../src/ui/save'
 import type { StructureId } from '../src/sim/structures/types'
 
 export const GAP_12H = 12 * 60 * 60 * 1_000
@@ -62,47 +62,105 @@ export class ThrowingStorage implements Storage {
   }
 }
 
-type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]
+type LooseWallet = {
+  credits?: number
+  alloys?: number
+  population?: number
+  garrison?: number
+  fleet?: number
+}
+
+export type SaveOverrides = {
+  schemaVersion?: number
+  savedAt?: number
+  player?: {
+    playerId?: string
+    homePlanet?: Partial<OwnedPlanet>
+    colonies?: OwnedPlanet[]
+    wallet?: LooseWallet
+    structureLevels?:
+      | Partial<Record<StructureId, number>>
+      | Record<string, Partial<Record<StructureId, number>>>
+    lastTickAt?: number
+  }
+  tutorial?: { step?: number; done?: boolean; skipped?: boolean }
+  offlineSummarySeen?: boolean
 }
 
 export const TEST_PLAYER_ID = 'fixture-player'
 
-export function makeSave(overrides: DeepPartial<SaveGameV2> = {}): SaveGameV2 {
+export function makeSave(overrides: SaveOverrides = {}): SaveGameV3 {
   const now = Date.now()
   const playerOverrides = overrides.player ?? {}
   const playerId = playerOverrides.playerId ?? TEST_PLAYER_ID
   const defaultPlayer = createPlayer(playerId, now)
 
   const homePlanet = playerOverrides.homePlanet ?? {}
+  const wallet = playerOverrides.wallet ?? {}
+  const colonies = playerOverrides.colonies ?? []
+  const homeName = homePlanet.name ?? defaultPlayer.homePlanet.name
+
+  const rawLevels = playerOverrides.structureLevels
+  const isFlatGrid =
+    rawLevels != null &&
+    Object.values(rawLevels).every((value) => typeof value === 'number')
+
+  const flatOverride = (isFlatGrid
+    ? (rawLevels as Partial<Record<StructureId, number>>)
+    : ((rawLevels as Record<string, Partial<Record<StructureId, number>>> | undefined)?.[
+        homeName
+      ] as Partial<Record<StructureId, number>> | undefined)
+  ) ?? {}
+
+  const homeGrid: StructureGrid = {
+    ...defaultPlayer.structureLevels[homeName],
+    ...flatOverride,
+  }
+
+  const structureLevels: Record<string, StructureGrid> = { [homeName]: homeGrid }
+  if (!isFlatGrid && rawLevels != null) {
+    for (const [name, grid] of Object.entries(rawLevels)) {
+      structureLevels[name] = {
+        ...defaultPlayer.structureLevels[homeName],
+        ...grid,
+      }
+    }
+  }
+  for (const colony of colonies) {
+    if (structureLevels[colony.name] == null) {
+      structureLevels[colony.name] = { ...homeGrid }
+    }
+  }
+
   const player: PlayerState = {
     playerId,
     homePlanet: {
       ...defaultPlayer.homePlanet,
       ...homePlanet,
+      name: homeName,
       entry: {
         ...defaultPlayer.homePlanet.entry,
         ...(homePlanet.entry ?? {}),
       },
-    },
-    colonies: (playerOverrides.colonies as OwnedPlanet[] | undefined) ?? [],
-    wallet: {
-      credits: playerOverrides.wallet?.credits ?? defaultPlayer.wallet.credits,
-      alloys: playerOverrides.wallet?.alloys ?? defaultPlayer.wallet.alloys,
       population:
-        playerOverrides.wallet?.population ?? defaultPlayer.wallet.population,
-      garrison: playerOverrides.wallet?.garrison ?? defaultPlayer.wallet.garrison,
-      fleet: playerOverrides.wallet?.fleet ?? defaultPlayer.wallet.fleet,
+        homePlanet.population ??
+        wallet.population ??
+        defaultPlayer.homePlanet.population,
+      garrison:
+        homePlanet.garrison ?? wallet.garrison ?? defaultPlayer.homePlanet.garrison,
+      fleet: homePlanet.fleet ?? wallet.fleet ?? defaultPlayer.homePlanet.fleet,
     },
-    structureLevels: {
-      ...defaultPlayer.structureLevels,
-      ...(playerOverrides.structureLevels ?? {}),
-    } as Record<StructureId, number>,
+    colonies,
+    wallet: {
+      credits: wallet.credits ?? defaultPlayer.wallet.credits,
+      alloys: wallet.alloys ?? defaultPlayer.wallet.alloys,
+    },
+    structureLevels,
     lastTickAt: playerOverrides.lastTickAt ?? now,
   }
 
   return {
-    schemaVersion: overrides.schemaVersion ?? 2,
+    schemaVersion: (overrides.schemaVersion ?? 3) as 3,
     savedAt: overrides.savedAt ?? now,
     player,
     tutorial: {
@@ -114,23 +172,23 @@ export function makeSave(overrides: DeepPartial<SaveGameV2> = {}): SaveGameV2 {
   }
 }
 
-export function seedSave(storage: Storage, save: SaveGameV2): void {
-  storage.setItem(SAVE_V2_KEY, JSON.stringify(save))
+export function seedSave(storage: Storage, save: SaveGameV3): void {
+  storage.setItem(SAVE_V3_KEY, JSON.stringify(save))
 }
 
 export function seedLocalStorageGap(
   gapMs: number,
-  overrides: DeepPartial<SaveGameV2> = {},
+  overrides: SaveOverrides = {},
 ): void {
   const save = makeSave(overrides)
   save.player.lastTickAt = Date.now() - gapMs
-  window.localStorage.setItem(SAVE_V2_KEY, JSON.stringify(save))
+  window.localStorage.setItem(SAVE_V3_KEY, JSON.stringify(save))
 }
 
-export function readSave(storage: Storage): SaveGameV2 {
-  const raw = storage.getItem(SAVE_V2_KEY)
+export function readSave(storage: Storage): SaveGameV3 {
+  const raw = storage.getItem(SAVE_V3_KEY)
   if (raw === null) {
     throw new Error('no save present in storage')
   }
-  return JSON.parse(raw) as SaveGameV2
+  return JSON.parse(raw) as SaveGameV3
 }

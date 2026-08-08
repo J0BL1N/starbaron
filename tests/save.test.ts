@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { claimColony, claimHomePlanet } from '../src/sim/player'
+import { claimColony, claimHomePlanet, emptyStructureLevels } from '../src/sim/player'
 import {
   loadSave,
   MIGRATIONS,
   SAVE_KEY,
   SAVE_SCHEMA_VERSION,
-  SAVE_V2_KEY,
+  SAVE_V3_KEY,
   saveGame,
   validateSave,
 } from '../src/ui/save'
@@ -15,6 +15,7 @@ import {
   seedSave,
   TEST_PLAYER_ID,
 } from './saveHelpers'
+import type { StructureId } from '../src/sim/structures/types'
 
 function deepPlayer(
   save: ReturnType<typeof makeSave>,
@@ -35,17 +36,19 @@ function deepWallet(
   }
 }
 
-describe('P2-T03-B save v2 — round-trip', () => {
-  it('validates a well-formed v2 save and preserves every field', () => {
+function homeGrid(save: ReturnType<typeof makeSave>): Record<StructureId, number> {
+  const name = save.player.homePlanet.name
+  return save.player.structureLevels[name]
+}
+
+describe('P2-T04-B save v3 — round-trip', () => {
+  it('validates a well-formed v3 save and preserves every field', () => {
     const save = makeSave({
       savedAt: 1_700_000_000_000,
       player: {
         wallet: {
           credits: 12_345,
           alloys: 67,
-          population: 2_500,
-          garrison: 800,
-          fleet: 0,
         },
         lastTickAt: 1_700_000_000_000,
       },
@@ -55,7 +58,7 @@ describe('P2-T03-B save v2 — round-trip', () => {
     const validated = validateSave(save)
     expect(validated).not.toBeNull()
     expect(validated).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       savedAt: 1_700_000_000_000,
       player: {
         playerId: TEST_PLAYER_ID,
@@ -64,9 +67,6 @@ describe('P2-T03-B save v2 — round-trip', () => {
         wallet: {
           credits: 12_345,
           alloys: 67,
-          population: 2_500,
-          garrison: 800,
-          fleet: 0,
         },
         structureLevels: save.player.structureLevels,
         lastTickAt: 1_700_000_000_000,
@@ -76,18 +76,21 @@ describe('P2-T03-B save v2 — round-trip', () => {
     })
   })
 
-  it('saveGame writes the v2 key and loadSave reads back the same save', () => {
+  it('saveGame writes the v3 key and loadSave reads back the same save', () => {
     const storage = new MemoryStorage()
     const save = makeSave({ player: { wallet: { credits: 4_200 } } })
-    save.player.structureLevels.housing = 3
+    save.player.structureLevels[save.player.homePlanet.name].housing = 3
     expect(saveGame(save, storage)).toBe(true)
 
     const result = loadSave(storage)
     expect(result.kind).toBe('ok')
     if (result.kind === 'ok') {
       expect(result.save.player.wallet.credits).toBe(4_200)
-      expect(result.save.player.structureLevels.housing).toBe(3)
-      expect(result.save.player.wallet.population).toBe(1_000)
+      expect(
+        result.save.player.structureLevels[result.save.player.homePlanet.name]
+          .housing,
+      ).toBe(3)
+      expect(result.save.player.homePlanet.population).toBe(1_000)
       expect(result.save.offlineSummarySeen).toBe(false)
       expect(result.save.schemaVersion).toBe(SAVE_SCHEMA_VERSION)
     }
@@ -99,12 +102,13 @@ describe('P2-T03-B save v2 — round-trip', () => {
   })
 })
 
-describe('P2-T03-B save v2 — validation', () => {
+describe('P2-T04-B save v3 — validation', () => {
   it('rejects a missing or mismatched schemaVersion', () => {
     const save = makeSave()
     expect(validateSave({ ...save, schemaVersion: undefined })).toBeNull()
     expect(validateSave({ ...save, schemaVersion: 1 })).toBeNull()
-    expect(validateSave({ ...save, schemaVersion: 3 })).toBeNull()
+    expect(validateSave({ ...save, schemaVersion: 2 })).toBeNull()
+    expect(validateSave({ ...save, schemaVersion: 4 })).toBeNull()
   })
 
   it('rejects a missing, empty or non-string playerId', () => {
@@ -246,45 +250,96 @@ describe('P2-T03-B save v2 — validation', () => {
     expect(validateSave(homeClaimingColony)).toBeNull()
   })
 
-  it('rejects negative or non-finite wallet fields', () => {
+  it('rejects negative or non-finite wallet fields and legacy per-planet fields', () => {
     const save = makeSave()
-    for (const field of ['credits', 'alloys', 'population', 'garrison', 'fleet'] as const) {
+    for (const field of ['credits', 'alloys'] as const) {
       expect(validateSave(deepWallet(save, field, -1))).toBeNull()
       expect(validateSave(deepWallet(save, field, Number.NaN))).toBeNull()
       expect(validateSave(deepWallet(save, field, Number.POSITIVE_INFINITY))).toBeNull()
     }
+    for (const field of ['population', 'garrison', 'fleet'] as const) {
+      expect(validateSave(deepWallet(save, field, 0))).toBeNull()
+    }
   })
 
-  it('rejects an unknown structure key in structureLevels', () => {
+  it('rejects negative or non-finite per-planet population/garrison/fleet', () => {
     const save = makeSave()
+    for (const field of ['population', 'garrison', 'fleet'] as const) {
+      const bad = {
+        ...save,
+        player: {
+          ...save.player,
+          homePlanet: { ...save.player.homePlanet, [field]: -1 },
+        },
+      }
+      expect(validateSave(bad), field).toBeNull()
+      const nan = {
+        ...save,
+        player: {
+          ...save.player,
+          homePlanet: { ...save.player.homePlanet, [field]: Number.NaN },
+        },
+      }
+      expect(validateSave(nan), field).toBeNull()
+    }
+  })
+
+  it('rejects an unknown structure key inside a planet grid', () => {
+    const save = makeSave()
+    const name = save.player.homePlanet.name
     const bad = {
       ...save,
       player: {
         ...save.player,
-        structureLevels: { ...save.player.structureLevels, wormhole: 1 },
+        structureLevels: {
+          ...save.player.structureLevels,
+          [name]: { ...homeGrid(save), wormhole: 1 },
+        },
       },
     }
     expect(validateSave(bad)).toBeNull()
   })
 
-  it('rejects a non-integer or negative level value', () => {
+  it('rejects a non-integer or negative level value inside a grid', () => {
     const save = makeSave()
+    const name = save.player.homePlanet.name
     const badFraction = {
       ...save,
       player: {
         ...save.player,
-        structureLevels: { ...save.player.structureLevels, housing: 0.5 },
+        structureLevels: {
+          ...save.player.structureLevels,
+          [name]: { ...homeGrid(save), housing: 0.5 },
+        },
       },
     }
     const badNegative = {
       ...save,
       player: {
         ...save.player,
-        structureLevels: { ...save.player.structureLevels, housing: -2 },
+        structureLevels: {
+          ...save.player.structureLevels,
+          [name]: { ...homeGrid(save), housing: -2 },
+        },
       },
     }
     expect(validateSave(badFraction)).toBeNull()
     expect(validateSave(badNegative)).toBeNull()
+  })
+
+  it('rejects a grid key that is not an owned planet name', () => {
+    const save = makeSave()
+    const bad = {
+      ...save,
+      player: {
+        ...save.player,
+        structureLevels: {
+          ...save.player.structureLevels,
+          'Not Owned Planet': { ...emptyStructureLevels(), housing: 1 },
+        },
+      },
+    }
+    expect(validateSave(bad)).toBeNull()
   })
 
   it('rejects a missing or non-finite lastTickAt', () => {
@@ -292,15 +347,22 @@ describe('P2-T03-B save v2 — validation', () => {
     expect(validateSave(deepPlayer(makeSave(), 'lastTickAt', Number.NaN))).toBeNull()
   })
 
-  it('is lenient on additive fields: missing levels, tutorial and offlineSummarySeen default safely', () => {
+  it('is lenient on additive fields: missing grid keys and tutorial default safely', () => {
     const save = makeSave()
-    const structureLevels = { ...save.player.structureLevels }
-    delete (structureLevels as Record<string, number>).oreMine
-    const missingLevel = { ...save, player: { ...save.player, structureLevels } }
+    const name = save.player.homePlanet.name
+    const grid = { ...homeGrid(save) }
+    delete (grid as Record<string, number>).oreMine
+    const missingLevel = {
+      ...save,
+      player: {
+        ...save.player,
+        structureLevels: { ...save.player.structureLevels, [name]: grid },
+      },
+    }
     const validated = validateSave(missingLevel)
     expect(validated).not.toBeNull()
-    expect(validated!.player.structureLevels.oreMine).toBe(0)
-    expect(validated!.player.structureLevels.housing).toBe(0)
+    expect(validated!.player.structureLevels[name].oreMine).toBe(0)
+    expect(validated!.player.structureLevels[name].housing).toBe(0)
 
     const { tutorial: _omitTutorial, offlineSummarySeen: _omitSeen, ...rest } = save
     const missingOptional = validateSave(rest)
@@ -324,10 +386,10 @@ describe('P2-T03-B save v2 — validation', () => {
   })
 })
 
-describe('P2-T03-B save v2 — storage-level results', () => {
+describe('P2-T04-B save v3 — storage-level results', () => {
   it('loadSave reports corrupt for unparseable JSON', () => {
     const storage = new MemoryStorage()
-    storage.setItem(SAVE_V2_KEY, 'not json{{')
+    storage.setItem(SAVE_V3_KEY, 'not json{{')
     expect(loadSave(storage)).toEqual({ kind: 'corrupt' })
   })
 
@@ -355,7 +417,7 @@ describe('P2-T03-B save v2 — storage-level results', () => {
     expect(saveGame(makeSave(), storage)).toBe(false)
   })
 
-  it('loadSave probes the v2 key first and ignores a stale v1 key when both exist', () => {
+  it('loadSave probes the v3 key first and ignores a stale v1 key when both exist', () => {
     const storage = new MemoryStorage()
     seedSave(storage, makeSave({ player: { wallet: { credits: 9_999 } } }))
     const staleV1 = {
@@ -383,8 +445,9 @@ describe('P2-T03-B save v2 — storage-level results', () => {
   })
 })
 
-describe('P2-T03-B migration mechanism', () => {
-  it('ships a v1→v2 migration entry', () => {
+describe('P2-T04-B migration mechanism', () => {
+  it('ships a v1->v2 and v2->v3 migration entry', () => {
     expect(typeof MIGRATIONS[1]).toBe('function')
+    expect(typeof MIGRATIONS[2]).toBe('function')
   })
 })

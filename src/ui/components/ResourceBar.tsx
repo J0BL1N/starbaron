@@ -1,9 +1,15 @@
 import { formatNumber } from '../../sim/core/format'
 import type { DerivedRates, GameState } from '../useGameState'
 
+interface EmpireRates {
+  creditsPerSec: number
+  alloysPerSec: number
+}
+
 interface ResourceBarProps {
   state: GameState
   derived: DerivedRates
+  empire: EmpireRates
 }
 
 interface ResourceChipProps {
@@ -29,11 +35,11 @@ function ResourceChip({ label, value, cap, rate }: ResourceChipProps) {
   )
 }
 
-export default function ResourceBar({ state, derived }: ResourceBarProps) {
+export default function ResourceBar({ state, derived, empire }: ResourceBarProps) {
   return (
     <section className="resource-bar" aria-label="Resources">
-      <ResourceChip label="Credits" value={state.credits} rate={derived.creditsPerSec} />
-      <ResourceChip label="Alloys" value={state.alloys} rate={derived.alloysPerSec} />
+      <ResourceChip label="Credits" value={state.credits} rate={empire.creditsPerSec} />
+      <ResourceChip label="Alloys" value={state.alloys} rate={empire.alloysPerSec} />
       <ResourceChip
         label="Population"
         value={state.population}

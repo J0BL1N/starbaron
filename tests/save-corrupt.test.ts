@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { loadSave, SAVE_V2_KEY, validateSave } from '../src/ui/save'
+import { loadSave, SAVE_V3_KEY, validateSave } from '../src/ui/save'
 import { makeSave, MemoryStorage, seedSave } from './saveHelpers'
 
 function deepWallet(
@@ -21,13 +21,22 @@ function deepPlayer(
   return { ...save, player: { ...save.player, [field]: value } }
 }
 
-describe('P2-T03-B corrupt-save matrix — wrong types', () => {
+function homeName(save: ReturnType<typeof makeSave>): string {
+  return save.player.homePlanet.name
+}
+
+describe('P2-T04-B corrupt-save matrix — wrong types', () => {
   it('rejects a string credits value', () => {
     expect(validateSave(deepWallet(makeSave(), 'credits', '1200'))).toBeNull()
   })
 
-  it('rejects a string population value', () => {
-    expect(validateSave(deepWallet(makeSave(), 'population', '1000'))).toBeNull()
+  it('rejects a string per-planet population value', () => {
+    const save = makeSave()
+    const bad = {
+      ...save,
+      player: { ...save.player, homePlanet: { ...save.player.homePlanet, population: '1000' } },
+    }
+    expect(validateSave(bad)).toBeNull()
   })
 
   it('rejects a string playerId', () => {
@@ -40,27 +49,33 @@ describe('P2-T03-B corrupt-save matrix — wrong types', () => {
     ).toBeNull()
   })
 
-  it('rejects a string level value inside structureLevels', () => {
+  it('rejects a string level value inside a planet grid', () => {
     const save = makeSave()
     const bad = {
       ...save,
       player: {
         ...save.player,
-        structureLevels: { ...save.player.structureLevels, housing: '3' },
+        structureLevels: {
+          ...save.player.structureLevels,
+          [homeName(save)]: { ...save.player.structureLevels[homeName(save)], housing: '3' },
+        },
       },
     }
     expect(validateSave(bad)).toBeNull()
   })
 
   it('rejects a string schemaVersion', () => {
-    expect(validateSave({ ...makeSave(), schemaVersion: '2' })).toBeNull()
+    expect(validateSave({ ...makeSave(), schemaVersion: '3' })).toBeNull()
   })
 })
 
-describe('P2-T03-B corrupt-save matrix — null and missing structure', () => {
+describe('P2-T04-B corrupt-save matrix — null and missing structure', () => {
   it('rejects null wallet fields (the JSON round-trip form of NaN)', () => {
     const save = makeSave()
-    for (const field of ['credits', 'alloys', 'population', 'garrison', 'fleet'] as const) {
+    for (const field of ['credits', 'alloys'] as const) {
+      expect(validateSave(deepWallet(save, field, null)), field).toBeNull()
+    }
+    for (const field of ['population', 'garrison', 'fleet'] as const) {
       expect(validateSave(deepWallet(save, field, null)), field).toBeNull()
     }
   })
@@ -80,10 +95,9 @@ describe('P2-T03-B corrupt-save matrix — null and missing structure', () => {
     expect(validateSave(deepPlayer(save, 'wallet', undefined))).toBeNull()
   })
 
-  it('rejects a missing wallet field (fleet omitted entirely)', () => {
+  it('rejects a wallet that carries legacy per-planet fields', () => {
     const save = makeSave()
-    const wallet = { ...save.player.wallet } as { fleet?: number }
-    delete wallet.fleet
+    const wallet = { credits: 1_000, alloys: 0, fleet: 0 }
     expect(validateSave(deepPlayer(save, 'wallet', wallet))).toBeNull()
   })
 
@@ -105,7 +119,7 @@ describe('P2-T03-B corrupt-save matrix — null and missing structure', () => {
   it('loadSave reports corrupt for a save that carried a NaN through stringify/parse', () => {
     const storage = new MemoryStorage()
     storage.setItem(
-      SAVE_V2_KEY,
+      SAVE_V3_KEY,
       JSON.stringify(deepWallet(makeSave(), 'credits', Number.NaN)),
     )
     expect(loadSave(storage)).toEqual({ kind: 'corrupt' })
@@ -113,17 +127,21 @@ describe('P2-T03-B corrupt-save matrix — null and missing structure', () => {
 
   it('loadSave reports corrupt for raw JSON containing a NaN token', () => {
     const storage = new MemoryStorage()
-    storage.setItem(SAVE_V2_KEY, '{"schemaVersion":2,"player":{"credits":NaN}}')
+    storage.setItem(SAVE_V3_KEY, '{"schemaVersion":3,"player":{"credits":NaN}}')
     expect(loadSave(storage)).toEqual({ kind: 'corrupt' })
   })
 
-  it('loadSave rejects an unknown structure id in structureLevels (strict, not a lenient drop)', () => {
+  it('loadSave rejects an unknown structure id inside a grid (strict, not a lenient drop)', () => {
     const storage = new MemoryStorage()
     seedSave(
       storage,
       makeSave({
         player: {
-          structureLevels: { wormhole: 1 } as unknown as Record<string, never>,
+          structureLevels: {
+            [homeName(makeSave())]: {
+              wormhole: 1,
+            } as unknown as Record<string, never>,
+          },
         },
       }),
     )
@@ -132,7 +150,7 @@ describe('P2-T03-B corrupt-save matrix — null and missing structure', () => {
 
   it('loadSave reports corrupt for a malformed legacy v1 key too', () => {
     const storage = new MemoryStorage()
-    storage.setItem(SAVE_V2_KEY, '')
+    storage.setItem(SAVE_V3_KEY, '')
     storage.setItem(
       'starbaron.save.v1',
       '{"schemaVersion":1,"game":{"credits":NaN}}',
@@ -141,7 +159,7 @@ describe('P2-T03-B corrupt-save matrix — null and missing structure', () => {
   })
 })
 
-describe('P2-T03-B corrupt-save matrix — lenient additive defaults', () => {
+describe('P2-T04-B corrupt-save matrix — lenient additive defaults', () => {
   it('defaults a missing savedAt to 0', () => {
     const save = makeSave()
     const { savedAt: _omit, ...rest } = save
@@ -195,16 +213,17 @@ describe('P2-T03-B corrupt-save matrix — lenient additive defaults', () => {
     expect(validated!.offlineSummarySeen).toBe(false)
   })
 
-  it('defaults a missing single level key to 0 (forward-compat additive)', () => {
+  it('defaults a missing single grid key to 0 (forward-compat additive)', () => {
     const save = makeSave()
-    const structureLevels = { ...save.player.structureLevels }
-    delete (structureLevels as Record<string, number>).defenseTurret
+    const name = homeName(save)
+    const grid = { ...save.player.structureLevels[name] }
+    delete (grid as Record<string, number>).defenseTurret
     const validated = validateSave({
       ...save,
-      player: { ...save.player, structureLevels },
+      player: { ...save.player, structureLevels: { ...save.player.structureLevels, [name]: grid } },
     })
     expect(validated).not.toBeNull()
-    expect(validated!.player.structureLevels.defenseTurret).toBe(0)
-    expect(validated!.player.structureLevels.oreMine).toBe(0)
+    expect(validated!.player.structureLevels[name].defenseTurret).toBe(0)
+    expect(validated!.player.structureLevels[name].oreMine).toBe(0)
   })
 })

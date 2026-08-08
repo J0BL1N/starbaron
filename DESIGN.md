@@ -150,6 +150,13 @@ An **idle planet-conquest game set in the real universe**: every player starts w
 
 **Design rules:** close wins cost more (pyrrhic = the interesting outcome) · fortified planets punish attackers · casualties both ways (wars leave scars on both sides) · ratio-based, explainable ("I needed 1.5× and brought 1.2×") · small ±5% random variance as a balance-phase knob, not v1.
 
+**PvP tunables — v0.1 DRAFT (Jay audits at playtest, 2026-08-08):**
+| Knob | Value | Rationale |
+|---|---|---|
+| **Travel time** | `distancePc × 1 min`, floor 10 min, cap 48h | OGame-style: local raids land in ~10–30 min, cross-galaxy conquests take hours. Real catalogue distances (4–5,000 pc) compressed so the map matters without multi-day waits |
+| **Launch cost** | `200 cr + fleet × 0.2 cr + distancePc × 10 cr` | 5,000-fleet raid on a 10 pc target ≈ 1,300 cr (~2 min of T1 income) — real but not prohibitive; fuel scales with distance so far conquests cost more |
+| **War-weariness** | **+20% required force per conquest within 24h**, resets daily (already DESIGN-locked concept; 20% is the draft value) | Attrition — armies don't teleport. Stacks, so the 4th conquest in a day needs 1.8× — spamming is self-punishing |
+
 ## 5b. Meta Layer (LOCKED)
 **v1:** Leaderboards (weekly + all-time) · Seasons (Realmcraft pattern — fresh rotations) · Notifications (under attack / invasion landed / planet fell) · Revenge tracking ("attack back" hook).
 **Later (v1.1+):** Alliances/guilds (biggest retention + whale engine, biggest build+moderation cost) · Galaxy chat/diplomacy · Timed events (e.g. "conquest week") · Feuds/notoriety (public war history).

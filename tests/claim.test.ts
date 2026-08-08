@@ -157,31 +157,26 @@ describe('P2-T03-B createPlayer', () => {
     expect(player.playerId).toBe('fresh-player')
     expect(player.homePlanet.isHome).toBe(true)
     expect(player.homePlanet.unconquerable).toBe(true)
+    expect(player.homePlanet.population).toBe(1_000)
     expect(player.colonies).toEqual([])
     expect(player.wallet.credits).toBe(STARTER_CREDITS)
-    expect(player.wallet.population).toBe(1_000)
     expect(player.lastTickAt).toBe(NOW)
-    for (const level of Object.values(player.structureLevels)) {
+    const grid = player.structureLevels[player.homePlanet.name]
+    for (const level of Object.values(grid)) {
       expect(level).toBe(0)
     }
   })
 })
 
 describe('P2-T03-B wallet operations', () => {
-  it('walletAdd applies positive deltas to every field', () => {
+  it('walletAdd applies positive deltas to credits and alloys', () => {
     const player = createPlayer('wallet-player', NOW)
     const next = walletAdd(player.wallet, {
       credits: 500,
       alloys: 100,
-      population: 50,
-      garrison: 10,
-      fleet: 5,
     })
     expect(next.credits).toBe(1_500)
     expect(next.alloys).toBe(100)
-    expect(next.population).toBe(1_050)
-    expect(next.garrison).toBe(10)
-    expect(next.fleet).toBe(5)
   })
 
   it('walletSpend deducts credits and alloys', () => {

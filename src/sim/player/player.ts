@@ -1,18 +1,9 @@
-import { STRUCTURE_IDS } from '../structures/data'
-import type { StructureId } from '../structures/types'
 import { makePlanet } from '../planets'
 import type { PlanetIdentity } from '../planets/types'
 import { claimHomePlanet } from './claim'
+import { emptyStructureLevels } from './grid'
 import { startWallet } from './wallet'
 import type { OwnedPlanet, PlayerState } from './types'
-
-export function emptyStructureLevels(): Record<StructureId, number> {
-  const levels = {} as Record<StructureId, number>
-  for (const id of STRUCTURE_IDS) {
-    levels[id] = 0
-  }
-  return levels
-}
 
 export function generatePlayerId(): string {
   const cryptoObj = globalThis.crypto
@@ -23,12 +14,13 @@ export function generatePlayerId(): string {
 }
 
 export function createPlayer(playerId: string, now: number): PlayerState {
+  const homePlanet = claimHomePlanet(playerId, now)
   return {
     playerId,
-    homePlanet: claimHomePlanet(playerId, now),
+    homePlanet,
     colonies: [],
     wallet: startWallet(),
-    structureLevels: emptyStructureLevels(),
+    structureLevels: { [homePlanet.name]: emptyStructureLevels() },
     lastTickAt: now,
   }
 }

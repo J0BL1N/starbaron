@@ -13,7 +13,7 @@ import {
 } from '@testing-library/react'
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
-import { SAVE_KEY, SAVE_V2_KEY } from '../src/ui/save'
+import { SAVE_KEY, SAVE_V3_KEY } from '../src/ui/save'
 import { claimHomePlanet } from '../src/sim/player'
 import {
   GAP_12H,
@@ -69,7 +69,7 @@ describe('P1-T04 save persistence — hook round-trip', () => {
       6,
     )
     expect(second.result.current.state.levels).toEqual(
-      saved.player.structureLevels,
+      saved.player.structureLevels[saved.player.homePlanet.name],
     )
   })
 })
@@ -185,10 +185,10 @@ describe('P1-T04 failure paths', () => {
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('700')
   })
 
-  it('starts fresh with a notice when the v2 save is corrupt, and the game stays playable', () => {
+  it('starts fresh with a notice when the v3 save is corrupt, and the game stays playable', () => {
     vi.useFakeTimers()
     localStorage.clear()
-    localStorage.setItem(SAVE_V2_KEY, 'this is not json{')
+    localStorage.setItem(SAVE_V3_KEY, 'this is not json{')
     render(<PlanetView />)
     expect(screen.getByRole('status')).toHaveTextContent(/couldn't be read/i)
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
@@ -202,7 +202,7 @@ describe('P1-T04 failure paths', () => {
     localStorage.clear()
     seedSave(window.localStorage, {
       ...makeSave(),
-      schemaVersion: 3,
+      schemaVersion: 4,
     } as unknown as ReturnType<typeof makeSave>)
     render(<PlanetView />)
     expect(screen.getByRole('status')).toHaveTextContent(/couldn't be read/i)
@@ -334,7 +334,7 @@ describe('P2-T03-B automatic first-boot claim', () => {
       vi.advanceTimersByTime(6_000)
     })
     const saved = readSave(window.localStorage)
-    expect(saved.schemaVersion).toBe(2)
+    expect(saved.schemaVersion).toBe(3)
     expect(saved.player.playerId).toBeTruthy()
     expect(saved.player.homePlanet.isHome).toBe(true)
     expect(saved.player.homePlanet.unconquerable).toBe(true)

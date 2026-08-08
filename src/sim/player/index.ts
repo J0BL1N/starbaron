@@ -1,4 +1,4 @@
-export type { OwnedPlanet, PlayerState, WalletState } from './types'
+export type { OwnedPlanet, PlayerState, WalletState, StructureGrid } from './types'
 export {
   CLAIM_SALT,
   claimIndexForPlayer,
@@ -9,14 +9,15 @@ export {
   firstUnclaimedByIndex,
   unclaimedPlanets,
   ownedNames,
+  ownedPlanetByName,
   catalogueEntryByName,
 } from './claim'
 export {
   createPlayer,
   generatePlayerId,
   ownedPlanetIdentity,
-  emptyStructureLevels,
 } from './player'
+export { emptyStructureLevels } from './grid'
 export {
   startWallet,
   walletAdd,
@@ -25,3 +26,16 @@ export {
   STARTER_ALLOYS,
   STARTER_POPULATION,
 } from './wallet'
+export {
+  accruePlayer,
+  buildStructure,
+  computePlanetDerived,
+  empireRates,
+  gridForPlanet,
+  planetTotals,
+} from './accrual'
+export type {
+  PlanetDerivedRates,
+  EmpireRates,
+  PlanetTotals,
+} from './accrual'

@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { baselinePassiveIncome } from '../sim/core/economy'
 import {
   calculateOfflineEarnings,
   MAX_OFFLINE_BANK_SECONDS,
 } from '../sim/core/offline'
-import { populationCap, populationGrowthPerSec } from '../sim/core/population'
+import {
+  accruePlayer,
+  buildStructure,
+  computePlanetDerived,
+  empireRates,
+  gridForPlanet,
+  ownedPlanetByName,
+  ownedPlanetIdentity,
+  planetTotals,
+} from '../sim/player'
 import {
   createPlayer,
   generatePlayerId,
-  ownedPlanetIdentity,
-  walletSpend,
 } from '../sim/player'
 import type { OwnedPlanet, PlayerState } from '../sim/player'
 import type { PlanetIdentity } from '../sim/planets/types'
 import { STRUCTURES } from '../sim/structures/data'
-import { nextBuildCost, structureEffect, defensePower } from '../sim/structures/effects'
+import { nextBuildCost } from '../sim/structures/effects'
 import type { StructureId } from '../sim/structures/types'
 import {
   loadSave,
@@ -23,7 +29,7 @@ import {
   SAVE_SCHEMA_VERSION,
   TUTORIAL_LAST_STEP,
 } from './save'
-import type { SaveGameV2, TutorialState } from './save'
+import type { SaveGameV3, TutorialState } from './save'
 
 export const AUTOSAVE_DEBOUNCE_MS = 5_000
 
@@ -38,6 +44,7 @@ export interface GameState {
   fleet: number
   levels: Record<StructureId, number>
   lastTickAt: number
+  selectedPlanetName: string
 }
 
 export interface DerivedRates {
@@ -49,6 +56,11 @@ export interface DerivedRates {
   garrisonCap: number
   fleetCap: number
   defensePower: number
+}
+
+export interface EmpireRates {
+  creditsPerSec: number
+  alloysPerSec: number
 }
 
 export interface OfflineGain {
@@ -68,9 +80,15 @@ export interface UseGameStateOptions {
 export interface UseGameStateReturn {
   state: GameState
   derived: DerivedRates
+  empire: EmpireRates
   playerId: string
+  planets: OwnedPlanet[]
   homePlanet: OwnedPlanet
   homeIdentity: PlanetIdentity
+  selectedPlanetName: string
+  selectedPlanet: OwnedPlanet
+  selectedIdentity: PlanetIdentity
+  selectPlanet: (name: string) => void
   buy: (id: StructureId) => void
   bankElapsed: (at?: number, durable?: boolean) => number
   offlineGain: OfflineGain | null
@@ -87,21 +105,33 @@ function initialPlayer(now: number): PlayerState {
   return createPlayer(generatePlayerId(), now)
 }
 
-function project(player: PlayerState): GameState {
+function project(player: PlayerState, selectedName: string): GameState {
+  const selected = ownedPlanetByName(player, selectedName) ?? player.homePlanet
   return {
-    tier: player.homePlanet.tier,
+    tier: selected.tier,
     credits: player.wallet.credits,
     alloys: player.wallet.alloys,
-    population: player.wallet.population,
-    garrison: player.wallet.garrison,
-    fleet: player.wallet.fleet,
-    levels: { ...player.structureLevels },
+    population: selected.population,
+    garrison: selected.garrison,
+    fleet: selected.fleet,
+    levels: { ...gridForPlanet(player, selected.name) },
     lastTickAt: player.lastTickAt,
+    selectedPlanetName: selected.name,
   }
 }
 
 function clonePlanet(planet: OwnedPlanet): OwnedPlanet {
   return { ...planet, entry: { ...planet.entry } }
+}
+
+function cloneGrids(
+  grids: Record<string, Record<StructureId, number>>,
+): Record<string, Record<StructureId, number>> {
+  const out: Record<string, Record<StructureId, number>> = {}
+  for (const key of Object.keys(grids)) {
+    out[key] = { ...grids[key] }
+  }
+  return out
 }
 
 function clonePlayer(player: PlayerState): PlayerState {
@@ -110,7 +140,7 @@ function clonePlayer(player: PlayerState): PlayerState {
     homePlanet: clonePlanet(player.homePlanet),
     colonies: player.colonies.map(clonePlanet),
     wallet: { ...player.wallet },
-    structureLevels: { ...player.structureLevels },
+    structureLevels: cloneGrids(player.structureLevels),
   }
 }
 
@@ -127,88 +157,6 @@ function resolveStorage(storage?: Storage): Storage | null {
   }
 }
 
-export function computeDerived(
-  levels: Record<StructureId, number>,
-  tier: number,
-  population: number,
-): DerivedRates {
-  const oreMine = structureEffect('oreMine', levels.oreMine)
-  const tradeHub = structureEffect('tradeHub', levels.tradeHub)
-  const barracks = structureEffect('barracks', levels.barracks)
-  const shipyard = structureEffect('shipyard', levels.shipyard)
-
-  const tradeHubEffect = tradeHub.kind === 'incomeMultiplier' ? tradeHub : null
-  const shipyardEffect = shipyard.kind === 'shipyard' ? shipyard : null
-  const oreMineEffect = oreMine.kind === 'alloys' ? oreMine : null
-  const barracksEffect = barracks.kind === 'barracks' ? barracks : null
-
-  return {
-    creditsPerSec:
-      baselinePassiveIncome(tier) * (tradeHubEffect?.multiplier ?? 1) +
-      (shipyardEffect?.shipbuildingIncomePerSec ?? 0),
-    alloysPerSec: oreMineEffect?.alloysPerSec ?? 0,
-    populationPerSec: populationGrowthPerSec(levels.housing, levels.hydroponics),
-    garrisonPerSec: barracksEffect?.soldierConversionPerSec ?? 0,
-    populationCap: populationCap(levels.housing),
-    garrisonCap: barracksEffect?.garrisonCap ?? 0,
-    fleetCap: shipyardEffect?.fleetCap ?? 0,
-    defensePower: defensePower(levels.defenseTurret, population),
-  }
-}
-
-function accrue(
-  player: PlayerState,
-  derived: DerivedRates,
-  elapsedMs: number,
-): PlayerState {
-  const dt = elapsedMs / 1_000
-  const wholeSeconds = Math.floor(dt)
-  const remainder = dt - wholeSeconds
-
-  const wallet = { ...player.wallet }
-  let population = wallet.population
-  let garrison = wallet.garrison
-
-  for (let i = 0; i < wholeSeconds; i += 1) {
-    if (population < derived.populationCap) {
-      population = Math.min(
-        population + derived.populationPerSec,
-        derived.populationCap,
-      )
-    }
-    const converted = Math.min(
-      derived.garrisonPerSec,
-      Math.max(0, derived.garrisonCap - garrison),
-      population,
-    )
-    population -= converted
-    garrison += converted
-  }
-
-  if (remainder > 0) {
-    if (population < derived.populationCap) {
-      population = Math.min(
-        population + derived.populationPerSec * remainder,
-        derived.populationCap,
-      )
-    }
-    const converted = Math.min(
-      derived.garrisonPerSec * remainder,
-      Math.max(0, derived.garrisonCap - garrison),
-      population,
-    )
-    population -= converted
-    garrison += converted
-  }
-
-  wallet.credits += derived.creditsPerSec * dt
-  wallet.alloys += derived.alloysPerSec * dt
-  wallet.population = population
-  wallet.garrison = garrison
-
-  return { ...player, wallet }
-}
-
 export function useGameState(options: UseGameStateOptions = {}): UseGameStateReturn {
   const nowFn = options.now ?? Date.now
   const nowRef = useRef(nowFn)
@@ -216,7 +164,13 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const storageRef = useRef<Storage | null>(resolveStorage(options.storage))
 
   const ref = useRef<PlayerState>(initialPlayer(nowFn()))
-  const [snapshot, setSnapshot] = useState<GameState>(project(ref.current))
+  const selectedRef = useRef<string>(ref.current.homePlanet.name)
+  const [selectedPlanetName, setSelectedPlanetName] = useState<string>(
+    selectedRef.current,
+  )
+  const [snapshot, setSnapshot] = useState<GameState>(() =>
+    project(ref.current, selectedRef.current),
+  )
   const [offlineGain, setOfflineGain] = useState<OfflineGain | null>(null)
 
   const initialTutorial: TutorialState = { step: 0, done: false, skipped: false }
@@ -226,12 +180,12 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const [offlineSummarySeen, setOfflineSummarySeen] = useState(false)
   const [saveNotice, setSaveNotice] = useState<string | null>(null)
 
-  const saveRef = useRef<SaveGameV2 | null>(null)
+  const saveRef = useRef<SaveGameV3 | null>(null)
   const debounceRef = useRef<number | null>(null)
   const quotaNoticedRef = useRef(false)
   const loadedRef = useRef(false)
 
-  const writeSave = useCallback((payload: SaveGameV2) => {
+  const writeSave = useCallback((payload: SaveGameV3) => {
     const store = storageRef.current
     if (!saveGame(payload, store) && !quotaNoticedRef.current) {
       quotaNoticedRef.current = true
@@ -239,7 +193,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     }
   }, [])
 
-  const buildPayload = useCallback((): SaveGameV2 => {
+  const buildPayload = useCallback((): SaveGameV3 => {
     const p = ref.current
     return {
       schemaVersion: SAVE_SCHEMA_VERSION,
@@ -274,9 +228,22 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   }, [buildPayload, writeSave])
 
   const commit = useCallback(() => {
-    setSnapshot(project(ref.current))
+    setSnapshot(project(ref.current, selectedRef.current))
     scheduleSave()
   }, [scheduleSave])
+
+  const selectPlanet = useCallback(
+    (name: string) => {
+      const owned = ownedPlanetByName(ref.current, name)
+      if (owned == null) {
+        return
+      }
+      selectedRef.current = owned.name
+      setSelectedPlanetName(owned.name)
+      commit()
+    },
+    [commit],
+  )
 
   const bankElapsed = useCallback(
     (at = nowRef.current(), durable = false): number => {
@@ -286,15 +253,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         return 0
       }
       const cappedMs = Math.min(elapsedMs, OFFLINE_CAP_MS)
-      const next = accrue(
-        current,
-        computeDerived(
-          current.structureLevels,
-          current.homePlanet.tier,
-          current.wallet.population,
-        ),
-        cappedMs,
-      )
+      const next = accruePlayer(current, cappedMs)
       next.lastTickAt = at
       ref.current = next
       commit()
@@ -333,17 +292,15 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     (id: StructureId): void => {
       bankElapsed()
       const current = ref.current
-      const level = current.structureLevels[id]
+      const name = selectedRef.current
+      const grid = gridForPlanet(current, name)
+      const level = grid[id]
       const cost = nextBuildCost(id, level)
       const alloyCost = STRUCTURES[id].alloyCost ?? 0
       if (current.wallet.credits < cost || current.wallet.alloys < alloyCost) {
         return
       }
-      ref.current = {
-        ...current,
-        wallet: walletSpend(current.wallet, cost, alloyCost),
-        structureLevels: { ...current.structureLevels, [id]: level + 1 },
-      }
+      ref.current = buildStructure(current, name, id)
       commit()
       flushSave()
     },
@@ -389,6 +346,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
     if (result.kind === 'absent') {
       ref.current = createPlayer(generatePlayerId(), now)
+      selectedRef.current = ref.current.homePlanet.name
+      setSelectedPlanetName(selectedRef.current)
       tutorialRef.current = { step: 0, done: false, skipped: false }
       setTutorialState(tutorialRef.current)
       commit()
@@ -397,6 +356,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
     if (result.kind === 'corrupt' || result.kind === 'future') {
       ref.current = createPlayer(generatePlayerId(), now)
+      selectedRef.current = ref.current.homePlanet.name
+      setSelectedPlanetName(selectedRef.current)
       tutorialRef.current = { step: 0, done: false, skipped: false }
       setTutorialState(tutorialRef.current)
       commit()
@@ -406,6 +367,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
     const save = result.save
     ref.current = clonePlayer(save.player)
+    selectedRef.current = ref.current.homePlanet.name
+    setSelectedPlanetName(selectedRef.current)
     tutorialRef.current = { ...save.tutorial }
     setTutorialState(tutorialRef.current)
     offlineSeenRef.current = save.offlineSummarySeen
@@ -418,19 +381,17 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     if (gapMs > OFFLINE_SUMMARY_THRESHOLD_MS) {
       offlineSeenRef.current = false
       setOfflineSummarySeen(false)
-      const derived = computeDerived(
-        ref.current.structureLevels,
-        ref.current.homePlanet.tier,
-        ref.current.wallet.population,
-      )
       const elapsedSec = bankedMs / 1_000
+      const beforeTotals = planetTotals(before)
+      const afterTotals = planetTotals(ref.current)
+      const rates = empireRates(before)
       setOfflineGain({
         elapsedSec,
-        credits: calculateOfflineEarnings(derived.creditsPerSec, elapsedSec),
-        alloys: calculateOfflineEarnings(derived.alloysPerSec, elapsedSec),
-        population: ref.current.wallet.population - before.wallet.population,
-        garrison: ref.current.wallet.garrison - before.wallet.garrison,
-        fleet: calculateOfflineEarnings(0, elapsedSec),
+        credits: calculateOfflineEarnings(rates.creditsPerSec, elapsedSec),
+        alloys: calculateOfflineEarnings(rates.alloysPerSec, elapsedSec),
+        population: afterTotals.population - beforeTotals.population,
+        garrison: afterTotals.garrison - beforeTotals.garrison,
+        fleet: afterTotals.fleet - beforeTotals.fleet,
       })
     }
     commit()
@@ -467,12 +428,24 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   }, [flushSave])
 
   const current = snapshot
+  const selectedOwned =
+    ownedPlanetByName(ref.current, selectedPlanetName) ?? ref.current.homePlanet
+  const selectedGrid = gridForPlanet(ref.current, selectedOwned.name)
   return {
     state: current,
-    derived: computeDerived(current.levels, current.tier, current.population),
+    derived: computePlanetDerived(selectedOwned, selectedGrid),
+    empire: empireRates(ref.current),
     playerId: ref.current.playerId,
+    planets: [
+      clonePlanet(ref.current.homePlanet),
+      ...ref.current.colonies.map(clonePlanet),
+    ],
     homePlanet: clonePlanet(ref.current.homePlanet),
     homeIdentity: ownedPlanetIdentity(ref.current.homePlanet),
+    selectedPlanetName,
+    selectedPlanet: clonePlanet(selectedOwned),
+    selectedIdentity: ownedPlanetIdentity(selectedOwned),
+    selectPlanet,
     buy,
     bankElapsed,
     offlineGain,

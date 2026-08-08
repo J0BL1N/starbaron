@@ -6,13 +6,19 @@ import {
   claimHomePlanet,
   emptyStructureLevels,
 } from '../sim/player'
-import type { OwnedPlanet, PlayerState, WalletState } from '../sim/player'
+import type {
+  OwnedPlanet,
+  PlayerState,
+  StructureGrid,
+  WalletState,
+} from '../sim/player'
 import { isStructureId } from '../sim/structures/data'
 import type { StructureId } from '../sim/structures/types'
 
 export const SAVE_KEY = 'starbaron.save.v1'
 export const SAVE_V2_KEY = 'starbaron.save.v2'
-export const SAVE_SCHEMA_VERSION = 2
+export const SAVE_V3_KEY = 'starbaron.save.v3'
+export const SAVE_SCHEMA_VERSION = 3
 export const OFFLINE_SUMMARY_THRESHOLD_MS = 60 * 1_000
 export const TUTORIAL_LAST_STEP = 3
 
@@ -42,16 +48,35 @@ export interface SaveGameV1 {
 export interface SaveGameV2 {
   schemaVersion: 2
   savedAt: number
+  player: {
+    playerId: string
+    homePlanet: OwnedPlanet
+    colonies: OwnedPlanet[]
+    wallet: WalletState & {
+      population: number
+      garrison: number
+      fleet: number
+    }
+    structureLevels: Record<StructureId, number>
+    lastTickAt: number
+  }
+  tutorial: TutorialState
+  offlineSummarySeen: boolean
+}
+
+export interface SaveGameV3 {
+  schemaVersion: 3
+  savedAt: number
   player: PlayerState
   tutorial: TutorialState
   offlineSummarySeen: boolean
 }
 
-export type SaveSchema = SaveGameV2
+export type SaveSchema = SaveGameV3
 
 export type LoadResult =
   | { kind: 'absent' }
-  | { kind: 'ok'; save: SaveGameV2 }
+  | { kind: 'ok'; save: SaveGameV3 }
   | { kind: 'future'; version: number }
   | { kind: 'corrupt' }
 
@@ -100,19 +125,13 @@ function validateWallet(value: unknown): WalletState | null {
   }
   const credits = value.credits
   const alloys = value.alloys
-  const population = value.population
-  const garrison = value.garrison
-  const fleet = value.fleet
-  if (
-    !isFiniteNonNegative(credits) ||
-    !isFiniteNonNegative(alloys) ||
-    !isFiniteNonNegative(population) ||
-    !isFiniteNonNegative(garrison) ||
-    !isFiniteNonNegative(fleet)
-  ) {
+  if (!isFiniteNonNegative(credits) || !isFiniteNonNegative(alloys)) {
     return null
   }
-  return { credits, alloys, population, garrison, fleet }
+  if ('population' in value || 'garrison' in value || 'fleet' in value) {
+    return null
+  }
+  return { credits, alloys }
 }
 
 function validateOwnedPlanet(value: unknown, isHome: boolean): OwnedPlanet | null {
@@ -145,7 +164,10 @@ function validateOwnedPlanet(value: unknown, isHome: boolean): OwnedPlanet | nul
   if (
     !isFiniteNonNegative(value.baselineIncomePerSec) ||
     !isFiniteNonNegative(value.populationCapMultiplier) ||
-    !isFiniteNonNegative(value.claimedAt)
+    !isFiniteNonNegative(value.claimedAt) ||
+    !isFiniteNonNegative(value.population) ||
+    !isFiniteNonNegative(value.garrison) ||
+    !isFiniteNonNegative(value.fleet)
   ) {
     return null
   }
@@ -171,10 +193,13 @@ function validateOwnedPlanet(value: unknown, isHome: boolean): OwnedPlanet | nul
     claimedAt: value.claimedAt,
     isHome: value.isHome,
     unconquerable: value.unconquerable,
+    population: value.population,
+    garrison: value.garrison,
+    fleet: value.fleet,
   }
 }
 
-function validateStructureLevels(value: unknown): Record<StructureId, number> | null {
+function validateStructureGrid(value: unknown): StructureGrid | null {
   if (!isRecord(value)) {
     return null
   }
@@ -191,7 +216,35 @@ function validateStructureLevels(value: unknown): Record<StructureId, number> | 
   return levels
 }
 
-export function validateSave(value: unknown): SaveGameV2 | null {
+function validateStructureLevels(
+  value: unknown,
+  ownedNames: ReadonlySet<string>,
+): Record<string, StructureGrid> | null {
+  if (!isRecord(value)) {
+    return null
+  }
+  const grids: Record<string, StructureGrid> = {}
+  const seen = new Set<string>()
+  for (const key of Object.keys(value)) {
+    if (!ownedNames.has(key)) {
+      return null
+    }
+    const grid = validateStructureGrid(value[key])
+    if (grid === null) {
+      return null
+    }
+    grids[key] = grid
+    seen.add(key)
+  }
+  for (const name of ownedNames) {
+    if (!seen.has(name)) {
+      grids[name] = emptyStructureLevels()
+    }
+  }
+  return grids
+}
+
+export function validateSave(value: unknown): SaveGameV3 | null {
   if (!isRecord(value)) {
     return null
   }
@@ -216,16 +269,16 @@ export function validateSave(value: unknown): SaveGameV2 | null {
     return null
   }
   const colonies: OwnedPlanet[] = []
-  const colonyNames = new Set<string>([homePlanet.name])
+  const owned = new Set<string>([homePlanet.name])
   for (const raw of player.colonies) {
     const colony = validateOwnedPlanet(raw, false)
     if (colony === null) {
       return null
     }
-    if (colonyNames.has(colony.name)) {
+    if (owned.has(colony.name)) {
       return null
     }
-    colonyNames.add(colony.name)
+    owned.add(colony.name)
     colonies.push(colony)
   }
 
@@ -234,7 +287,7 @@ export function validateSave(value: unknown): SaveGameV2 | null {
     return null
   }
 
-  const structureLevels = validateStructureLevels(player.structureLevels)
+  const structureLevels = validateStructureLevels(player.structureLevels, owned)
   if (structureLevels === null) {
     return null
   }
@@ -334,8 +387,48 @@ function migrateV1ToV2(raw: unknown): unknown {
   }
 }
 
+function migrateV2ToV3(raw: unknown): unknown {
+  const source = (isRecord(raw) ? raw : {}) as Record<string, unknown>
+  const player = isRecord(source.player) ? source.player : {}
+  const wallet = isRecord(player.wallet) ? player.wallet : {}
+  const homePlanet = isRecord(player.homePlanet) ? player.homePlanet : {}
+  const colonies = Array.isArray(player.colonies) ? player.colonies : []
+  const flatLevels = isRecord(player.structureLevels) ? player.structureLevels : {}
+
+  const homeName = typeof homePlanet.name === 'string' ? homePlanet.name : ''
+  const structureLevels: Record<string, StructureGrid> = {
+    [homeName]: { ...flatLevels } as StructureGrid,
+  }
+
+  const migratedColonies: Record<string, unknown>[] = []
+  for (const rawColony of colonies) {
+    const colony = isRecord(rawColony) ? rawColony : {}
+    const colonyName = typeof colony.name === 'string' ? colony.name : ''
+    structureLevels[colonyName] = emptyStructureLevels()
+    migratedColonies.push({ ...colony, population: 0, garrison: 0, fleet: 0 })
+  }
+
+  return {
+    ...source,
+    schemaVersion: 3,
+    player: {
+      ...player,
+      homePlanet: {
+        ...homePlanet,
+        population: wallet.population ?? 0,
+        garrison: wallet.garrison ?? 0,
+        fleet: wallet.fleet ?? 0,
+      },
+      colonies: migratedColonies,
+      wallet: { credits: wallet.credits, alloys: wallet.alloys },
+      structureLevels,
+    },
+  }
+}
+
 export const MIGRATIONS: Record<number, (raw: unknown) => unknown> = {
   1: migrateV1ToV2,
+  2: migrateV2ToV3,
 }
 
 export function migrateSave(value: unknown): unknown {
@@ -357,9 +450,9 @@ export function migrateSave(value: unknown): unknown {
   return current
 }
 
-const SAVE_KEYS_NEWEST_FIRST = [SAVE_V2_KEY, SAVE_KEY]
+const SAVE_KEYS_NEWEST_FIRST = [SAVE_V3_KEY, SAVE_V2_KEY, SAVE_KEY]
 
-function repairHomePlanetClaim(save: SaveGameV2): SaveGameV2 | null {
+function repairHomePlanetClaim(save: SaveGameV3): SaveGameV3 | null {
   let expected: OwnedPlanet
   try {
     expected = claimHomePlanet(save.player.playerId, save.savedAt)
@@ -369,14 +462,24 @@ function repairHomePlanetClaim(save: SaveGameV2): SaveGameV2 | null {
   if (save.player.homePlanet.name === expected.name) {
     return null
   }
+  const colonies = save.player.colonies.filter(
+    (colony) => colony.name !== expected.name,
+  )
+  const owned = new Set<string>([
+    expected.name,
+    ...colonies.map((colony) => colony.name),
+  ])
+  const structureLevels: Record<string, StructureGrid> = {}
+  for (const name of owned) {
+    structureLevels[name] = save.player.structureLevels[name] ?? emptyStructureLevels()
+  }
   return {
     ...save,
     player: {
       ...save.player,
       homePlanet: expected,
-      colonies: save.player.colonies.filter(
-        (colony) => colony.name !== expected.name,
-      ),
+      colonies,
+      structureLevels,
     },
   }
 }
@@ -412,7 +515,7 @@ export function loadSave(storage: Storage | null): LoadResult {
       return { kind: 'corrupt' }
     }
     const repaired = repairHomePlanetClaim(save)
-    if (key !== SAVE_V2_KEY || repaired !== null) {
+    if (key !== SAVE_V3_KEY || repaired !== null) {
       saveGame(repaired ?? save, storage)
     }
     return { kind: 'ok', save: repaired ?? save }
@@ -420,7 +523,7 @@ export function loadSave(storage: Storage | null): LoadResult {
   return { kind: 'absent' }
 }
 
-export function saveGame(save: SaveGameV2, storage: Storage | null): boolean {
+export function saveGame(save: SaveGameV3, storage: Storage | null): boolean {
   if (storage == null) {
     return false
   }
@@ -429,7 +532,8 @@ export function saveGame(save: SaveGameV2, storage: Storage | null): boolean {
     if (validated === null) {
       return false
     }
-    storage.setItem(SAVE_V2_KEY, JSON.stringify(validated))
+    storage.setItem(SAVE_V3_KEY, JSON.stringify(validated))
+    storage.removeItem(SAVE_V2_KEY)
     storage.removeItem(SAVE_KEY)
     return true
   } catch {
@@ -442,6 +546,7 @@ export function clearSave(storage: Storage | null): void {
     return
   }
   try {
+    storage.removeItem(SAVE_V3_KEY)
     storage.removeItem(SAVE_V2_KEY)
     storage.removeItem(SAVE_KEY)
   } catch {

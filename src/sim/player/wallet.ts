@@ -8,9 +8,6 @@ export function startWallet(): WalletState {
   return {
     credits: STARTER_CREDITS,
     alloys: STARTER_ALLOYS,
-    population: STARTER_POPULATION,
-    garrison: 0,
-    fleet: 0,
   }
 }
 
@@ -24,16 +21,13 @@ export function walletAdd(
   wallet: WalletState,
   delta: Partial<WalletState>,
 ): WalletState {
-  for (const field of ['credits', 'alloys', 'population', 'garrison', 'fleet'] as const) {
+  for (const field of ['credits', 'alloys'] as const) {
     const amount = delta[field] ?? 0
     assertFiniteNonNegative(amount, field)
   }
   return {
     credits: wallet.credits + (delta.credits ?? 0),
     alloys: wallet.alloys + (delta.alloys ?? 0),
-    population: wallet.population + (delta.population ?? 0),
-    garrison: wallet.garrison + (delta.garrison ?? 0),
-    fleet: wallet.fleet + (delta.fleet ?? 0),
   }
 }
 

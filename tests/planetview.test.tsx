@@ -13,6 +13,8 @@ import {
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { PLANETS } from '../src/sim/data/planets'
+import { claimColony, claimHomePlanet } from '../src/sim/player'
+import type { StructureId } from '../src/sim/structures/types'
 import { makeSave, seedLocalStorageGap, seedSave } from './saveHelpers'
 
 afterEach(() => {
@@ -153,5 +155,78 @@ describe('useGameState — accrual', () => {
 
     expect(result.current.state.credits).toBeCloseTo(afterAccrual - 300, 3)
     expect(result.current.state.levels.housing).toBe(1)
+  })
+})
+
+describe('P2-T04-B planet selector', () => {
+  function seededTwoPlanetSave() {
+    vi.useFakeTimers()
+    const clock = Date.now()
+    const home = claimHomePlanet('selector-player', clock)
+    const colonyEntry = PLANETS.find((entry) => entry.name !== home.name)!
+    const colony = claimColony(colonyEntry, clock)
+    const save = makeSave({
+      player: {
+        playerId: 'selector-player',
+        homePlanet: home,
+        colonies: [colony],
+        wallet: { credits: 5_000, alloys: 100 },
+        structureLevels: {
+          [home.name]: { housing: 1 },
+          [colony.name]: { oreMine: 2 },
+        } as Record<string, Partial<Record<StructureId, number>>>,
+        lastTickAt: clock,
+      },
+    })
+    seedSave(window.localStorage, save)
+    return { home, colony }
+  }
+
+  it('defaults to the home planet and switches to the colony; credits/alloys stay global', () => {
+    const { home, colony } = seededTwoPlanetSave()
+    render(<PlanetView />)
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(home.name)
+    expect(screen.getByTestId('resource-credits')).toHaveTextContent('5K')
+
+    const select = screen.getByLabelText('Planet')
+    fireEvent.change(select, { target: { value: colony.name } })
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(colony.name)
+    const grid = screen.getByRole('region', { name: 'Structures' })
+    expect(
+      within(grid).getByText('Ore Mine').closest('[data-structure="oreMine"]'),
+    ).toHaveTextContent('Lv 2')
+    expect(screen.getByTestId('resource-population')).toHaveTextContent('0')
+    expect(screen.getByTestId('resource-credits')).toHaveTextContent('5K')
+    expect(screen.getByTestId('resource-alloys')).toHaveTextContent('100')
+  })
+
+  it('buys on the selected colony spend the shared wallet and touch only that colony grid', () => {
+    const { home, colony } = seededTwoPlanetSave()
+    render(<PlanetView />)
+    const select = screen.getByLabelText('Planet')
+    fireEvent.change(select, { target: { value: colony.name } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
+    expect(screen.getByTestId('resource-credits')).toHaveTextContent('4.7K')
+    const grid = () => screen.getByRole('region', { name: 'Structures' })
+    expect(
+      within(grid())
+        .getByText('Housing')
+        .closest('[data-structure="housing"]'),
+    ).toHaveTextContent('Lv 1')
+
+    fireEvent.change(select, { target: { value: home.name } })
+    expect(
+      within(grid())
+        .getByText('Housing')
+        .closest('[data-structure="housing"]'),
+    ).toHaveTextContent('Lv 1')
+    expect(
+      within(grid())
+        .getByText('Ore Mine')
+        .closest('[data-structure="oreMine"]'),
+    ).toHaveTextContent('Lv 0')
   })
 })

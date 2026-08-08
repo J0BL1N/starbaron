@@ -7,12 +7,12 @@ import {
   MIGRATIONS,
   migrateSave,
   SAVE_KEY,
-  SAVE_V2_KEY,
+  SAVE_V3_KEY,
   saveGame,
   SAVE_SCHEMA_VERSION,
   validateSave,
 } from '../src/ui/save'
-import type { SaveGameV1, SaveGameV2 } from '../src/ui/save'
+import type { SaveGameV1, SaveGameV3 } from '../src/ui/save'
 import {
   makeSave,
   MemoryStorage,
@@ -52,28 +52,29 @@ function makeV1(overrides: Partial<SaveGameV1> = {}): SaveGameV1 {
   }
 }
 
-describe('P2-T03-B save migration v1→v2', () => {
-  it('ships the v1→v2 migration entry', () => {
+describe('P2-T04-B save migration v1->v3 (multi-hop)', () => {
+  it('ships the v1->v2 and v2->v3 migration entries', () => {
     expect(typeof MIGRATIONS[1]).toBe('function')
+    expect(typeof MIGRATIONS[2]).toBe('function')
   })
 
-  it('migrates a v1 save into a full v2 player with an automatic claim', () => {
+  it('migrates a v1 save into a full v3 player with an automatic claim', () => {
     const v1 = makeV1()
     const migrated = migrateSave(v1) as unknown as {
       schemaVersion: number
       savedAt: number
       player: {
         playerId: string
-        homePlanet: { name: string; isHome: boolean; unconquerable: boolean }
+        homePlanet: { name: string; isHome: boolean; unconquerable: boolean; population: number; garrison: number; fleet: number }
         colonies: unknown[]
-        wallet: { credits: number; alloys: number; population: number; garrison: number; fleet: number }
-        structureLevels: Record<string, number>
+        wallet: { credits: number; alloys: number }
+        structureLevels: Record<string, Record<string, number>>
         lastTickAt: number
       }
       tutorial: { step: number; done: boolean; skipped: boolean }
       offlineSummarySeen: boolean
     }
-    expect(migrated.schemaVersion).toBe(2)
+    expect(migrated.schemaVersion).toBe(3)
     expect(migrated.savedAt).toBe(NOW)
     expect(migrated.player.playerId.length).toBeGreaterThan(0)
     expect(PLANETS.some((p) => p.name === migrated.player.homePlanet.name)).toBe(
@@ -85,12 +86,13 @@ describe('P2-T03-B save migration v1→v2', () => {
     expect(migrated.player.wallet).toEqual({
       credits: 12_345,
       alloys: 67,
-      population: 2_500,
-      garrison: 800,
-      fleet: 4,
     })
-    expect(migrated.player.structureLevels.housing).toBe(3)
-    expect(migrated.player.structureLevels.oreMine).toBe(1)
+    expect(migrated.player.homePlanet.population).toBe(2_500)
+    expect(migrated.player.homePlanet.garrison).toBe(800)
+    expect(migrated.player.homePlanet.fleet).toBe(4)
+    const homeGrid = migrated.player.structureLevels[migrated.player.homePlanet.name]
+    expect(homeGrid.housing).toBe(3)
+    expect(homeGrid.oreMine).toBe(1)
     expect(migrated.player.lastTickAt).toBe(NOW - 3_600_000)
     expect(migrated.tutorial).toEqual({ step: 2, done: false, skipped: false })
     expect(migrated.offlineSummarySeen).toBe(true)
@@ -109,7 +111,7 @@ describe('P2-T03-B save migration v1→v2', () => {
     )
   })
 
-  it('loadSave migrates a v1 save from the legacy key and validates the result as v2', () => {
+  it('loadSave migrates a v1 save from the legacy key and validates the result as v3', () => {
     const storage = new MemoryStorage()
     storage.setItem(SAVE_KEY, JSON.stringify(makeV1()))
     const result = loadSave(storage)
@@ -122,9 +124,9 @@ describe('P2-T03-B save migration v1→v2', () => {
     }
   })
 
-  it('migration is idempotent: a v2 save passes through migrateSave unchanged', () => {
-    const v2 = makeSave({ player: { wallet: { credits: 7_777 } } })
-    const migrated = migrateSave(v2)
+  it('migration is idempotent: a v3 save passes through migrateSave unchanged', () => {
+    const v3 = makeSave({ player: { wallet: { credits: 7_777 } } })
+    const migrated = migrateSave(v3)
     expect(validateSave(migrated)).not.toBeNull()
     const validated = validateSave(migrated)!
     expect(validated.player.wallet.credits).toBe(7_777)
@@ -162,15 +164,15 @@ describe('P2-T03-B save migration v1→v2', () => {
     }
   })
 
-  it('loadSave persists the migration immediately: writes v2 and tombstones v1 on the same call', () => {
+  it('loadSave persists the migration immediately: writes v3 and tombstones v1 on the same call', () => {
     const storage = new MemoryStorage()
     storage.setItem(SAVE_KEY, JSON.stringify(makeV1()))
     const result = loadSave(storage)
     expect(result.kind).toBe('ok')
-    expect(storage.getItem(SAVE_V2_KEY)).not.toBeNull()
+    expect(storage.getItem(SAVE_V3_KEY)).not.toBeNull()
     expect(storage.getItem(SAVE_KEY)).toBeNull()
     if (result.kind === 'ok') {
-      const persisted = JSON.parse(storage.getItem(SAVE_V2_KEY)!) as SaveGameV2
+      const persisted = JSON.parse(storage.getItem(SAVE_V3_KEY)!) as SaveGameV3
       expect(persisted.player.playerId).toBe(result.save.player.playerId)
       expect(persisted.player.homePlanet.name).toBe(
         result.save.player.homePlanet.name,
@@ -226,7 +228,7 @@ describe('P2-T03-B save migration v1→v2', () => {
     if (result.kind === 'ok') {
       expect(result.save.player.homePlanet.name).toBe(expected.name)
       expect(result.save.player.wallet.credits).toBe(6_000)
-      const persisted = JSON.parse(storage.getItem(SAVE_V2_KEY)!) as SaveGameV2
+      const persisted = JSON.parse(storage.getItem(SAVE_V3_KEY)!) as SaveGameV3
       expect(persisted.player.homePlanet.name).toBe(expected.name)
     }
   })
@@ -250,16 +252,16 @@ describe('P2-T03-B save migration v1→v2', () => {
   })
 })
 
-describe('P2-T03-B save v2 — key-per-version and tombstoning', () => {
-  it('saveGame writes the v2 key and tombstones the v1 key after a successful write', () => {
+describe('P2-T04-B save v3 — key-per-version and tombstoning', () => {
+  it('saveGame writes the v3 key and tombstones the v2 and v1 keys after a successful write', () => {
     const storage = new MemoryStorage()
     storage.setItem(SAVE_KEY, JSON.stringify(makeV1()))
     expect(saveGame(makeSave(), storage)).toBe(true)
-    expect(storage.getItem(SAVE_V2_KEY)).not.toBeNull()
+    expect(storage.getItem(SAVE_V3_KEY)).not.toBeNull()
     expect(storage.getItem(SAVE_KEY)).toBeNull()
   })
 
-  it('loadSave prefers the v2 key over a legacy v1 key', () => {
+  it('loadSave prefers the v3 key over a legacy v1 key', () => {
     const storage = new MemoryStorage()
     storage.setItem(SAVE_KEY, JSON.stringify(makeV1()))
     seedSave(storage, makeSave({ player: { wallet: { credits: 5_555 } } }))
@@ -272,7 +274,7 @@ describe('P2-T03-B save v2 — key-per-version and tombstoning', () => {
   })
 })
 
-describe('P2-T03-B save v2 — claims round-trip', () => {
+describe('P2-T04-B save v3 — claims round-trip', () => {
   it('a seeded save with colonies round-trips identical claims through save/load', () => {
     const home = claimHomePlanet('colony-player', NOW)
     const colony = claimColony(
@@ -284,7 +286,7 @@ describe('P2-T03-B save v2 — claims round-trip', () => {
         playerId: 'colony-player',
         homePlanet: home,
         colonies: [colony],
-        wallet: { credits: 4_200, alloys: 300, population: 2_000, garrison: 0, fleet: 0 },
+        wallet: { credits: 4_200, alloys: 300 },
       },
     })
     const storage = new MemoryStorage()
@@ -298,12 +300,10 @@ describe('P2-T03-B save v2 — claims round-trip', () => {
       expect(result.save.player.colonies[0].name).toBe(colony.name)
       expect(result.save.player.colonies[0].isHome).toBe(false)
       expect(result.save.player.colonies[0].unconquerable).toBe(false)
+      expect(result.save.player.colonies[0].population).toBe(0)
       expect(result.save.player.wallet).toEqual({
         credits: 4_200,
         alloys: 300,
-        population: 2_000,
-        garrison: 0,
-        fleet: 0,
       })
     }
   })
@@ -315,7 +315,7 @@ describe('P2-T03-B save v2 — claims round-trip', () => {
     expect('game' in save).toBe(false)
   })
 
-  it('rejects a v2 save with a colony that duplicates the home planet', () => {
+  it('rejects a v3 save with a colony that duplicates the home planet', () => {
     const save = makeSave()
     const bad = {
       ...save,
@@ -329,7 +329,7 @@ describe('P2-T03-B save v2 — claims round-trip', () => {
     expect(loadSave(storage)).toEqual({ kind: 'corrupt' })
   })
 
-  it('rejects a v2 save with a missing claimed planet name', () => {
+  it('rejects a v3 save with a missing claimed planet name', () => {
     const save = makeSave()
     const bad = {
       ...save,

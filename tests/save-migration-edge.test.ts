@@ -5,10 +5,10 @@ import {
   loadSave,
   migrateSave,
   SAVE_KEY,
-  SAVE_V2_KEY,
+  SAVE_V3_KEY,
   validateSave,
 } from '../src/ui/save'
-import type { SaveGameV2 } from '../src/ui/save'
+import type { SaveGameV3 } from '../src/ui/save'
 import { makeSave, MemoryStorage, seedSave } from './saveHelpers'
 
 const NOW = 1_700_000_000_000
@@ -48,7 +48,7 @@ function rawV1(
   }
 }
 
-describe('P2-T03-C migration edge — empty/absent v1 fields', () => {
+describe('P2-T04-B migration edge — empty/absent v1 fields', () => {
   it('never throws for any degenerate v1 shape; always yields a defined LoadResult', () => {
     const variants: unknown[] = [
       rawV1({ game: {} }),
@@ -69,17 +69,18 @@ describe('P2-T03-C migration edge — empty/absent v1 fields', () => {
     }
   })
 
-  it('a v1 save with empty structure levels migrates to a valid v2 with zeroed levels', () => {
+  it('a v1 save with empty structure levels migrates to a valid v3 with zeroed per-planet levels', () => {
     const storage = new MemoryStorage()
     storage.setItem(SAVE_KEY, JSON.stringify(rawV1()))
     const result = loadSave(storage)
     expect(result.kind).toBe('ok')
     if (result.kind === 'ok') {
-      expect(result.save.schemaVersion).toBe(2)
+      expect(result.save.schemaVersion).toBe(3)
       expect(result.save.player.wallet.credits).toBe(100)
       expect(result.save.player.wallet.alloys).toBe(5)
-      expect(result.save.player.wallet.population).toBe(1_000)
-      for (const level of Object.values(result.save.player.structureLevels)) {
+      expect(result.save.player.homePlanet.population).toBe(1_000)
+      const grid = result.save.player.structureLevels[result.save.player.homePlanet.name]
+      for (const level of Object.values(grid)) {
         expect(level).toBe(0)
       }
     }
@@ -119,7 +120,7 @@ describe('P2-T03-C migration edge — empty/absent v1 fields', () => {
   })
 })
 
-describe('P2-T03-C migration edge — repeated loads and repair', () => {
+describe('P2-T04-B migration edge — repeated loads and repair', () => {
   it('repeated v1 loads from the same storage before any explicit save keep playerId + home identical', () => {
     const storage = new MemoryStorage()
     storage.setItem(SAVE_KEY, JSON.stringify(rawV1()))
@@ -136,7 +137,7 @@ describe('P2-T03-C migration edge — repeated loads and repair', () => {
       )
     }
 
-    const persisted = JSON.parse(storage.getItem(SAVE_V2_KEY)!) as SaveGameV2
+    const persisted = JSON.parse(storage.getItem(SAVE_V3_KEY)!) as SaveGameV3
     expect(persisted.player.playerId).toBe(
       first.kind === 'ok' ? first.save.player.playerId : '',
     )
@@ -145,7 +146,7 @@ describe('P2-T03-C migration edge — repeated loads and repair', () => {
     )
   })
 
-  it('a v2 with a fabricated home is repaired to the deterministic claim and its twin colony is dropped', () => {
+  it('a v3 with a fabricated home is repaired to the deterministic claim, its twin colony dropped, grids pruned', () => {
     const storage = new MemoryStorage()
     const playerId = 'repair-deep-player'
     const expected = claimHomePlanet(playerId, NOW)
@@ -171,6 +172,12 @@ describe('P2-T03-C migration edge — repeated loads and repair', () => {
         expected.name,
       )
       expect(result.save.player.colonies).toHaveLength(0)
+      expect(result.save.player.structureLevels[expected.name]).toBeDefined()
+      expect(
+        Object.keys(result.save.player.structureLevels).every((name) =>
+          [expected.name].includes(name),
+        ),
+      ).toBe(true)
     }
   })
 

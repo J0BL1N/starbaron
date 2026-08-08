@@ -16,7 +16,7 @@ import {
   OFFLINE_SUMMARY_THRESHOLD_MS,
   SAVE_SCHEMA_VERSION,
 } from '../src/ui/save'
-import type { SaveGameV2 } from '../src/ui/save'
+import type { SaveGameV3 } from '../src/ui/save'
 import {
   makeSave,
   MemoryStorage,
@@ -223,7 +223,7 @@ describe('P1-T04-C corrupt saves at the UI level', () => {
     localStorage.clear()
     const save = makeSave()
     save.player.wallet.credits = null as unknown as number
-    seedSave(window.localStorage, save as unknown as SaveGameV2)
+    seedSave(window.localStorage, save as unknown as SaveGameV3)
     render(<PlanetView />)
     expect(screen.getByRole('status')).toHaveTextContent(/couldn't be read/i)
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
@@ -234,7 +234,7 @@ describe('P1-T04-C corrupt saves at the UI level', () => {
     localStorage.clear()
     const save = makeSave()
     const raw = { ...save, tutorial: undefined, savedAt: undefined }
-    seedSave(window.localStorage, raw as unknown as SaveGameV2)
+    seedSave(window.localStorage, raw as unknown as SaveGameV3)
     render(<PlanetView />)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Tutorial' })).toBeInTheDocument()
@@ -379,11 +379,12 @@ describe('P1-T04-C save round-trip integrity', () => {
       tier: saved.player.homePlanet.tier,
       credits: saved.player.wallet.credits,
       alloys: saved.player.wallet.alloys,
-      population: saved.player.wallet.population,
-      garrison: saved.player.wallet.garrison,
-      fleet: saved.player.wallet.fleet,
-      levels: saved.player.structureLevels,
+      population: saved.player.homePlanet.population,
+      garrison: saved.player.homePlanet.garrison,
+      fleet: saved.player.homePlanet.fleet,
+      levels: saved.player.structureLevels[saved.player.homePlanet.name],
       lastTickAt: saved.player.lastTickAt,
+      selectedPlanetName: saved.player.homePlanet.name,
     }).toEqual(second.result.current.state)
     expect(saved.offlineSummarySeen).toBe(false)
   })

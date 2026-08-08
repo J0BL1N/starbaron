@@ -10,7 +10,7 @@ import { makeSave, MemoryStorage } from './saveHelpers'
 
 const NOW = 1_700_000_000_000
 
-describe('P2-T03-C wallet negative paths', () => {
+describe('P2-T04-B wallet negative paths (credits + alloys only)', () => {
   it('spend insufficient throws RangeError and leaves the wallet untouched', () => {
     const wallet = startWallet()
     const before = { ...wallet }
@@ -43,10 +43,10 @@ describe('P2-T03-C wallet negative paths', () => {
 
   it('rejects negative or non-finite deltas and spend amounts', () => {
     expect(() => walletAdd(startWallet(), { credits: -1 })).toThrow(RangeError)
-    expect(() => walletAdd(startWallet(), { population: Number.NaN })).toThrow(
+    expect(() => walletAdd(startWallet(), { credits: Number.NaN })).toThrow(
       RangeError,
     )
-    expect(() => walletAdd(startWallet(), { garrison: Number.POSITIVE_INFINITY })).toThrow(
+    expect(() => walletAdd(startWallet(), { alloys: Number.POSITIVE_INFINITY })).toThrow(
       RangeError,
     )
     expect(() => walletSpend(startWallet(), -5, 0)).toThrow(RangeError)
@@ -64,17 +64,27 @@ describe('P2-T03-C wallet negative paths', () => {
       wallet = walletSpend(wallet, 10, 0)
     }
     expect(wallet.credits).toBe(0)
+    expect(wallet.alloys).toBe(0)
     expect(Object.values(wallet).every((value) => value >= 0)).toBe(true)
   })
 })
 
-describe('P2-T03-C wallet survives save/load in PlayerState', () => {
+describe('P2-T04-B wallet survives save/load in PlayerState', () => {
   it('round-trips a spent wallet through saveGame/loadSave unchanged', () => {
     const player = createPlayer('wallet-save-deep', NOW)
-    const grown = walletSpend(walletAdd(player.wallet, { credits: 4_000, alloys: 200 }), 300, 50)
+    const grown = walletSpend(
+      walletAdd(player.wallet, { credits: 4_000, alloys: 200 }),
+      300,
+      50,
+    )
     const storage = new MemoryStorage()
     expect(
-      saveGame(makeSave({ player: { playerId: 'wallet-save-deep', wallet: grown } }), storage),
+      saveGame(
+        makeSave({
+          player: { playerId: 'wallet-save-deep', wallet: grown },
+        }),
+        storage,
+      ),
     ).toBe(true)
 
     const result = loadSave(storage)
@@ -83,24 +93,34 @@ describe('P2-T03-C wallet survives save/load in PlayerState', () => {
       expect(result.save.player.wallet).toEqual(grown)
       expect(result.save.player.wallet.credits).toBe(4_700)
       expect(result.save.player.wallet.alloys).toBe(150)
-      expect(result.save.player.wallet.population).toBe(1_000)
-      expect(result.save.player.wallet.garrison).toBe(0)
-      expect(result.save.player.wallet.fleet).toBe(0)
+      expect(result.save.player.homePlanet.population).toBe(1_000)
+      expect(result.save.player.homePlanet.garrison).toBe(0)
+      expect(result.save.player.homePlanet.fleet).toBe(0)
     }
   })
 
   it('the persisted wallet stays free of negative values after a full lifecycle', () => {
     const player = createPlayer('wallet-save-lifecycle', NOW)
-    const lifecycle = walletSpend(walletAdd(player.wallet, { credits: 10_000 }), 9_999, 0)
+    const lifecycle = walletSpend(
+      walletAdd(player.wallet, { credits: 10_000 }),
+      9_999,
+      0,
+    )
     const storage = new MemoryStorage()
     expect(
-      saveGame(makeSave({ player: { playerId: 'wallet-save-lifecycle', wallet: lifecycle } }), storage),
+      saveGame(
+        makeSave({
+          player: { playerId: 'wallet-save-lifecycle', wallet: lifecycle },
+        }),
+        storage,
+      ),
     ).toBe(true)
 
     const result = loadSave(storage)
     expect(result.kind).toBe('ok')
     if (result.kind === 'ok') {
       expect(result.save.player.wallet.credits).toBe(1_001)
+      expect(result.save.player.wallet.alloys).toBe(0)
       expect(Object.values(result.save.player.wallet).every((v) => v >= 0)).toBe(
         true,
       )

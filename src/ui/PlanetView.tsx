@@ -1,5 +1,6 @@
 import { useGameState } from './useGameState'
 import type { UseGameStateOptions } from './useGameState'
+import PlanetSelector from './components/PlanetSelector'
 import PlanetDisplay from './components/PlanetDisplay'
 import ResourceBar from './components/ResourceBar'
 import StructureGrid from './components/StructureGrid'
@@ -18,12 +19,21 @@ export default function PlanetView({ options }: PlanetViewProps) {
 
   return (
     <main className="planet-view">
+      <PlanetSelector
+        planets={game.planets}
+        selectedName={game.selectedPlanetName}
+        onSelect={game.selectPlanet}
+      />
       <PlanetDisplay
-        homePlanet={game.homePlanet}
-        identity={game.homeIdentity}
+        planet={game.selectedPlanet}
+        identity={game.selectedIdentity}
         defensePower={game.derived.defensePower}
       />
-      <ResourceBar state={game.state} derived={game.derived} />
+      <ResourceBar
+        state={game.state}
+        derived={game.derived}
+        empire={game.empire}
+      />
       <div className="planet-view-main">
         <StructureGrid levels={game.state.levels} derived={game.derived} />
         <BuildMenu state={game.state} onBuy={game.buy} />
