@@ -55,10 +55,10 @@
 | | **-B** | Implement: planet entity — tier, stats, slots, baseline income by tier | **Complete** — src/sim/planets (9 modules): PlanetState immutable snapshot, 10×tier income, tier pop-cap 1.0/1.2/1.4/1.7/2.0, effectiveLevel (half-after-10) wired into all 7 structure effects, FNV-1a+mulberry32 generator (visual/quirk/description), 7-quirk table, D4 fallbacks, 317 tests |
 | | **-C** | Negative paths: tier bounds, slot overflow | **Complete** — planets-model/planet-identity/planets-deep coverage: seed uniqueness (all 6,321), trigger >=/< boundaries, D4 fallback paths, deep immutability, purity +9 modules; showcase page (docs/showcase.html); full suite 20 files/338 tests PASS, tsc 0, build 0, lint 0, --check OK |
 | | **-D** | Evidence + Codex PASS | **Complete** — docs/P2_T02_EVIDENCE.md; Codex PASS per subtask + whole task; decisions B1–B5 resolved (incl. renaming parked); findings fixed (immutable copy, seed-uniqueness test, palette-combinatorics resolved empirically) |
-| **P2-T03** Claim flow | **-A** | Audit: new-player claim (1 unique planet), colonise empty planets | Not started |
-| | **-B** | Implement: claim pool (unclaimed index), assign on signup, colonise flow | Not started |
-| | **-C** | Edge: pool exhaustion, double-claim prevention | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
+| **P2-T03** Claim flow | **-A** | Audit: new-player claim (1 unique planet), colonise empty planets | **Complete** — docs/P2_T03_A_AUDIT.md; auto-claim first boot (no button), sim-layer PlayerState, hash→index assignment, PvP hooks (isHome/unconquerable/claimedAt), save v1→v2 migration, decisions D1–D8 |
+| | **-B** | Implement: claim pool (unclaimed index), assign on signup, colonise flow | **Complete** — src/sim/player (5 modules), wallet promoted UI→sim, deterministic fnv1a("starbaron-claim-v1")%catalogue, auto-claim at first boot, SaveGameV2 + MIGRATIONS[1], colonise validated, 394 tests |
+| | **-C** | Edge: pool exhaustion, double-claim prevention | **Complete** — claims-deep/player-wallet/save-migration-edge + expanded save/corrupt/savepersist; pool exhaustion edge, double-claim RangeError, corrupt-v2 matrix, stable playerId + synchronous write, fabricated-home repair, +82 tests, 420 total |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P2_T03_EVIDENCE.md; Codex PASS per subtask + whole task; findings fixed (migration stability, v2 validation, fixture ??-swallow, corrupt-v2); spurious stale-fixture finding disproven |
 | **P2-T04** Multi-planet economies | **-A** | Audit: per-planet grid isolation, shared player wallet vs per-planet | Not started |
 | | **-B** | Implement: each planet = own structure grid + income; switch planets in UI | Not started |
 | | **-C** | Cross-planet bugs: income mixing, structure bleed | Not started |
