@@ -5,11 +5,14 @@ import {
 } from '../src/sim/core/economy'
 import {
   BASE_POPULATION_CAP,
+  HOUSING_CAP_MULTIPLIER,
+  HOUSING_GROWTH_PER_LEVEL,
   populationCap,
   populationGrowthPerSec,
 } from '../src/sim/core/population'
 import { STRUCTURES, STRUCTURE_IDS } from '../src/sim/structures/data'
 import { nextBuildCost, structureEffect } from '../src/sim/structures/effects'
+import { effectiveLevel } from '../src/sim/planets/levels'
 import { StructureCategory } from '../src/sim/structures/types'
 import type { StructureEffect, StructureId } from '../src/sim/structures/types'
 
@@ -128,27 +131,31 @@ describe('P1-T02-C effect formula boundary cases', () => {
   })
 
   it('keeps exact integer precision at high levels', () => {
+    const eff1000 = effectiveLevel(1_000)
+    expect(eff1000).toBe(505)
     const h1000 = asKind(structureEffect('housing', 1_000), 'population')
-    expect(h1000.popCapBonus).toBe(1_000_000)
-    expect(h1000.popGrowthBonusPerSec).toBe(2_000)
+    expect(h1000.popCapBonus).toBe(BASE_POPULATION_CAP * HOUSING_CAP_MULTIPLIER * eff1000)
+    expect(h1000.popGrowthBonusPerSec).toBe(HOUSING_GROWTH_PER_LEVEL * eff1000)
     const b1000 = asKind(structureEffect('barracks', 1_000), 'barracks')
-    expect(b1000.soldierConversionPerSec).toBe(10_000)
-    expect(b1000.garrisonCap).toBe(5_000_000)
+    expect(b1000.soldierConversionPerSec).toBe(10 * eff1000)
+    expect(b1000.garrisonCap).toBe(5_000 * eff1000)
     const s1000 = asKind(structureEffect('shipyard', 1_000), 'shipyard')
-    expect(s1000.fleetCap).toBe(1_000_000)
+    expect(s1000.fleetCap).toBe(1_000 * eff1000)
     const d1000 = asKind(structureEffect('defenseTurret', 1_000), 'defense')
-    expect(d1000.defensePower).toBe(500_000)
+    expect(d1000.defensePower).toBe(500 * eff1000)
   })
 
   it('fractional fields stay proportional at high levels', () => {
+    const eff1000 = effectiveLevel(1_000)
+    expect(eff1000).toBe(505)
     const o1000 = asKind(structureEffect('oreMine', 1_000), 'alloys')
-    expect(o1000.alloysPerSec).toBeCloseTo(5_000 / 60, 8)
+    expect(o1000.alloysPerSec).toBeCloseTo((5 / 60) * eff1000, 8)
     const s1000 = asKind(structureEffect('shipyard', 1_000), 'shipyard')
-    expect(s1000.shipbuildingIncomePerSec).toBeCloseTo(50_000 / 60, 8)
+    expect(s1000.shipbuildingIncomePerSec).toBeCloseTo((50 / 60) * eff1000, 8)
     const t1000 = asKind(structureEffect('tradeHub', 1_000), 'incomeMultiplier')
-    expect(t1000.multiplier).toBe(101)
+    expect(t1000.multiplier).toBe(1 + 0.1 * eff1000)
     const h1000 = asKind(structureEffect('hydroponics', 1_000), 'growthMultiplier')
-    expect(h1000.multiplier).toBe(501)
+    expect(h1000.multiplier).toBe(1 + 0.5 * eff1000)
   })
 })
 
@@ -207,7 +214,7 @@ describe('P1-T02-C integration with sim core', () => {
   it('housing popCapBonus matches populationCap(housingLevels) - base cap', () => {
     for (const level of [0, 1, 2, 5, 10, 100]) {
       const effect = asKind(structureEffect('housing', level), 'population')
-      expect(effect.popCapBonus).toBe(populationCap(level) - BASE_POPULATION_CAP)
+      expect(effect.popCapBonus).toBe(populationCap(effectiveLevel(level)) - BASE_POPULATION_CAP)
     }
   })
 
