@@ -8,6 +8,7 @@ import {
 import {
   nextBuildCost,
   structureEffect,
+  defensePower,
 } from '../src/sim/structures/effects'
 import { StructureCategory } from '../src/sim/structures/types'
 import type { StructureEffect } from '../src/sim/structures/types'
@@ -176,6 +177,27 @@ describe('structureEffect formulas', () => {
     expect(structureEffect('defenseTurret', 0)).toEqual({ kind: 'defense', defensePower: 0 })
     expect(asKind(structureEffect('defenseTurret', 1), 'defense').defensePower).toBe(500)
     expect(asKind(structureEffect('defenseTurret', 3), 'defense').defensePower).toBe(1_500)
+  })
+})
+
+describe('defensePower formula', () => {
+  it('combines turret DP with the 0.15 militia term', () => {
+    expect(defensePower(0, 0)).toBe(0)
+    expect(defensePower(0, 1_000)).toBe(150)
+    expect(defensePower(1, 1_000)).toBe(650)
+    expect(defensePower(8, 40_000)).toBe(10_000)
+  })
+
+  it('throws for negative or fractional turret levels', () => {
+    expect(() => defensePower(-1, 0)).toThrow(RangeError)
+    expect(() => defensePower(1.5, 0)).toThrow(RangeError)
+    expect(() => defensePower(Number.NaN, 0)).toThrow(RangeError)
+  })
+
+  it('throws for negative or non-finite population', () => {
+    expect(() => defensePower(1, -1)).toThrow(RangeError)
+    expect(() => defensePower(1, Number.NaN)).toThrow(RangeError)
+    expect(() => defensePower(1, Number.POSITIVE_INFINITY)).toThrow(RangeError)
   })
 })
 

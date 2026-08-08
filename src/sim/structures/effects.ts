@@ -15,6 +15,7 @@ export const BARRACKS_GARRISON_CAP_PER_LEVEL = 5_000
 export const SHIPYARD_FLEET_CAP_PER_LEVEL = 1_000
 export const SHIPYARD_INCOME_PER_MIN = 50
 export const TURRET_DEFENSE_POWER_PER_LEVEL = 500
+export const MILITIA_DEFENSE_PER_POPULATION = 0.15
 
 function assertKnownStructure(id: unknown): asserts id is StructureId {
   if (!isStructureId(id)) {
@@ -65,6 +66,19 @@ export function structureEffect(id: StructureId, level: number): StructureEffect
     case 'defenseTurret':
       return { kind: 'defense', defensePower: TURRET_DEFENSE_POWER_PER_LEVEL * level }
   }
+}
+
+export function defensePower(turretLevels: number, population: number): number {
+  assertValidLevel(turretLevels)
+  if (!Number.isFinite(population) || population < 0) {
+    throw new RangeError(
+      `population must be a non-negative finite number, got ${population}`,
+    )
+  }
+  return (
+    TURRET_DEFENSE_POWER_PER_LEVEL * turretLevels +
+    MILITIA_DEFENSE_PER_POPULATION * population
+  )
 }
 
 export function nextBuildCost(id: StructureId, level: number): number {

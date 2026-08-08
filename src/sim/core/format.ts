@@ -1,11 +1,14 @@
 const SUFFIX_THRESHOLDS: ReadonlyArray<{ threshold: number; suffix: string }> = [
+  { threshold: 1e21, suffix: 'Sx' },
+  { threshold: 1e18, suffix: 'Qi' },
+  { threshold: 1e15, suffix: 'Qa' },
   { threshold: 1e12, suffix: 'T' },
   { threshold: 1e9, suffix: 'B' },
   { threshold: 1e6, suffix: 'M' },
   { threshold: 1e3, suffix: 'K' },
 ]
 
-const SCIENTIFIC_THRESHOLD = 1e15
+const SCIENTIFIC_THRESHOLD = 1e22
 
 export function formatNumber(value: number | null | undefined): string {
   if (value == null) {

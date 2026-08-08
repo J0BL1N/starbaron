@@ -28,10 +28,27 @@ describe('formatNumber', () => {
     expect(formatNumber(1_500_000_000_000)).toBe('1.5T')
   })
 
+  it('formats quadrillions as Qa', () => {
+    expect(formatNumber(1e15)).toBe('1Qa')
+    expect(formatNumber(1.5e15)).toBe('1.5Qa')
+    expect(formatNumber(-1e15)).toBe('-1Qa')
+  })
+
+  it('formats quintillions as Qi', () => {
+    expect(formatNumber(1e18)).toBe('1Qi')
+    expect(formatNumber(2.5e18)).toBe('2.5Qi')
+  })
+
+  it('formats sextillions as Sx', () => {
+    expect(formatNumber(1e21)).toBe('1Sx')
+    expect(formatNumber(3e21)).toBe('3Sx')
+  })
+
   it('formats very large numbers in scientific notation', () => {
+    expect(formatNumber(1e22)).toBe('1e+22')
+    expect(formatNumber(-1e22)).toBe('-1e+22')
     expect(formatNumber(1e30)).toBe('1e+30')
     expect(formatNumber(3.456e32)).toBe('3.46e+32')
-    expect(formatNumber(1e15)).toBe('1e+15')
     expect(formatNumber(-1e30)).toBe('-1e+30')
   })
 

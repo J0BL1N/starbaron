@@ -13,7 +13,11 @@ import {
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { STRUCTURE_IDS } from '../src/sim/structures/data'
-import { seedLocalStorageGap } from './saveHelpers'
+import {
+  makeSave,
+  seedLocalStorageGap,
+  seedSave,
+} from './saveHelpers'
 
 afterEach(() => {
   cleanup()
@@ -158,7 +162,7 @@ describe('P1-T03-C accrual regressions', () => {
     expect(result.current.state.population).toBe(5_000)
   })
 
-  it('garrison never exceeds garrisonCap over long elapsed windows', () => {
+  it('barracks conversion consumes civilians into garrison and stops at garrisonCap', () => {
     const { result, advanceMs } = renderState()
     advanceMs(60_000)
     act(() => result.current.buy('barracks'))
@@ -168,10 +172,152 @@ describe('P1-T03-C accrual regressions', () => {
     act(() => result.current.bankElapsed())
     expect(result.current.state.garrison).toBe(5_000)
     expect(result.current.state.garrison).toBe(result.current.derived.garrisonCap)
+    expect(result.current.state.population).toBe(5_000)
+    expect(result.current.state.population).toBe(result.current.derived.populationCap)
 
     advanceMs(60 * 60 * 1_000)
     act(() => result.current.bankElapsed())
     expect(result.current.state.garrison).toBe(5_000)
+    expect(result.current.state.population).toBe(5_000)
+  })
+
+  it('garrison conversion is capped by available civilians when population is scarce', () => {
+    const { result, advanceMs } = renderState()
+    advanceMs(60_000)
+    act(() => result.current.buy('barracks'))
+    expect(result.current.state.levels.barracks).toBe(1)
+
+    advanceMs(60_000)
+    act(() => result.current.bankElapsed())
+    expect(result.current.state.population).toBe(640)
+    expect(result.current.state.garrison).toBe(600)
+
+    advanceMs(60_000)
+    act(() => result.current.bankElapsed())
+    expect(result.current.state.population).toBe(160)
+    expect(result.current.state.garrison).toBe(1_200)
+
+    advanceMs(60_000)
+    act(() => result.current.bankElapsed())
+    expect(result.current.state.population).toBe(0)
+    expect(result.current.state.garrison).toBe(1_480)
+    // 1:1 ledger — 1,480 garrison came from 1,120 starting civilians + 360
+    // growth (2/sec x 180s, population below cap the whole time).
+    expect(
+      result.current.state.population +
+        result.current.state.garrison -
+        1_120,
+    ).toBe(result.current.derived.populationPerSec * 3 * 60)
+  })
+
+  it('recruiting drains a capped population below cap — no free army (L2, 5 min)', () => {
+    vi.useFakeTimers()
+    const clock = 1_000_000_000
+    seedSave(
+      window.localStorage,
+      makeSave({
+        game: {
+          population: 5_000,
+          garrison: 0,
+          levels: { barracks: 2 },
+          lastTickAt: clock - 5 * 60 * 1_000,
+        },
+      }),
+    )
+    const { result } = renderHook(() => useGameState({ now: () => clock }))
+    expect(result.current.derived.garrisonCap).toBe(10_000)
+    // Recruiting consumes civilians permanently at 1:1 — the population is
+    // NOT pinned at its cap while the garrison fills.
+    expect(result.current.state.population).toBe(0)
+    // Only the civilians actually present (5,000 initial + 598 growth that
+    // occurred while below cap) could be converted — garrison is mid-fill,
+    // nowhere near its 10,000 cap.
+    expect(result.current.state.garrison).toBe(5_598)
+    expect(result.current.state.garrison).toBeLessThan(result.current.derived.garrisonCap)
+    // 1:1 conservation: every soldier came from a civilian. Growth only
+    // occurs while population < cap, so the first second (pinned at 5,000)
+    // yields none: 2/sec x 299s = 598.
+    expect(
+      result.current.state.population +
+        result.current.state.garrison -
+        5_000 -
+        0,
+    ).toBe(result.current.derived.populationPerSec * (5 * 60 - 1))
+  })
+
+  it('over an 8h gap a full garrison stops conversion and population regrows to cap (L2)', () => {
+    vi.useFakeTimers()
+    const clock = 1_000_000_000
+    seedSave(
+      window.localStorage,
+      makeSave({
+        game: {
+          population: 5_000,
+          garrison: 0,
+          levels: { barracks: 2 },
+          lastTickAt: clock - 8 * 60 * 60 * 1_000,
+        },
+      }),
+    )
+    const { result } = renderHook(() => useGameState({ now: () => clock }))
+    expect(result.current.derived.garrisonCap).toBe(10_000)
+    expect(result.current.state.garrison).toBe(10_000)
+    expect(result.current.state.garrison).toBe(result.current.derived.garrisonCap)
+    // Conversion only stops once the garrison is full; only then does the
+    // population regrow to its cap (it was drained to 0 first).
+    expect(result.current.state.population).toBe(5_000)
+    expect(result.current.state.population).toBe(result.current.derived.populationCap)
+    // 1:1 ledger — 10,000 garrison is fully explained by 5,000 starting
+    // civilians + 10,000 genuine growth below cap. No conjured soldiers.
+    expect(
+      result.current.state.population +
+        result.current.state.garrison -
+        5_000 -
+        0,
+    ).toBe(10_000)
+  })
+
+  it('a partially-filled garrison still drains civilians 1:1 over an 8h gap (L2)', () => {
+    vi.useFakeTimers()
+    const clock = 1_000_000_000
+    seedSave(
+      window.localStorage,
+      makeSave({
+        game: {
+          population: 5_000,
+          garrison: 2_500,
+          levels: { barracks: 2 },
+          lastTickAt: clock - 8 * 60 * 60 * 1_000,
+        },
+      }),
+    )
+    const { result } = renderHook(() => useGameState({ now: () => clock }))
+    expect(result.current.derived.garrisonCap).toBe(10_000)
+    expect(result.current.state.garrison).toBe(10_000)
+    expect(result.current.state.garrison).toBe(result.current.derived.garrisonCap)
+    expect(result.current.state.population).toBe(5_000)
+    expect(result.current.state.population).toBe(result.current.derived.populationCap)
+    // 1:1 ledger — the 7,500 garrison gain equals the 5,000 starting
+    // civilians plus 2,500 genuine growth below cap.
+    expect(
+      result.current.state.population +
+        result.current.state.garrison -
+        5_000 -
+        2_500,
+    ).toBe(7_500)
+  })
+
+  it('derived defensePower combines turret DP with the 0.15 militia term', () => {
+    const { result, advanceMs } = renderState()
+    expect(result.current.derived.defensePower).toBe(150)
+
+    advanceMs(50_000)
+    act(() => result.current.buy('oreMine'))
+    advanceMs(12_000_000)
+    act(() => result.current.buy('defenseTurret'))
+    expect(result.current.state.levels.defenseTurret).toBe(1)
+    expect(result.current.state.population).toBe(5_000)
+    expect(result.current.derived.defensePower).toBe(1_250)
   })
 
   it('credits grow without a cap across multiple bank windows', () => {

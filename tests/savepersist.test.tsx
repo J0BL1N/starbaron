@@ -109,6 +109,18 @@ describe('P1-T04 real offline gap', () => {
     expect(gain!.garrison).toBe(0)
   })
 
+  it('checkpoints lastTickAt synchronously when the offline gap is banked', () => {
+    vi.useFakeTimers()
+    const clock = 1_000_000
+    const storage = new MemoryStorage()
+    seedSave(
+      storage,
+      makeSave({ game: { lastTickAt: clock - GAP_12H } }),
+    )
+    renderHook(() => useGameState({ storage, now: () => clock }))
+    expect(readSave(storage).game.lastTickAt).toBe(clock)
+  })
+
   it('dismissing the summary persists the seen flag and saves', () => {
     vi.useFakeTimers()
     localStorage.clear()

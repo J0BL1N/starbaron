@@ -6,7 +6,7 @@ import {
 } from '../sim/core/offline'
 import { populationCap, populationGrowthPerSec } from '../sim/core/population'
 import { STRUCTURES } from '../sim/structures/data'
-import { nextBuildCost, structureEffect } from '../sim/structures/effects'
+import { nextBuildCost, structureEffect, defensePower } from '../sim/structures/effects'
 import type { StructureId } from '../sim/structures/types'
 import {
   emptyStructureLevels,
@@ -66,7 +66,7 @@ export interface UseGameStateReturn {
   state: GameState
   derived: DerivedRates
   buy: (id: StructureId) => void
-  bankElapsed: (at?: number) => number
+  bankElapsed: (at?: number, durable?: boolean) => number
   offlineGain: OfflineGain | null
   dismissOffline: () => void
   tutorial: TutorialState
@@ -106,18 +106,17 @@ function resolveStorage(storage?: Storage): Storage | null {
 export function computeDerived(
   levels: Record<StructureId, number>,
   tier: number,
+  population: number,
 ): DerivedRates {
   const oreMine = structureEffect('oreMine', levels.oreMine)
   const tradeHub = structureEffect('tradeHub', levels.tradeHub)
   const barracks = structureEffect('barracks', levels.barracks)
   const shipyard = structureEffect('shipyard', levels.shipyard)
-  const defenseTurret = structureEffect('defenseTurret', levels.defenseTurret)
 
   const tradeHubEffect = tradeHub.kind === 'incomeMultiplier' ? tradeHub : null
   const shipyardEffect = shipyard.kind === 'shipyard' ? shipyard : null
   const oreMineEffect = oreMine.kind === 'alloys' ? oreMine : null
   const barracksEffect = barracks.kind === 'barracks' ? barracks : null
-  const defenseEffect = defenseTurret.kind === 'defense' ? defenseTurret : null
 
   return {
     creditsPerSec:
@@ -129,7 +128,7 @@ export function computeDerived(
     populationCap: populationCap(levels.housing),
     garrisonCap: barracksEffect?.garrisonCap ?? 0,
     fleetCap: shipyardEffect?.fleetCap ?? 0,
-    defensePower: defenseEffect?.defensePower ?? 0,
+    defensePower: defensePower(levels.defenseTurret, population),
   }
 }
 
@@ -139,18 +138,50 @@ function accrue(
   elapsedMs: number,
 ): GameState {
   const dt = elapsedMs / 1_000
+  const wholeSeconds = Math.floor(dt)
+  const remainder = dt - wholeSeconds
+
+  let population = state.population
+  let garrison = state.garrison
+
+  for (let i = 0; i < wholeSeconds; i += 1) {
+    if (population < derived.populationCap) {
+      population = Math.min(
+        population + derived.populationPerSec,
+        derived.populationCap,
+      )
+    }
+    const converted = Math.min(
+      derived.garrisonPerSec,
+      Math.max(0, derived.garrisonCap - garrison),
+      population,
+    )
+    population -= converted
+    garrison += converted
+  }
+
+  if (remainder > 0) {
+    if (population < derived.populationCap) {
+      population = Math.min(
+        population + derived.populationPerSec * remainder,
+        derived.populationCap,
+      )
+    }
+    const converted = Math.min(
+      derived.garrisonPerSec * remainder,
+      Math.max(0, derived.garrisonCap - garrison),
+      population,
+    )
+    population -= converted
+    garrison += converted
+  }
+
   return {
     ...state,
     credits: state.credits + derived.creditsPerSec * dt,
     alloys: state.alloys + derived.alloysPerSec * dt,
-    population: Math.min(
-      state.population + derived.populationPerSec * dt,
-      derived.populationCap,
-    ),
-    garrison: Math.min(
-      state.garrison + derived.garrisonPerSec * dt,
-      derived.garrisonCap,
-    ),
+    population,
+    garrison,
   }
 }
 
@@ -233,20 +264,27 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   }, [scheduleSave])
 
   const bankElapsed = useCallback(
-    (at = nowRef.current()): number => {
+    (at = nowRef.current(), durable = false): number => {
       const current = ref.current
       const elapsedMs = at - current.lastTickAt
       if (elapsedMs <= 0) {
         return 0
       }
       const cappedMs = Math.min(elapsedMs, OFFLINE_CAP_MS)
-      const next = accrue(current, computeDerived(current.levels, current.tier), cappedMs)
+      const next = accrue(
+        current,
+        computeDerived(current.levels, current.tier, current.population),
+        cappedMs,
+      )
       next.lastTickAt = at
       ref.current = next
       commit()
+      if (durable) {
+        flushSave()
+      }
       return cappedMs
     },
-    [commit],
+    [commit, flushSave],
   )
 
   const advanceTutorial = useCallback(() => {
@@ -366,25 +404,23 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
     const before = { ...ref.current }
     const gapMs = now - before.lastTickAt
-    const bankedMs = bankElapsed(now)
+    const bankedMs = bankElapsed(now, true)
 
     if (gapMs > OFFLINE_SUMMARY_THRESHOLD_MS) {
       offlineSeenRef.current = false
       setOfflineSummarySeen(false)
-      const derived = computeDerived(ref.current.levels, ref.current.tier)
+      const derived = computeDerived(
+        ref.current.levels,
+        ref.current.tier,
+        ref.current.population,
+      )
       const elapsedSec = bankedMs / 1_000
       setOfflineGain({
         elapsedSec,
         credits: calculateOfflineEarnings(derived.creditsPerSec, elapsedSec),
         alloys: calculateOfflineEarnings(derived.alloysPerSec, elapsedSec),
-        population: Math.min(
-          calculateOfflineEarnings(derived.populationPerSec, elapsedSec),
-          Math.max(0, derived.populationCap - before.population),
-        ),
-        garrison: Math.min(
-          calculateOfflineEarnings(derived.garrisonPerSec, elapsedSec),
-          Math.max(0, derived.garrisonCap - before.garrison),
-        ),
+        population: ref.current.population - before.population,
+        garrison: ref.current.garrison - before.garrison,
         fleet: calculateOfflineEarnings(0, elapsedSec),
       })
     }
@@ -423,7 +459,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
   return {
     state: snapshot,
-    derived: computeDerived(snapshot.levels, snapshot.tier),
+    derived: computeDerived(snapshot.levels, snapshot.tier, snapshot.population),
     buy,
     bankElapsed,
     offlineGain,
