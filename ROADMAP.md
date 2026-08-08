@@ -12,6 +12,8 @@
 
 ## Phase 1 — Core Idle Engine + Web Preview
 
+> **STATUS: COMPLETE** — whole-phase Codex PASS. 5 tasks, 217 tests / 13 files, tsc/build/lint all 0, dev 200. Evidence: `docs/P1_PHASE1_EVIDENCE.md`.
+
 **Goal:** playable web preview of the idle loop (feel the game in days). No PvP, no backend yet.
 
 | Task | Subtask | Scope | Status |
@@ -32,10 +34,10 @@
 | | **-B** | Implement: localStorage save/load, onboarding tutorial (claim planet → housing → ore mine → offline reveal) | **Complete** — src/ui/save.ts + useGameState rehydrate/persist, hybrid save, real offline gap, 4-step tutorial, +33 tests, 159 total (d36ce5c) |
 | | **-C** | Corrupt save handling, version migration, tutorial skip/resume | **Complete** — corrupt-save matrix + storage/privacy edges + gap-boundary tests + skip/resume/deep onboarding + round-trip integrity, +46 tests (52a75a9) |
 | | **-D** | Evidence + Codex PASS | **Complete** — docs/P1_T04_EVIDENCE.md; Codex PASS per subtask; full suite 13 files/205 tests PASS, tsc 0, build 0, lint 0 |
-| **P1-T05** Phase closeout | **-A** | Whole-phase audit prep: reconcile all evidence | Not started |
-| | **-B** | Final whole-phase Codex audit across P1 stack | Not started |
-| | **-C** | Fix any cross-cutting findings (same round), re-audit | Not started |
-| | **-D** | Closeout evidence + ROADMAP update, report to Jay | Not started |
+| **P1-T05** Phase closeout | **-A** | Whole-phase audit prep: reconcile all evidence | **Complete** — all P1 evidence reconciled into `docs/P1_PHASE1_EVIDENCE.md` (5 tasks, commit log, 217 tests, gates) |
+| | **-B** | Final whole-phase Codex audit across P1 stack | **Complete** — 6 cross-cutting findings (militia DP, barracks 1:1 conservation, sync offline checkpoint, Qa/Qi/Sx suffixes, ROADMAP wording, dead assets) |
+| | **-C** | Fix any cross-cutting findings (same round), re-audit | **Complete** — all 6 fixed in 18fd410 (3 correction rounds → re-audit); +12 regression tests → 217 |
+| | **-D** | Closeout evidence + ROADMAP update, report to Jay | **Complete** — docs/P1_PHASE1_EVIDENCE.md + this row; whole-phase Codex PASS; see evidence |
 
 ---
 
