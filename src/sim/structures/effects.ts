@@ -1,0 +1,73 @@
+import { STRUCTURES, isStructureId } from './data'
+import { structureCost } from '../core/economy'
+import {
+  BASE_POPULATION_CAP,
+  HOUSING_CAP_MULTIPLIER,
+  HOUSING_GROWTH_PER_LEVEL,
+  HYDROPONICS_GROWTH_BONUS,
+} from '../core/population'
+import type { StructureEffect, StructureId } from './types'
+
+export const ORE_ALLOYS_PER_MIN = 5
+export const TRADE_HUB_INCOME_MULTIPLIER_PER_LEVEL = 0.1
+export const BARRACKS_CONVERSION_PER_SEC = 10
+export const BARRACKS_GARRISON_CAP_PER_LEVEL = 5_000
+export const SHIPYARD_FLEET_CAP_PER_LEVEL = 1_000
+export const SHIPYARD_INCOME_PER_MIN = 50
+export const TURRET_DEFENSE_POWER_PER_LEVEL = 500
+
+function assertKnownStructure(id: unknown): asserts id is StructureId {
+  if (!isStructureId(id)) {
+    throw new RangeError(`unknown structure id, got ${String(id)}`)
+  }
+}
+
+function assertValidLevel(level: number): void {
+  if (!Number.isInteger(level) || level < 0) {
+    throw new RangeError(`level must be a non-negative integer, got ${level}`)
+  }
+}
+
+export function structureEffect(id: StructureId, level: number): StructureEffect {
+  assertKnownStructure(id)
+  assertValidLevel(level)
+  switch (id) {
+    case 'oreMine':
+      return { kind: 'alloys', alloysPerSec: (ORE_ALLOYS_PER_MIN / 60) * level }
+    case 'tradeHub':
+      return {
+        kind: 'incomeMultiplier',
+        multiplier: 1 + TRADE_HUB_INCOME_MULTIPLIER_PER_LEVEL * level,
+      }
+    case 'housing':
+      return {
+        kind: 'population',
+        popCapBonus: BASE_POPULATION_CAP * HOUSING_CAP_MULTIPLIER * level,
+        popGrowthBonusPerSec: HOUSING_GROWTH_PER_LEVEL * level,
+      }
+    case 'hydroponics':
+      return {
+        kind: 'growthMultiplier',
+        multiplier: 1 + HYDROPONICS_GROWTH_BONUS * level,
+      }
+    case 'barracks':
+      return {
+        kind: 'barracks',
+        soldierConversionPerSec: BARRACKS_CONVERSION_PER_SEC * level,
+        garrisonCap: BARRACKS_GARRISON_CAP_PER_LEVEL * level,
+      }
+    case 'shipyard':
+      return {
+        kind: 'shipyard',
+        fleetCap: SHIPYARD_FLEET_CAP_PER_LEVEL * level,
+        shipbuildingIncomePerSec: (SHIPYARD_INCOME_PER_MIN / 60) * level,
+      }
+    case 'defenseTurret':
+      return { kind: 'defense', defensePower: TURRET_DEFENSE_POWER_PER_LEVEL * level }
+  }
+}
+
+export function nextBuildCost(id: StructureId, level: number): number {
+  assertKnownStructure(id)
+  return structureCost(STRUCTURES[id].baseCost, level)
+}
