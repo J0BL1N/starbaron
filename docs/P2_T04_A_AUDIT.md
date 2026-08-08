@@ -237,4 +237,29 @@ Follow the established pattern (node suites in `tests/**/*.test.ts`; `@vitest-en
 
 ---
 
+## 9. Known findings (documented this round)
+
+*Added during the P2-T04-C correction round per independent Codex audit (read-only). No code changed; these three behaviours were verified against the sources at the same HEAD and are documented here so they are explicit — not silently assumed. Each is a note/flag, not a blocker for `-B`.*
+
+### 9.1 Binary-system quirk applies at level-0 Trade Hub (baseline ×1.1) — behaviour is real, currently UNTESTED, FLAGGED FOR JAY
+
+`src/sim/player/accrual.ts:63` applies the planet's quirks to the Trade Hub effect **before** any level gate: `applyQuirks(quirks, structureEffect('tradeHub', levels.tradeHub))`. At `tradeHub = 0`, `structureEffect` returns `{ kind: 'incomeMultiplier', multiplier: 1 + 0.1 × 0 = 1 }` (`src/sim/structures/effects.ts:40-44`), and `src/sim/planets/quirks.ts:142-145` multiplies that by the binarySystem `1.1` — so a level-0 Trade Hub on a binarySystem planet still yields **baseline × 1.1** (verified: `computePlanetDerived.creditsPerSec = baselineIncomePerSec × (tradeHubEffect?.multiplier ?? 1)`).
+
+- **Status: real behaviour, currently UNTESTED.** The existing quirk test (`tests/planets-economy.test.ts:216-225`) only asserts the **level-1** case (`50 × 1.1 × 1.1`). No test pins the level-0 binarySystem case (`50 × 1.1` with an empty grid), so this behaviour is not locked by a regression assertion.
+- **FLAGGED FOR JAY as a design decision** (mirrors §8 D2/D3's "quirks land per-planet" framing):
+  - **Option A (baseline-trait):** binarySystem is a planetary trait that lifts the income floor itself (baseline ×1.1 regardless of Trade Hub level). This is what the code does today.
+  - **Option B (structure-gated):** binarySystem only applies once a Trade Hub is built (`levels.tradeHub ≥ 1`); a level-0 hub contributes nothing.
+  - **Recommendation: A.** Quirks are described in DESIGN §4b as planet-level flavour ("planet stats subtly affect structure efficiency"), and the income `floor` (§4d) is explicitly "*10 × tier* … Trade Hub multiplies it". Keeping the quirk as a baseline trait is simplest and matches current behaviour; **Option B requires a `-B` wiring change + a level-0 regression test**, so Jay's decision is needed before `-B` if B is chosen.
+- **Note the DESIGN §4d "floor" wording tension:** §4d says "Trade Hub multiplies it; **nothing else touches the floor**", yet the binarySystem quirk *does* touch the floor at level 0 under Option A. This is the same §4c/§4d wording family as §8 D2 — documented together here so the design read is complete.
+
+### 9.2 `gridForPlanet` returns a live reference (not a copy) — defensive note, no active bug
+
+`src/sim/player/accrual.ts:38-43` returns `player.structureLevels[name] ?? emptyStructureLevels()` — the **stored grid object itself**, not a clone (callers mutate a spread, e.g. `useGameState.ts:117` `{ ...gridForPlanet(...) }`, and `buildStructure` writes a new object via `{ ...grid, [id]: level + 1 }`). **No active bug today.** Defensive note for future callers: `gridForPlanet` hands out the live reference — **do not mutate the returned grid in place**; spread it first (as the current call sites do).
+
+### 9.3 `saveHelpers.makeSave` gives unspecified colony grids a copy of the home grid — fixture behaviour only
+
+`tests/saveHelpers.ts:129-132`: any colony passed without an explicit grid in `overrides.structureLevels` gets `{ ...homeGrid }` — a **copy of the home grid**. **Fixture behaviour only** (production `colonise` assigns `emptyStructureLevels()` — `src/sim/player/claim.ts:107-110`); tests that care pass explicit per-colony grids. No production impact; documented so nobody reads the fixture as a production default.
+
+---
+
 *Prepared by OpenCode (deepseek-v4-flash) for P2-T04-A. Only `docs/P2_T04_A_AUDIT.md` created. No commit made, no work on `main`.*
