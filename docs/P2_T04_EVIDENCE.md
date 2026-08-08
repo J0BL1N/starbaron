@@ -154,13 +154,13 @@ Growth: 420 (P2-T03 closeout) → **491** = **+71**. New P2-T04 coverage: `plane
 
 Whole task: **P2-T04 Codex-PASSED**.
 
-## 11. Known Findings (carried, FLAGGED FOR JAY)
+## 11. Known Findings (carried)
 
-These were documented at `-A` (§9) and verified against the sources again at closeout — they are **still open** and explicitly flagged, not silently resolved:
+These were documented at `-A` (§9) and verified against the sources again at closeout. **Entry 1 is RESOLVED** (binary-system decision, Option A, chosen by Jay 2026-08-09); **entries 2–3 remain open** and explicitly flagged, not silently resolved:
 
-1. **Binary-system quirk applies at level-0 Trade Hub (baseline ×1.1) — currently UNTESTED, FLAGGED FOR JAY (Option A/B pending).** `src/sim/player/accrual.ts:63` applies quirks before any level gate, so a level-0 Trade Hub on a binarySystem planet yields baseline ×1.1. **Option A (baseline-trait, what the code does today, recommended)** keeps it; **Option B (structure-gated, needs `levels.tradeHub ≥ 1`) requires a wiring change + a level-0 regression test.** Jay's decision is needed before P3; the existing quirk test only pins the level-1 case. This also touches the DESIGN §4d "nothing else touches the floor" wording tension (same family as audit D2).
-2. **`gridForPlanet` returns a live reference, not a copy** (`accrual.ts:38-43`) — no active bug; all current call sites spread before mutating. Defensive note for future callers: don't mutate the returned grid in place.
-3. **`tests/saveHelpers.ts` gives unspecified colony grids a copy of the home grid** — fixture behaviour only (production `colonise` assigns `emptyStructureLevels()`); tests that care pass explicit per-colony grids.
+1. **Binary-system quirk at level-0 Trade Hub (baseline ×1.1) — RESOLVED: Option A chosen by Jay 2026-08-09.** binarySystem is a baseline-trait: it lifts the income floor (baseline ×1.1) at **any** Trade Hub level including 0, on top of the Trade Hub's own per-level multiplier. `src/sim/player/accrual.ts:68` applies quirks before any level gate, so this is exactly what the code already does — no wiring change was needed. Now pinned by `tests/binarysystem-level0.test.ts` (6 tests: plain anchor, deterministic binarySystem colony, level-0 floor lifted ×1.1, non-binary planet NOT boosted at level 0, level 0 vs 1 stacking, live `accruePlayer` x1.1 path). DESIGN §4d wording updated to note the binarySystem exception.
+2. **`gridForPlanet` returns a live reference, not a copy** (`accrual.ts:38-43`) — no active bug; all current call sites spread before mutating. Defensive note for future callers: don't mutate the returned grid in place. **Still open / FLAGGED FOR JAY.**
+3. **`tests/saveHelpers.ts` gives unspecified colony grids a copy of the home grid** — fixture behaviour only (production `colonise` assigns `emptyStructureLevels()`); tests that care pass explicit per-colony grids. **Still open / FLAGGED FOR JAY.**
 
 ## 12. Branch / Remote State
 

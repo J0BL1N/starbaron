@@ -89,7 +89,7 @@ An **idle planet-conquest game set in the real universe**: every player starts w
 - **Tier → pop cap (Jay 2026-08-08): higher caps in general.** Pop-cap multiplier by tier: T1 ×1.0, T2 ×1.2, T3 ×1.4, T4 ×1.7, T5 ×2.0 (applies on top of the 5,000×(1+0.2×housing) base).
 - **Renaming (note for later, Jay 2026-08-08):** players can rename their planets (e.g. "Lardelli Prime"). Parked — UI/backend work, not P2 core.
 
-**Baseline passive income:** `10 × tier` credits/sec, always running. Trade Hub multiplies it; nothing else touches the floor.
+**Baseline passive income:** `10 × tier` credits/sec, always running. Trade Hub multiplies it; nothing else touches the floor. **Exception (binarySystem, Jay 2026-08-09, Option A):** a binarySystem planet is a baseline-trait — it lifts the income floor (baseline ×1.1) at **any** Trade Hub level including 0, in addition to multiplying the Trade Hub's own per-level multiplier.
 
 **Structure costs** (cost = `base × 1.15^level`, build time shown for level 1):
 
