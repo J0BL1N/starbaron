@@ -1,5 +1,10 @@
-import { BASE_POPULATION_CAP, populationCap, populationGrowthPerSec } from '../core/population'
-import { populationCapMultiplier } from '../planets/levels'
+import {
+  BASE_GROWTH_PER_SEC,
+  BASE_POPULATION_CAP,
+  HOUSING_CAP_MULTIPLIER,
+  HOUSING_GROWTH_PER_LEVEL,
+} from '../core/population'
+import { effectiveLevel, populationCapMultiplier } from '../planets/levels'
 import { applyQuirk } from '../planets/quirks'
 import type { PlanetQuirk } from '../planets/types'
 import { STRUCTURES } from '../structures/data'
@@ -78,7 +83,8 @@ export function computePlanetDerived(
   const denseCore = quirks.find((quirk) => quirk.id === 'denseCore')
   const massiveWorld = quirks.find((quirk) => quirk.id === 'massiveWorld')
 
-  const baseCap = populationCap(levels.housing)
+  const effHousing = effectiveLevel(levels.housing)
+  const baseCap = BASE_POPULATION_CAP * (1 + HOUSING_CAP_MULTIPLIER * effHousing)
   const baseBonus = baseCap - BASE_POPULATION_CAP
   const populationCapValue =
     (BASE_POPULATION_CAP + baseBonus * (denseCore?.multiplier ?? 1)) *
@@ -92,7 +98,7 @@ export function computePlanetDerived(
       (shipyardEffect?.shipbuildingIncomePerSec ?? 0),
     alloysPerSec: oreMineEffect?.alloysPerSec ?? 0,
     populationPerSec:
-      populationGrowthPerSec(levels.housing, 0) *
+      (BASE_GROWTH_PER_SEC + HOUSING_GROWTH_PER_LEVEL * effHousing) *
       (growthMultEffect?.multiplier ?? 1),
     garrisonPerSec: barracksEffect?.soldierConversionPerSec ?? 0,
     populationCap: populationCapValue,

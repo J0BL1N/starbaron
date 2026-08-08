@@ -78,7 +78,7 @@ export function defensePower(turretLevels: number, population: number): number {
     )
   }
   return (
-    TURRET_DEFENSE_POWER_PER_LEVEL * turretLevels +
+    TURRET_DEFENSE_POWER_PER_LEVEL * effectiveLevel(turretLevels) +
     MILITIA_DEFENSE_PER_POPULATION * population
   )
 }
