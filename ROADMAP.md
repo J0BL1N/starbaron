@@ -18,29 +18,21 @@
 |---|---|---|---|
 | **P1-T01** Scaffold | **-A** | Audit: confirm empty project, tool versions (node, npm, uv), decide Vite+TS+vitest layout | **Complete** — audit doc committed (3f1ebe6); decisions: flat root, latest majors, drop uv, skip re-init, lockfile committed |
 | | **-B** | Scaffold Vite+TS project, vitest config, folder structure (src/sim, src/ui, tests), git init + main/staging branches | **Complete** — scaffold committed (fe9c8b4); vite react-ts, pinned deps, vitest 5/5 smoke PASS |
-| | **-C** | Smoke test: dev server starts, vitest runs a trivial test, build passes | **Complete** — sim core 4 modules (economy/population/offline/format), 39 tests PASS, tsc 0, build 0 |
+| | **-C** | Smoke test: dev server starts, vitest runs a trivial test, build passes — original T02 core sim engine scope folded in (income, ×1.15 cost curve, population, offline calc, formatting) | **Complete** — sim core 4 modules (economy/population/offline/format), 39 tests PASS, tsc 0, build 0 |
 | | **-D** | Evidence: scaffold SHA, branch state, Codex PASS | **Complete** — docs/P1_T01_EVIDENCE.md, Codex PASS, see evidence |
 | **P1-T02** Structures v1 | **-A** | Audit: structure interface, data shape for all 7 structures | **Complete** — docs/P1_T02_A_AUDIT.md (2fa0733); 7-structure roster + data model locked to DESIGN §4c/§4d; Shipyard income blocker resolved by Jay (+50cr/min, DESIGN §4d); exclusions + 5 bounded decisions |
 | | **-B** | Implement: Ore Mine, Trade Hub, Housing, Hydroponics, Barracks, Shipyard, Defense Turret — cost, build time, effect per level | **Complete** — src/sim/structures (types/data/effects), 7 structures, discriminated effects, nextBuildCost wrapper, +64 tests (d04f9c3) |
-| | **-C** | Negative paths: level/id validation, cost regression, large levels, data integrity (wallet "cannot afford" deferred to T05/06 per audit) | **Complete** — cost regression ×1.15, large levels (100/1,000) finite, data integrity, runtime id guard +19 tests (a116feb) |
+| | **-C** | Negative paths: level/id validation, cost regression, large levels, data integrity (wallet "cannot afford" deferred to T03/04 per audit) | **Complete** — cost regression ×1.15, large levels (100/1,000) finite, data integrity, runtime id guard +19 tests (a116feb) |
 | | **-D** | Evidence + Codex PASS | **Complete** — docs/P1_T02_EVIDENCE.md; Codex PASS per subtask; full suite 6 files/83 tests PASS, tsc 0, build 0, lint 0 |
-| **P1-T03** Structures v1 | **-A** | Audit: structure interface, data shape for all 7 structures | Not started |
-| | **-B** | Implement: Ore Mine, Trade Hub, Housing, Hydroponics, Barracks, Shipyard, Defense Turret — cost, build time, effect per level | Not started |
-| | **-C** | Negative paths: cannot build without resources, level cap, duplicate build | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
-| **P1-T04** Unit tests | **-A** | Audit: coverage gaps across sim + structures | Not started |
-| | **-B** | Write full unit suite: cost curves, offline earnings, population/garrison math, formatting, all structures | Not started |
-| | **-C** | Regression + edge coverage per §-C above | Not started |
-| | **-D** | Evidence: focused + full suite counts, Codex PASS | Not started |
-| **P1-T05** Web preview UI | **-A** | Audit: screen spec (§5c DESIGN.md) — Planet View, build menu, resource bar, offline summary | Not started |
+| **P1-T03** Web preview UI (NEXT) | **-A** | Audit: screen spec (§5c DESIGN.md) — Planet View, structure grid, build menu, resource bar, offline summary modal | Not started |
 | | **-B** | Implement Planet View: planet display, structure grid, build menu, live resource bar | Not started |
 | | **-C** | Offline summary modal ("While you were away…"), empty states, rapid-click safety | Not started |
 | | **-D** | Evidence + Codex PASS | Not started |
-| **P1-T06** Save/load + onboarding | **-A** | Audit: save schema, tutorial steps (§5c), polish list | Not started |
+| **P1-T04** Save/load + onboarding | **-A** | Audit: save schema, tutorial steps (§5c), polish list | Not started |
 | | **-B** | Implement: localStorage save/load, onboarding tutorial (claim planet → housing → ore mine → offline reveal → map intro) | Not started |
 | | **-C** | Corrupt save handling, version migration, tutorial skip/resume | Not started |
 | | **-D** | Evidence + Codex PASS | Not started |
-| **P1-T07** Phase closeout | **-A** | Whole-phase audit prep: reconcile all evidence | Not started |
+| **P1-T05** Phase closeout | **-A** | Whole-phase audit prep: reconcile all evidence | Not started |
 | | **-B** | Final whole-phase Codex audit across P1 stack | Not started |
 | | **-C** | Fix any cross-cutting findings (same round), re-audit | Not started |
 | | **-D** | Closeout evidence + ROADMAP update, report to Jay | Not started |
