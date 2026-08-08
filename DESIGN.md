@@ -62,7 +62,7 @@ An **idle planet-conquest game set in the real universe**: every player starts w
 - **Easy to scale:** catalogue has far more planets than players for the foreseeable future — "give a planet to a random user" is just an index into the unclaimed pool
 - **Data is free:** public domain astronomical data — no licensing cost
 - **Flavour:** planet stats (gravity, atmosphere, star type) can subtly affect structure efficiency — makes every planet feel like a real place
-- **FOR LATER (Jay notes 2026-08-08):** use **Kimi Code CLI (free via Allegro sub)** to bulk-design planets — enrich real exoplanet data with lore/flavour/quirks (e.g. "high gravity → +20% alloy output") or generate fictional planets at scale if needed. Zero-cost content engine. **Also: Kimi K3 to design 3D planets** (planet visuals/3D models) — parked, revisit at the art/asset stage.
+- **FOR LATER (Jay notes 2026-08-08, UPDATED):** use **Kimi Code CLI (free via Allegro sub)** to author the **procedural planet generator's content libraries** (adjective pools, quirk templates, description archetypes, palette definitions) — NOT per-planet content. Planets are **procedurally generated on demand**: deterministic hash of `pl_name` seeds visual (palette/rings/moons from star type + radius), flavour quirks (structure-efficiency hooks, e.g. high gravity → +20% alloy output), and template-built descriptions. Infinite scale, $0, zero storage, consistent across runs. Parked — lands with the planet model (P2-T02). **Kimi K3 3D planet visuals** — parked, revisit at art/asset stage.
 
 ## 4c. Structures (v1 roster — 7, room to grow)
 **Income model:** every planet has **baseline passive income** (auto, scales with planet tier + population). Structures don't create the income — they add/multiply it.

@@ -34,6 +34,11 @@ describe('P1-T03-C src/sim purity — no React/DOM leaks', () => {
     expect(simFiles.length).toBeGreaterThan(0)
   })
 
+  it('covers the generated catalogue module src/sim/data/planets.ts', () => {
+    const planetsData = join(SIM_DIR, 'data', 'planets.ts')
+    expect(simFiles).toContain(planetsData)
+  })
+
   it.each(simFiles)('has no react/react-dom import in %s', (file) => {
     const sources = importSources(readFileSync(file, 'utf8'))
     expect(sources.filter((s) => s === 'react' || s === 'react-dom')).toEqual([])
