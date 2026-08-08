@@ -13,7 +13,7 @@ import {
 } from '@testing-library/react'
 import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
-import { SAVE_KEY } from '../src/ui/save'
+import { SAVE_KEY, SAVE_V2_KEY } from '../src/ui/save'
 import { claimHomePlanet } from '../src/sim/player'
 import {
   GAP_12H,
@@ -177,6 +177,18 @@ describe('P1-T04 failure paths', () => {
     vi.useFakeTimers()
     localStorage.clear()
     localStorage.setItem(SAVE_KEY, 'this is not json{')
+    render(<PlanetView />)
+    expect(screen.getByRole('status')).toHaveTextContent(/couldn't be read/i)
+    expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build Housing' }))
+    expect(screen.getByTestId('resource-credits')).toHaveTextContent('700')
+  })
+
+  it('starts fresh with a notice when the v2 save is corrupt, and the game stays playable', () => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    localStorage.setItem(SAVE_V2_KEY, 'this is not json{')
     render(<PlanetView />)
     expect(screen.getByRole('status')).toHaveTextContent(/couldn't be read/i)
     expect(screen.getByTestId('resource-credits')).toHaveTextContent('1K')
