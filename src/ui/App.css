@@ -213,6 +213,70 @@
   outline-offset: 2px;
 }
 
+/* ColonisePanel */
+.colonise-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.colonise-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.colonise-name {
+  flex: 1;
+  font-size: 15px;
+  color: var(--text-h);
+}
+
+.colonise-cost {
+  color: var(--text-dim);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.colonise-button {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.colonise-button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg-deep);
+}
+
+.colonise-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.colonise-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.colonise-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.colonise-note {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 /* OfflineSummary modal */
 .modal-backdrop {
   position: fixed;

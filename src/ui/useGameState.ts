@@ -6,12 +6,15 @@ import {
 import {
   accruePlayer,
   buildStructure,
+  coloniseFirstUnclaimed,
   computePlanetDerived,
   empireRates,
+  firstUnclaimedByIndex,
   gridForPlanet,
   ownedPlanetByName,
   ownedPlanetIdentity,
   planetTotals,
+  walletSpend,
 } from '../sim/player'
 import {
   createPlayer,
@@ -34,6 +37,8 @@ import type { SaveGameV3, TutorialState } from './save'
 export const AUTOSAVE_DEBOUNCE_MS = 5_000
 
 const OFFLINE_CAP_MS = MAX_OFFLINE_BANK_SECONDS * 1_000
+
+export const COLONISE_COST_CREDITS = 1_000
 
 export interface GameState {
   tier: number
@@ -90,6 +95,10 @@ export interface UseGameStateReturn {
   selectedIdentity: PlanetIdentity
   selectPlanet: (name: string) => void
   buy: (id: StructureId) => void
+  colonise: () => void
+  coloniseBusy: boolean
+  coloniseError: string | null
+  canColonise: boolean
   bankElapsed: (at?: number, durable?: boolean) => number
   offlineGain: OfflineGain | null
   dismissOffline: () => void
@@ -179,6 +188,9 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const offlineSeenRef = useRef(false)
   const [offlineSummarySeen, setOfflineSummarySeen] = useState(false)
   const [saveNotice, setSaveNotice] = useState<string | null>(null)
+  const [coloniseBusy, setColoniseBusy] = useState(false)
+  const coloniseBusyRef = useRef(false)
+  const [coloniseError, setColoniseError] = useState<string | null>(null)
 
   const saveRef = useRef<SaveGameV3 | null>(null)
   const debounceRef = useRef<number | null>(null)
@@ -306,6 +318,43 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     },
     [bankElapsed, commit, flushSave],
   )
+
+  const colonise = useCallback((): void => {
+    if (coloniseBusyRef.current) {
+      return
+    }
+    coloniseBusyRef.current = true
+    setColoniseBusy(true)
+    try {
+      bankElapsed()
+      const current = ref.current
+      if (firstUnclaimedByIndex(current) === null) {
+        setColoniseError('No unclaimed planets left to colonise.')
+        return
+      }
+      if (current.wallet.credits < COLONISE_COST_CREDITS) {
+        setColoniseError('Insufficient credits to colonise.')
+        return
+      }
+      const { player, colony } = coloniseFirstUnclaimed(current, nowRef.current())
+      ref.current = {
+        ...player,
+        wallet: walletSpend(player.wallet, COLONISE_COST_CREDITS, 0),
+      }
+      setColoniseError(null)
+      selectedRef.current = colony.name
+      setSelectedPlanetName(colony.name)
+      commit()
+      flushSave()
+    } catch {
+      setColoniseError('Could not colonise a planet.')
+    } finally {
+      window.setTimeout(() => {
+        coloniseBusyRef.current = false
+        setColoniseBusy(false)
+      }, 0)
+    }
+  }, [bankElapsed, commit, flushSave])
 
   useEffect(() => {
     if (tutorial.done || tutorial.skipped) {
@@ -447,6 +496,10 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     selectedIdentity: ownedPlanetIdentity(selectedOwned),
     selectPlanet,
     buy,
+    colonise,
+    coloniseBusy,
+    coloniseError,
+    canColonise: firstUnclaimedByIndex(ref.current) !== null,
     bankElapsed,
     offlineGain,
     dismissOffline,

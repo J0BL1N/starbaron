@@ -1,10 +1,12 @@
 import { useGameState } from './useGameState'
+import { COLONISE_COST_CREDITS } from './useGameState'
 import type { UseGameStateOptions } from './useGameState'
 import PlanetSelector from './components/PlanetSelector'
 import PlanetDisplay from './components/PlanetDisplay'
 import ResourceBar from './components/ResourceBar'
 import StructureGrid from './components/StructureGrid'
 import BuildMenu from './components/BuildMenu'
+import ColonisePanel from './components/ColonisePanel'
 import OfflineSummary from './components/OfflineSummary'
 import Onboarding from './components/Onboarding'
 import SaveNotice from './components/SaveNotice'
@@ -33,6 +35,13 @@ export default function PlanetView({ options }: PlanetViewProps) {
         state={game.state}
         derived={game.derived}
         empire={game.empire}
+      />
+      <ColonisePanel
+        canColonise={game.canColonise}
+        busy={game.coloniseBusy}
+        error={game.coloniseError}
+        cost={COLONISE_COST_CREDITS}
+        onColonise={game.colonise}
       />
       <div className="planet-view-main">
         <StructureGrid levels={game.state.levels} derived={game.derived} />
