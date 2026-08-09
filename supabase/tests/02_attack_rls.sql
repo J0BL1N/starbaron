@@ -5,6 +5,10 @@
 --               * launch requires a valid target, soldiers > 0 and an
 --                 affordable launch cost (plus the unconquerable / own-
 --                 planet / source-ownership guards).
+--               * the new-player shield REJECTS a shielded target (delta-
+--                 colony, owner NOT backdated) with 'new-player shield'
+--                 (0005:172-180); the defender/joiner accounts are backdated
+--                 below so the main flow bypasses the shield as before.
 --               * travel_seconds = distancePc x 1 min, floor 600, cap
 --                 172800 (game_config, 0006): 1 pc -> 600, 100 pc ->
 --                 6000, 4000 pc -> 172800.
@@ -56,6 +60,10 @@ end $$;
 set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
 do $$ begin
   perform public.claim_home_planet('delta', 1::smallint);
+  -- delta-colony stays INSIDE the new-player shield window: D is the one
+  -- actor deliberately NOT backdated below, so this colony is the
+  -- live-testable shielded target for the shield-rejection block.
+  perform public.claim_colony('delta-colony', 1::smallint, 5);
 end $$;
 
 -- Seed context: backdate defender/joiner shields (created_at + 3d > now()
@@ -67,6 +75,22 @@ update public.owned_planets set structure_levels = structure_levels || '{"shipya
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":2}' where planet_name = 'gamma-colony';
 
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+
+-- shield. New-player shield rejection (live-testable): 'delta-colony' belongs
+-- to D, whose players.created_at is still now() (NOT backdated) => inside the
+-- 3-day shield window => launch_attack must RAISE 'new-player shield'
+-- (0005:172-180). Runs before any cost/soldier guard, so no state mutates.
+-- This is the rejection-path assertion the suite previously lacked; the
+-- backdated B/C launches below keep bypassing the shield as before.
+do $$ begin
+  begin
+    perform public.launch_attack('delta-colony', 100, 'alpha-colony');
+    raise exception '8653 ASSERTION FAILED: shielded target must be rejected by launch_attack';
+  exception
+    when others then
+      if sqlerrm !~ 'new-player shield' then raise; end if;
+  end;
+end $$;
 
 -- a. launch requires a VALID target (unknown planet -> raise).
 do $$ begin
