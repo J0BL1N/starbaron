@@ -403,11 +403,22 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
 do $$
 declare
-  v_id     uuid;
-  v_rep    jsonb;
-  v_n      bigint;
-  v_denied boolean := false;
-  v_row    public.attacks%rowtype;
+  v_id        uuid;
+  v_rep       jsonb;
+  v_n         bigint;
+  v_denied    boolean := false;
+  v_row_id    uuid;
+  v_target    text;
+  v_launcher  uuid;
+  v_status    text;
+  v_outcome   text;
+  v_winner    uuid;
+  v_launched  timestamptz;
+  v_join_win  int;
+  v_travel    int;
+  v_resolves  timestamptz;
+  v_resolved  timestamptz;
+  v_defender  uuid;
 begin
   select id into v_id from public.attacks
    where target_planet_name = 'beta-colony'
@@ -423,13 +434,18 @@ begin
   end if;
 
   -- ...and a FULL-ROW SELECT excluding attack_report is still allowed (the
-  -- column-by-column re-grant restored every non-report column).
+  -- column-by-column re-grant restored every non-report column). Scalar
+  -- SELECT INTO assigns by POSITION too, but each target is explicitly typed,
+  -- so the 12th value (defender_id uuid) coerces correctly — a %rowtype record
+  -- would instead drop it into the table-order 12th field (attack_report
+  -- jsonb) and fail with 22P02.
   select id, target_planet_name, launcher_id, status, outcome, winner_id,
          launched_at, join_window_seconds, travel_seconds, resolves_at,
          resolved_at, defender_id
-    into v_row
+    into v_row_id, v_target, v_launcher, v_status, v_outcome, v_winner,
+         v_launched, v_join_win, v_travel, v_resolves, v_resolved, v_defender
     from public.attacks where id = v_id;
-  if v_row.id is null or v_row.launcher_id is null then
+  if v_row_id is null or v_launcher is null then
     raise exception '8653 ASSERTION FAILED: full-row SELECT minus attack_report must still work';
   end if;
 
