@@ -34,28 +34,28 @@ insert into auth.users (id, email, created_at, updated_at) values
 -- Claims (RPCs are SECURITY DEFINER; claims feed auth.uid()).
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
 do $$ begin
-  perform public.claim_home_planet('alpha', 2);
-  perform public.claim_colony('alpha-colony', 3, 5);
+  perform public.claim_home_planet('alpha', 2::smallint);
+  perform public.claim_colony('alpha-colony', 3::smallint, 5);
 end $$;
 
 set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
 do $$ begin
-  perform public.claim_home_planet('beta', 2);
-  perform public.claim_colony('t-floor', 1, 1);
-  perform public.claim_colony('t-mid', 1, 100);
-  perform public.claim_colony('t-cap', 1, 4000);
-  perform public.claim_colony('beta-colony', 1, 100);
+  perform public.claim_home_planet('beta', 2::smallint);
+  perform public.claim_colony('t-floor', 1::smallint, 1);
+  perform public.claim_colony('t-mid', 1::smallint, 100);
+  perform public.claim_colony('t-cap', 1::smallint, 4000);
+  perform public.claim_colony('beta-colony', 1::smallint, 100);
 end $$;
 
 set local request.jwt.claims = '{"sub":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","role":"authenticated"}';
 do $$ begin
-  perform public.claim_home_planet('gamma', 1);
-  perform public.claim_colony('gamma-colony', 2, 5);
+  perform public.claim_home_planet('gamma', 1::smallint);
+  perform public.claim_colony('gamma-colony', 2::smallint, 5);
 end $$;
 
 set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
 do $$ begin
-  perform public.claim_home_planet('delta', 1);
+  perform public.claim_home_planet('delta', 1::smallint);
 end $$;
 
 -- Seed context: backdate defender/joiner shields (created_at + 3d > now()
@@ -217,6 +217,12 @@ begin
   exception
     when insufficient_privilege then null; -- expected
   end;
+
+  -- belt-and-braces (0007): probe the ACL directly too — authenticated must
+  -- hold NO EXECUTE on the internal resolver, not just fail at call time.
+  if has_function_privilege('authenticated', 'public.resolve_attack(uuid)', 'EXECUTE') then
+    raise exception '8653 ASSERTION FAILED: authenticated holds EXECUTE on resolve_attack (0007 gap)';
+  end if;
 end $$;
 set local role postgres;
 

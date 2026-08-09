@@ -44,8 +44,8 @@ declare
   r2 jsonb;
   n  bigint;
 begin
-  select public.claim_home_planet('alpha', 2) into r1;
-  select public.claim_home_planet('alpha', 2) into r2;
+  select public.claim_home_planet('alpha', 2::smallint) into r1;
+  select public.claim_home_planet('alpha', 2::smallint) into r2;
   if r1 <> r2 then
     raise exception '8653 ASSERTION FAILED: idempotent re-claim must return the same home row';
   end if;
@@ -69,7 +69,7 @@ declare
   r jsonb;
   n bigint;
 begin
-  select public.claim_home_planet('alpha', 1) into r;
+  select public.claim_home_planet('alpha', 1::smallint) into r;
   if r->>'claimed' <> 'false' or r->>'reason' <> 'planet_taken' then
     raise exception '8653 ASSERTION FAILED: second claimant must get planet_taken, got %', r;
   end if;
@@ -83,7 +83,7 @@ end $$;
 do $$
 begin
   begin
-    perform public.claim_colony('zeta', 1);
+    perform public.claim_colony('zeta', 1::smallint);
     raise exception '8653 ASSERTION FAILED: claim_colony with no home must raise';
   exception
     when others then
@@ -96,34 +96,34 @@ end $$;
 do $$
 declare r jsonb;
 begin
-  select public.claim_home_planet('beta', 1) into r;
+  select public.claim_home_planet('beta', 1::smallint) into r;
   if r->>'planet_name' <> 'beta' then
     raise exception '8653 ASSERTION FAILED: B home claim failed: %', r;
   end if;
 
   -- colony on an unclaimed, catalogue-unknown name SUCCEEDS (D3 tradeoff:
   -- the server enforces uniqueness, not catalogue membership).
-  select public.claim_colony('zeta', 1) into r;
+  select public.claim_colony('zeta', 1::smallint) into r;
   if r->>'planet_name' <> 'zeta' or r->>'is_home' <> 'false'
      or r->>'unconquerable' <> 'false' or r->>'population' <> '0' then
     raise exception '8653 ASSERTION FAILED: colony row shape wrong: %', r;
   end if;
 
   -- double-colony on a planet the caller already owns -> planet_taken.
-  select public.claim_colony('zeta', 1) into r;
+  select public.claim_colony('zeta', 1::smallint) into r;
   if r->>'claimed' <> 'false' or r->>'reason' <> 'planet_taken' then
     raise exception '8653 ASSERTION FAILED: double-colony must be planet_taken, got %', r;
   end if;
 
   -- colonising a planet owned by another player -> planet_taken.
-  select public.claim_colony('alpha', 1) into r;
+  select public.claim_colony('alpha', 1::smallint) into r;
   if r->>'reason' <> 'planet_taken' then
     raise exception '8653 ASSERTION FAILED: colonising A-owned planet must be planet_taken, got %', r;
   end if;
 
   -- NULL planet name is rejected by the NOT NULL column guard.
   begin
-    perform public.claim_colony(null, 1);
+    perform public.claim_colony(null, 1::smallint);
     raise exception '8653 ASSERTION FAILED: claim_colony(NULL) must raise not-null violation';
   exception
     when not_null_violation then null; -- expected
@@ -149,7 +149,7 @@ set local role anon;
 do $$
 begin
   begin
-    perform public.claim_home_planet('anon-probe', 1);
+    perform public.claim_home_planet('anon-probe', 1::smallint);
     raise exception '8653 ASSERTION FAILED: anon must not invoke claim_home_planet';
   exception
     when insufficient_privilege then null; -- expected
@@ -164,7 +164,7 @@ set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","r
 do $$
 declare r jsonb;
 begin
-  select public.claim_home_planet('alpha', 2) into r;
+  select public.claim_home_planet('alpha', 2::smallint) into r;
   if r->>'planet_name' <> 'alpha' then
     raise exception '8653 ASSERTION FAILED: authenticated EXECUTE grant broken: %', r;
   end if;

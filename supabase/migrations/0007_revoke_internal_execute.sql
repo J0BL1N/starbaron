@@ -1,0 +1,59 @@
+-- =====================================================================
+-- 0007_revoke_internal_execute
+-- Purpose   : P3-T01-B SECURITY FIX — close the authenticated-EXECUTE
+--             leak on the internal RPC set. Supabase default privileges
+--             grant EXECUTE on ALL new functions to authenticated (and
+--             service_role) at creation; 0005 revoked the internal
+--             resolve_attack(uuid) from public + anon only, NEVER from
+--             authenticated, so an authenticated client could still call
+--             it directly (has_function_privilege('authenticated',
+--             'resolve_attack(uuid)', 'EXECUTE') = true, verified LIVE) —
+--             violating 0005's stated intent ("resolve_attack is INTERNAL:
+--             no EXECUTE grant to authenticated or service_role — only
+--             resolve_due_attacks() may invoke it, as the function
+--             owner"). A client could therefore resolve any inbound attack
+--             on demand, bypassing the lazy on-read gate (DESIGN §5.3 D5).
+--
+-- AUDIT — every function created in 0003 / 0005 / 0006 classified:
+--   INTERNAL (no client grant intended) — explicitly revoked from
+--   authenticated here:
+--     * public.resolve_attack(uuid)           — the verified leak. Invoked
+--       only by resolve_due_attacks() as function owner; no auth guard,
+--       no response gating -> must never be client-executable.
+--     * public.game_config_value(text)        — SECURITY DEFINER config
+--       accessor reading game_config; 0005 already revoked authenticated,
+--       but a drop/recreate of the function re-grants EXECUTE via default
+--       privileges, so the revoke is re-stated here as belt-and-braces.
+--     * public.game_config_number(text)       — same rationale.
+--   CLIENT-CALLABLE (keep the EXECUTE grants from 0003/0005 untouched):
+--     * public.claim_home_planet(text, smallint, double precision,
+--       boolean, boolean)                     — 0003, auth + service_role.
+--     * public.claim_colony(text, smallint, double precision, boolean,
+--       boolean)                              — 0003, auth + service_role.
+--     * public.launch_attack(text, double precision, text)
+--                                             — 0005, auth + service_role.
+--     * public.join_attack(uuid, double precision, text)
+--                                             — 0005, auth + service_role.
+--     * public.resolve_due_attacks()          — 0005, auth + service_role;
+--       the client entry point for lazy resolve (its own response gating
+--       prevents report leaks).
+--   0006_game_config_seed contains NO functions (seed data only).
+--   service_role is the server-side role (bypasses RLS), not a client; it
+--   keeps its existing grants on the client-facing RPCs and its default
+--   EXECUTE on the internal functions is out of scope here — tightening
+--   that to 0005's literal "no EXECUTE to service_role" wording can follow
+--   in a later migration if Jay approves.
+-- Idempotent: YES — REVOKE of an already-absent privilege is a no-op, so
+--             0007 is safe to re-run and cannot error.
+-- Date      : 2026-08-09
+-- Scope     : EXECUTE-grant hygiene on the public-schema RPCs only. No
+--             DDL, no data changes, no grant changes to the client-facing
+--             RPCs.
+-- Forward-only: 0005 is ALREADY APPLIED and is NOT edited (never rewrite
+--             an applied migration). This file re-states the intent on top
+--             as the forward fix; it must be applied after 0006.
+-- =====================================================================
+
+revoke execute on function public.resolve_attack(uuid)     from authenticated;
+revoke execute on function public.game_config_value(text)  from authenticated;
+revoke execute on function public.game_config_number(text) from authenticated;
