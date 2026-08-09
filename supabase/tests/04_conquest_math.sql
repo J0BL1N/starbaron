@@ -870,8 +870,9 @@ end $$;
 -- 13. war-weariness stack pin (B1 semantics): A launches 2 throwaways in
 --     the 24h window + the pin, so the pin resolves against 1.2^2 = 1.44.
 --     AP 2250 / (1500 × 1.44) = 1.0417 → pyrrhic (loss 0.7 → round(750 ×
---     0.7) = 525). Run LAST so the backdated prior buckets do not pollute
---     the count. Throwaways stay inbound (future resolves_at).
+--     0.7) = 525). Backdated prior buckets do not pollute the count; the
+--     throwaways stay inbound (future resolves_at) and are expired out of
+--     the window by the postlude below so the later cases resolve at 1.0.
 -- ---------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
@@ -911,6 +912,17 @@ begin
     raise exception '8653 ASSERTION FAILED: t-wear member losses expected 525, got %', v_res->0->'members'->0->>'losses';
   end if;
 end $$;
+
+-- Postlude (P3-T03-D fix): the case-13 throwaways t-wear1/t-wear2 stay
+-- inbound with launched_at = now() and the resolved t-wear pin also sits at
+-- now() — all three would pollute the weariness count for every case that
+-- follows (14-22 resolve with weariness 1.0, so their ratio recipes hold).
+-- Expire them out of the 24h window here; case 23's own prelude re-expires
+-- them idempotently. (Identical WHERE shape to the case-23 prelude.)
+set local role postgres;
+update public.attacks set launched_at = now() - interval '2 days'
+ where launcher_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+   and launched_at >= now() - interval '24 hours';
 
 -- ---------------------------------------------------------------------
 -- 14. just-below 1.5 boundary: 749 × tier 3 = 2247 vs DP 1500 → ratio
