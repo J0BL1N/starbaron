@@ -379,8 +379,19 @@ begin
           where m->>'player_id' = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') <> 1 then
     raise exception '8653 ASSERTION FAILED: defender roster must contain launcher A and joiner B';
   end if;
-  if v_get->'report' is not null then
+  -- Robust form (02_attack_rls precedent): jsonb_build_object emits a PRESENT
+  -- "report": null key for inbound (v_report is SQL NULL → JSON null literal),
+  -- so `->'report' is not null` is true for a null JSON value and falsely
+  -- fires. An inbound attack must expose NO report; fail only if an actual
+  -- report OBJECT is present. Belt-and-braces: the 'attack' payload may carry
+  -- "attack_report": null (F is the original defender via the current-owner
+  -- fallback, so the embedded payload is NOT stripped), but never an object.
+  if v_get->'report' is not null and jsonb_typeof(v_get->'report') = 'object' then
     raise exception '8653 ASSERTION FAILED: inbound get_attack must not expose a report';
+  end if;
+  if v_get->'attack'->'attack_report' is not null
+     and jsonb_typeof(v_get->'attack'->'attack_report') = 'object' then
+    raise exception '8653 ASSERTION FAILED: inbound attack payload must not embed a report object';
   end if;
 end $$;
 
