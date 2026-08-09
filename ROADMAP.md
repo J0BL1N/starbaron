@@ -87,10 +87,10 @@
 | | **-B** | Implement: ratio resolution, casualty tables, garrison vs deployed state | **Complete** — **0010_ap_effective_level.sql (D1: AP = soldiers × effectiveLevel(shipyard_tier), mirroring the turret DP side)** via `CREATE OR REPLACE resolve_attack` (ACLs persist, no schema change); **04_conquest_math.sql** boundary/casualty/tie-break/weariness suite **live exit 0**; estimator parity locked (tiers 11/15/21 AP pins, D1); 562 tests |
 | | **-C** | Boundary ratios (1.5, 1.0, 0.75), zero-defender edge | **Complete** — 04 suite to 23 cases: inclusivity (exact 1.5/1.0/0.75 + one-below each), zero guards (9999 / 0 / both-zero), massiveWorld flip, effectiveLevel 21 DP, AP 11/15/21 parity, round-vs-floor, weariness-window expiry/inclusive; estimator +152 lines; +570 tests |
 | | **-D** | Evidence + Codex PASS | **Complete** — docs/P3_T03_EVIDENCE.md; live-suite weariness-pollution regression found at -D verification (case-13 throwaways vs cases 14–22) fixed with an expiry postlude + re-verified **all 4 live suites exit 0**; 35 files/570 tests PASS, tsc/lint/build 0; Codex PASS per subtask; see evidence |
-| **P3-T04** Band-together | **-A** | Audit: multi-attacker join window, combined AP, highest-commitment wins | Not started |
-| | **-B** | Implement: joinable attacks, combined AP vs fixed DP, winner allocation | Not started |
-| | **-C** | Edge: join after launch window, simultaneous commits, tie | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
+| **P3-T04** Band-together | **-A** | Audit: multi-attacker join window, combined AP, highest-commitment wins | **Complete** — docs/P3_T04_A_AUDIT.md; **fixed-DP verified live** (DP never scales with attacker count), G1–G4 gaps, B1–B7 blockers |
+| | **-B** | Implement: joinable attacks, combined AP vs fixed DP, winner allocation | **Complete** — **0011_band_together.sql (B1 window clamp to resolves_at, B2 per-player weariness, B3 attack_joined notifications, B4 min-join 100, B7 window-state surfacing)** + estimator `combinedAttackPower` + 05 suite live exit 0 (after JSON-null report assertion fix); 577 tests |
+| | **-C** | Edge: join after launch window, simultaneous commits, tie | **Complete** — 05 suite to 11 cases (window-clamp boundary exacts, 3-way per-player weariness, weariness expiry, in-flight semantics pinned, winner/notifications); +582 tests |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P3_T04_EVIDENCE.md; Codex PASS per subtask; 35 files/582 tests PASS, all 5 live suites exit 0; in-flight weariness semantics FLAGGED for Jay; B2 loser-deduction carries to P3-T05 |
 | **P3-T05** Fortification + war-weariness | **-A** | Audit: 10× ceiling curve, war-weariness +20%/24h per player | Not started |
 | | **-B** | Implement: fortification cost curve (alloy-heavy, escalating), war-weariness counter | Not started |
 | | **-C** | Edge: ceiling clamp, weariness reset, counter accuracy | Not started |
