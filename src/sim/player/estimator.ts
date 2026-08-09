@@ -1,3 +1,4 @@
+import { effectiveLevel } from '../planets/levels'
 import { defensePower } from '../structures/effects'
 
 // =====================================================================
@@ -68,8 +69,11 @@ function assertFinite(value: number, field: string): void {
   }
 }
 
-// AP = soldiers × shipyard tier (§5a). Mirrors the launch/join guards in
-// 0005 (finite positive soldiers; tier integer 0..100 per the table CHECK).
+// AP = soldiers × effectiveLevel(shipyard tier) (§5a, P3-T03-B D1). Mirrors
+// the launch/join guards in 0005 (finite positive soldiers; tier integer
+// 0..100 per the table CHECK) AND the 0010 resolver change: the shipyard
+// contributes its EFFECTIVE level (half-after-10) — exactly as the turret
+// side does — so a tier-15 shipyard multiplies AP by 12.5, not 15.
 export function attackPower(soldiers: number, shipyardTier: number): number {
   assertFinite(soldiers, 'soldiers')
   assertFinite(shipyardTier, 'shipyardTier')
@@ -81,7 +85,7 @@ export function attackPower(soldiers: number, shipyardTier: number): number {
       `shipyardTier must be an integer between 0 and 100, got ${shipyardTier}`,
     )
   }
-  return soldiers * shipyardTier
+  return soldiers * effectiveLevel(shipyardTier)
 }
 
 // DP = turrets × 500 (effectiveLevel) + population × 0.15 (§5a), ×1.1 when

@@ -44,10 +44,19 @@ describe('P3-T02-B estimator — DESIGN §5a outcome boundaries', () => {
 })
 
 describe('P3-T02-B estimator — AP/DP math (§5a, LOCKED formulas)', () => {
-  it('AP = soldiers × shipyard tier', () => {
+  it('AP = soldiers × effectiveLevel(shipyard tier) — tier ≤ 10 is identity', () => {
     expect(attackPower(1000, 3)).toBe(3000)
     expect(attackPower(500, 2)).toBe(1000)
     expect(attackPower(1, 0)).toBe(0)
+  })
+
+  it('AP applies effectiveLevel past tier 10 (D1, mirrors resolver 0010)', () => {
+    // effectiveLevel(15) = min(15,10) + max(0,15−10)×0.5 = 12.5 — the
+    // exact 04_conquest_math t-effap recipe (120 × 12.5 = 1500, NOT 1800).
+    expect(attackPower(120, 15)).toBe(1500)
+    expect(attackPower(200, 15)).toBe(2500)
+    // tier 21 → 10 + 11×0.5 = 15.5 (mirrors the turret t21 pin).
+    expect(attackPower(100, 21)).toBe(1550)
   })
 
   it('DP = turrets × 500 effectiveLevel + population × 0.15 (garrison excluded, B5)', () => {
@@ -244,5 +253,149 @@ describe('P3-T02-B estimator — estimateScout end-to-end preview', () => {
     expect(estimate.dp).toBe(0)
     expect(estimate.ratio).toBe(9999)
     expect(estimate.outcome).toBe('decisive')
+  })
+})
+
+describe('P3-T03-B resolver-expected parity — 04_conquest_math recipe pins', () => {
+  // Hard-coded expected values the SQL suite pins server-side
+  // (supabase/tests/04_conquest_math.sql). A drift on either side fails the
+  // same case in both suites. AP = soldiers × effectiveLevel(tier), DP =
+  // 500×effectiveLevel(turrets) + 0.15×pop (×1.1 massiveWorld), ratio =
+  // AP/(max(DP,0)×weariness), first conquest weariness 1.0.
+
+  it('decisive boundary (ratio exactly 1.5): 750 × tier 3 vs t3 turrets', () => {
+    const estimate = estimateScout({
+      soldiers: 750,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(2250)
+    expect(estimate.dp).toBe(1500)
+    expect(estimate.ratio).toBe(1.5)
+    expect(estimate.outcome).toBe('decisive')
+    expect(estimate.attackerLosses).toBe(300) // round(750×0.4)
+  })
+
+  it('pyrrhic boundary (ratio exactly 1.0): 500 × tier 3 vs t3 turrets', () => {
+    const estimate = estimateScout({
+      soldiers: 500,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(1500)
+    expect(estimate.dp).toBe(1500)
+    expect(estimate.ratio).toBe(1.0)
+    expect(estimate.outcome).toBe('pyrrhic')
+    expect(estimate.attackerLosses).toBe(350) // round(500×0.7)
+  })
+
+  it('repelled boundary (ratio exactly 0.75): 375 × tier 3 vs t3 turrets', () => {
+    const estimate = estimateScout({
+      soldiers: 375,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(1125)
+    expect(estimate.dp).toBe(1500)
+    expect(estimate.ratio).toBe(0.75)
+    expect(estimate.outcome).toBe('repelled')
+    expect(estimate.attackerLosses).toBe(225) // round(375×0.6)
+  })
+
+  it('crushed just-below (ratio 0.748): 374 × tier 3 vs t3 turrets', () => {
+    const estimate = estimateScout({
+      soldiers: 374,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(1122)
+    expect(estimate.ratio).toBeCloseTo(1122 / 1500, 12) // 0.748
+    expect(estimate.outcome).toBe('crushed')
+    expect(estimate.attackerLosses).toBe(337) // round(374×0.9)
+  })
+
+  it('zero-AP (tier-0 shipyard): ratio 0 → crushed', () => {
+    const estimate = estimateScout({
+      soldiers: 100,
+      shipyardTier: 0,
+      turretLevel: 1,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(0)
+    expect(estimate.dp).toBe(500)
+    expect(estimate.ratio).toBe(0)
+    expect(estimate.outcome).toBe('crushed')
+    expect(estimate.attackerLosses).toBe(90) // round(100×0.9)
+  })
+
+  it('massiveWorld DP pin: (500×2 + 0.15×1000) × 1.1 = 1265', () => {
+    expect(defensePowerEstimate(2, 1000, true)).toBe(1265)
+  })
+
+  it('effectiveLevel turret DP pin: t11 → 500 × 10.5 = 5250, t21 → 7750', () => {
+    expect(defensePowerEstimate(11, 0)).toBe(5250)
+    expect(defensePowerEstimate(21, 0)).toBe(7750)
+  })
+
+  it('effectiveLevel AP pin (D1): tier-15 shipyard → ×12.5, ratio 1.5 decisive', () => {
+    const estimate = estimateScout({
+      soldiers: 120,
+      shipyardTier: 15,
+      turretLevel: 2,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(1500) // 120 × effectiveLevel(15)=12.5, NOT ×15
+    expect(estimate.dp).toBe(1000)
+    expect(estimate.ratio).toBe(1.5)
+    expect(estimate.outcome).toBe('decisive')
+    expect(estimate.attackerLosses).toBe(48) // round(120×0.4)
+  })
+
+  it('repelled 30% pop end-to-end: 300 × tier 3 vs t2 + pop 1000', () => {
+    const estimate = estimateScout({
+      soldiers: 300,
+      shipyardTier: 3,
+      turretLevel: 2,
+      population: 1000,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(900)
+    expect(estimate.dp).toBe(1150)
+    expect(estimate.ratio).toBeCloseTo(900 / 1150, 12) // 0.7826
+    expect(estimate.outcome).toBe('repelled')
+    expect(estimate.attackerLosses).toBe(180) // round(300×0.6)
+  })
+
+  it('weariness stack 1.2^2 = 1.44: 750 × tier 3 vs t3 turrets', () => {
+    expect(warWearinessMultiplier(2)).toBeCloseTo(1.44, 12)
+    const estimate = estimateScout({
+      soldiers: 750,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 2,
+    })
+    expect(estimate.weariness).toBeCloseTo(1.44, 12)
+    expect(estimate.ratio).toBeCloseTo(2250 / (1500 * 1.44), 12) // 1.0417
+    expect(estimate.outcome).toBe('pyrrhic')
+    expect(estimate.attackerLosses).toBe(525) // round(750×0.7)
   })
 })
