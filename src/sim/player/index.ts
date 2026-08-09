@@ -39,3 +39,22 @@ export type {
   EmpireRates,
   PlanetTotals,
 } from './accrual'
+export {
+  PVP_CONSTANTS,
+  attackPower,
+  defensePowerEstimate,
+  estimateOutcome,
+  estimateRatio,
+  estimateScout,
+  launchCost,
+  travelSeconds,
+  warWearinessMultiplier,
+} from './estimator'
+export type {
+  EstimatedOutcome,
+  OutcomeId,
+  OutcomeSpec,
+  PvpConstants,
+  ScoutEstimate,
+  ScoutEstimateInput,
+} from './estimator'

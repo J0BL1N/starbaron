@@ -20,6 +20,14 @@
 --                 inbound attacks are open to all authenticated
 --                 (band-together coordination IS the mechanic, audit
 --                 §3.2). anon has no grant on attacks at all.
+--               * attack_report is NOT directly selectable via the table
+--                 (0009 drops the table-level SELECT grant and re-grants
+--                 column-by-column minus attack_report — column privileges
+--                 accumulate): a launcher AND a later foreign conqueror see
+--                 the attack row but cannot read the report column directly
+--                 (denied/NULL); get_attack() is the single gate — the
+--                 ORIGINAL defender still reads the report, a foreign new
+--                 owner gets found:false.
 -- Run      : npx --no-install supabase db query --linked -f supabase/tests/02_attack_rls.sql
 -- Exit     : 0 = pass. Failures RAISE ('8653 ASSERTION FAILED: ...') ->
 --             non-zero exit.
@@ -370,6 +378,177 @@ do $$ begin
     when insufficient_privilege then null; -- expected
   end;
 end $$;
+set local role postgres;
+
+-- j. attack_report column gate (0009). The 0004 SELECT policy lets
+--    the CURRENT owner of the target planet read attack rows, and 0004's
+--    table-level grant exposed EVERY column — including attack_report (full
+--    attack details). 0009 REVOKES the table-level SELECT from
+--    authenticated, then RE-GRANTS SELECT column-by-column for every
+--    column EXCEPT attack_report (PostgreSQL column privileges accumulate,
+--    so this is the correct way to subtract one column; a column-level
+--    REVOKE cannot subtract a table-level grant). The report is therefore
+--    ONLY reachable via the SECURITY DEFINER get_attack() gate (launcher /
+--    ORIGINAL defender / member). Proves:
+--      * the launcher (A) still sees the resolved row and can still SELECT
+--        every non-report column (full-row minus attack_report), but cannot
+--        SELECT the report column directly (denied or NULL — never the
+--        report);
+--      * after a SECOND conquest by a FOREIGN attacker (D — not launcher,
+--        not member, not the original defender of A's prior attack), the new
+--        owner still sees the row (current-owner clause) but the report
+--        column stays revoked, and get_attack() returns found:false;
+--      * the ORIGINAL defender (B) still reads the report via get_attack().
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$
+declare
+  v_id     uuid;
+  v_rep    jsonb;
+  v_n      bigint;
+  v_denied boolean := false;
+  v_row    public.attacks%rowtype;
+begin
+  select id into v_id from public.attacks
+   where target_planet_name = 'beta-colony'
+     and defender_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  if v_id is null then
+    raise exception '8653 ASSERTION FAILED: prior attack on beta-colony not found';
+  end if;
+
+  -- Launcher A still sees the resolved row (RLS row gate unchanged)...
+  select count(*) into v_n from public.attacks where id = v_id;
+  if v_n <> 1 then
+    raise exception '8653 ASSERTION FAILED: launcher must still see the resolved row, saw %', v_n;
+  end if;
+
+  -- ...and a FULL-ROW SELECT excluding attack_report is still allowed (the
+  -- column-by-column re-grant restored every non-report column).
+  select id, target_planet_name, launcher_id, status, outcome, winner_id,
+         launched_at, join_window_seconds, travel_seconds, resolves_at,
+         resolved_at, defender_id
+    into v_row
+    from public.attacks where id = v_id;
+  if v_row.id is null or v_row.launcher_id is null then
+    raise exception '8653 ASSERTION FAILED: full-row SELECT minus attack_report must still work';
+  end if;
+
+  -- ...but the report column is revoked from authenticated: a direct SELECT
+  -- must be denied (or yield NULL) — never the report payload.
+  begin
+    select attack_report into v_rep from public.attacks where id = v_id;
+  exception
+    when insufficient_privilege then v_denied := true;
+  end;
+  if not v_denied and v_rep is not null then
+    raise exception '8653 ASSERTION FAILED: launcher must not SELECT attack_report directly';
+  end if;
+end $$;
+
+-- Second conquest: D (foreign attacker) takes beta-colony from A. Backdate A
+-- so beta-colony is no longer shield-protected; fund D and tier delta's
+-- shipyard so the resolve is deterministic (beta-colony DP = 0 -> decisive).
+-- Direct mutations run as postgres (RLS FORCE + select-only policies).
+set local role postgres;
+update public.players set created_at = now() - interval '10 days'
+ where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+update public.players set credits = 1000000 where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+update public.owned_planets set structure_levels = structure_levels || '{"shipyard":3}'
+ where planet_name = 'delta';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('beta-colony', 1000, 'delta'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: foreign launch on beta-colony must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name = 'beta-colony' and status = 'inbound';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$
+declare
+  v_res   jsonb;
+  v_owner uuid;
+begin
+  v_res := public.resolve_due_attacks();
+  if v_res = '[]'::jsonb then
+    raise exception '8653 ASSERTION FAILED: foreign attack must resolve';
+  end if;
+  select owner_id into v_owner from public.owned_planets where planet_name = 'beta-colony';
+  if v_owner is distinct from 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' then
+    raise exception '8653 ASSERTION FAILED: foreign attacker must now own beta-colony';
+  end if;
+end $$;
+
+-- D is now the CURRENT owner of beta-colony yet was never the launcher, a
+-- member, or the ORIGINAL defender of A's prior attack (defender_id = B).
+-- The 0004 policy still shows the row (current-owner clause) — but the
+-- report column is revoked, and get_attack() hides it from D entirely.
+do $$
+declare
+  v_id     uuid;
+  v_rep    jsonb;
+  v_n      bigint;
+  v_denied boolean := false;
+  v_get    jsonb;
+begin
+  select id into v_id from public.attacks
+   where target_planet_name = 'beta-colony'
+     and defender_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  if v_id is null then
+    raise exception '8653 ASSERTION FAILED: prior attack on beta-colony not found';
+  end if;
+
+  select count(*) into v_n from public.attacks where id = v_id;
+  if v_n <> 1 then
+    raise exception '8653 ASSERTION FAILED: new owner must still see the resolved row, saw %', v_n;
+  end if;
+
+  begin
+    select attack_report into v_rep from public.attacks where id = v_id;
+  exception
+    when insufficient_privilege then v_denied := true;
+  end;
+  if not v_denied and v_rep is not null then
+    raise exception '8653 ASSERTION FAILED: new owner must not SELECT attack_report directly';
+  end if;
+
+  v_get := public.get_attack(v_id);
+  if (v_get->>'found') <> 'false' then
+    raise exception '8653 ASSERTION FAILED: get_attack must hide the prior report from the new owner';
+  end if;
+end $$;
+
+-- The ORIGINAL defender (B) still reads the report through the gated RPC.
+-- B cannot SELECT the attack row from the table post-conquest (RLS: B is
+-- not launcher / member / current owner and the attack is resolved), so B
+-- obtains the attack id via get_player_state() — the read RPC that includes
+-- attacks where defender_id = me — then reads the report via get_attack().
+set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
+do $$
+declare
+  v_state jsonb;
+  v_id    uuid;
+  v_get   jsonb;
+begin
+  v_state := public.get_player_state();
+  select (x->>'id')::uuid into v_id
+    from jsonb_array_elements(v_state->'attacks') x
+   where x->>'target_planet_name' = 'beta-colony';
+  if v_id is null then
+    raise exception '8653 ASSERTION FAILED: original defender must see the prior attack via get_player_state';
+  end if;
+  v_get := public.get_attack(v_id);
+  if (v_get->>'found') <> 'true'
+     or v_get->'report' is null
+     or jsonb_typeof(v_get->'report') <> 'object' then
+    raise exception '8653 ASSERTION FAILED: original defender must read the report via get_attack';
+  end if;
+end $$;
+
 set local role postgres;
 
 rollback;

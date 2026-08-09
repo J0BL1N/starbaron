@@ -1,0 +1,248 @@
+import { describe, expect, it } from 'vitest'
+import {
+  PVP_CONSTANTS,
+  attackPower,
+  defensePowerEstimate,
+  estimateOutcome,
+  estimateRatio,
+  estimateScout,
+  launchCost,
+  travelSeconds,
+  warWearinessMultiplier,
+} from '../src/sim/player/estimator'
+import { effectiveLevel } from '../src/sim/planets/levels'
+
+describe('P3-T02-B estimator — DESIGN §5a outcome boundaries', () => {
+  it('ratio 1.5 is the decisive/pyrrhic boundary (>= 1.5 decisive)', () => {
+    expect(estimateOutcome(1.5)).toEqual({ outcome: 'decisive', attackerLossPct: 0.4 })
+    expect(estimateOutcome(1.499999)).toEqual({
+      outcome: 'pyrrhic',
+      attackerLossPct: 0.7,
+    })
+  })
+
+  it('ratio 1.0 is the pyrrhic/repelled boundary (>= 1.0 pyrrhic)', () => {
+    expect(estimateOutcome(1.0)).toEqual({ outcome: 'pyrrhic', attackerLossPct: 0.7 })
+    expect(estimateOutcome(0.999)).toEqual({
+      outcome: 'repelled',
+      attackerLossPct: 0.6,
+    })
+  })
+
+  it('ratio 0.75 is the repelled/crushed boundary (>= 0.75 repelled)', () => {
+    expect(estimateOutcome(0.75)).toEqual({ outcome: 'repelled', attackerLossPct: 0.6 })
+    expect(estimateOutcome(0.749999)).toEqual({
+      outcome: 'crushed',
+      attackerLossPct: 0.9,
+    })
+  })
+
+  it('ratio 0 and the zero-DP edge (9999) map to crushed and decisive', () => {
+    expect(estimateOutcome(0)).toEqual({ outcome: 'crushed', attackerLossPct: 0.9 })
+    expect(estimateOutcome(9999)).toEqual({ outcome: 'decisive', attackerLossPct: 0.4 })
+  })
+})
+
+describe('P3-T02-B estimator — AP/DP math (§5a, LOCKED formulas)', () => {
+  it('AP = soldiers × shipyard tier', () => {
+    expect(attackPower(1000, 3)).toBe(3000)
+    expect(attackPower(500, 2)).toBe(1000)
+    expect(attackPower(1, 0)).toBe(0)
+  })
+
+  it('DP = turrets × 500 effectiveLevel + population × 0.15 (garrison excluded, B5)', () => {
+    expect(defensePowerEstimate(0, 1000)).toBe(150)
+    expect(defensePowerEstimate(10, 1000)).toBe(500 * effectiveLevel(10) + 150)
+    expect(defensePowerEstimate(10, 1000)).toBe(5150)
+    expect(defensePowerEstimate(11, 1000)).toBe(500 * effectiveLevel(11) + 150)
+    expect(defensePowerEstimate(11, 1000)).toBe(5400)
+  })
+
+  it('massiveWorld multiplies DP by the 0006 value (1.1)', () => {
+    expect(defensePowerEstimate(10, 1000, true)).toBeCloseTo(5150 * 1.1, 12)
+    expect(defensePowerEstimate(0, 1000, false)).toBe(150)
+  })
+
+  it('ratio = AP / (max(DP,0) × weariness); first conquest weariness 1.0', () => {
+    expect(estimateRatio(3000, 150, 1)).toBe(20)
+    expect(estimateRatio(4000, 150, 1)).toBeCloseTo(4000 / 150, 12)
+    expect(estimateRatio(4000, 150, 1.2)).toBeCloseTo(4000 / 150 / 1.2, 12)
+  })
+
+  it('zero-DP edge mirrors resolve_attack: AP>0 -> 9999, AP=0 -> 0', () => {
+    expect(estimateRatio(100, 0, 1)).toBe(9999)
+    expect(estimateRatio(0, 0, 1)).toBe(0)
+    expect(estimateRatio(0, 500, 1)).toBe(0)
+  })
+})
+
+describe('P3-T02-B estimator — war-weariness (B1 semantics)', () => {
+  it('first conquest costs 1.0x, 4th costs 1.2^3 = 1.728x (§5a)', () => {
+    expect(warWearinessMultiplier(0)).toBe(1)
+    expect(warWearinessMultiplier(1)).toBe(1.2)
+    expect(warWearinessMultiplier(2)).toBeCloseTo(1.44, 12)
+    expect(warWearinessMultiplier(3)).toBeCloseTo(1.728, 12)
+    expect(warWearinessMultiplier(4)).toBeCloseTo(2.0736, 12)
+  })
+
+  it('rejects non-integer or negative conquest counts', () => {
+    expect(() => warWearinessMultiplier(-1)).toThrow(RangeError)
+    expect(() => warWearinessMultiplier(1.5)).toThrow(RangeError)
+  })
+})
+
+describe('P3-T02-B estimator — 0006 seed parity (balance-drift guard)', () => {
+  it('travel knobs match game_config seed exactly', () => {
+    expect(PVP_CONSTANTS.travel_minutes_per_pc).toBe(1)
+    expect(PVP_CONSTANTS.travel_floor_seconds).toBe(600)
+    expect(PVP_CONSTANTS.travel_cap_seconds).toBe(172800)
+  })
+
+  it('launch-cost + weariness + shield + repelled knobs match seed', () => {
+    expect(PVP_CONSTANTS.launch_cost_base_credits).toBe(200)
+    expect(PVP_CONSTANTS.launch_cost_per_fleet_credits).toBe(0.2)
+    expect(PVP_CONSTANTS.launch_cost_per_pc_credits).toBe(10)
+    expect(PVP_CONSTANTS.war_weariness_multiplier).toBe(1.2)
+    expect(PVP_CONSTANTS.war_weariness_window_hours).toBe(24)
+    expect(PVP_CONSTANTS.new_player_shield_days).toBe(3)
+    expect(PVP_CONSTANTS.defender_pop_loss_repelled).toBe(0.3)
+    expect(PVP_CONSTANTS.join_window_seconds).toBe(7200)
+  })
+
+  it('combat constants match the D4 seed (effects.ts parity)', () => {
+    expect(PVP_CONSTANTS.turret_defense_power_per_level).toBe(500)
+    expect(PVP_CONSTANTS.militia_defense_per_population).toBe(0.15)
+    expect(PVP_CONSTANTS.effective_level_cap).toBe(10)
+    expect(PVP_CONSTANTS.diminishing_returns_factor).toBe(0.5)
+    expect(PVP_CONSTANTS.massive_world_multiplier).toBe(1.1)
+  })
+
+  it('outcome table matches the seed buckets + losses', () => {
+    expect(PVP_CONSTANTS.outcome_ratios_and_losses.decisive).toEqual({
+      min_ratio: 1.5,
+      attacker_loss: 0.4,
+    })
+    expect(PVP_CONSTANTS.outcome_ratios_and_losses.pyrrhic).toEqual({
+      min_ratio: 1.0,
+      attacker_loss: 0.7,
+    })
+    expect(PVP_CONSTANTS.outcome_ratios_and_losses.repelled).toEqual({
+      min_ratio: 0.75,
+      attacker_loss: 0.6,
+    })
+    expect(PVP_CONSTANTS.outcome_ratios_and_losses.crushed).toEqual({
+      min_ratio: 0.0,
+      attacker_loss: 0.9,
+    })
+  })
+})
+
+describe('P3-T02-B estimator — launch cost + travel (0005 mirrors)', () => {
+  it('launchCost = 200 + fleet×0.2 + distance×10 (§5.2 worked example)', () => {
+    expect(launchCost(100, 1)).toBe(230)
+    expect(launchCost(5000, 10)).toBe(1300)
+    expect(launchCost(0, 0)).toBe(200)
+    expect(launchCost(100, null)).toBe(220)
+  })
+
+  it('travelSeconds mirrors least(greatest(round), floor), cap)', () => {
+    expect(travelSeconds(null)).toBe(600)
+    expect(travelSeconds(0)).toBe(600)
+    expect(travelSeconds(1)).toBe(600)
+    expect(travelSeconds(100)).toBe(6000)
+    expect(travelSeconds(4000)).toBe(172800)
+    expect(travelSeconds(5000)).toBe(172800)
+  })
+})
+
+describe('P3-T02-B estimator — guards mirroring the RPC CHECKs', () => {
+  it('attackPower rejects 0 / NaN / ±Infinity soldiers and bad tiers', () => {
+    expect(() => attackPower(0, 3)).toThrow(RangeError)
+    expect(() => attackPower(Number.NaN, 3)).toThrow(RangeError)
+    expect(() => attackPower(Number.POSITIVE_INFINITY, 3)).toThrow(RangeError)
+    expect(() => attackPower(100, -1)).toThrow(RangeError)
+    expect(() => attackPower(100, 101)).toThrow(RangeError)
+    expect(() => attackPower(100, 2.5)).toThrow(RangeError)
+  })
+
+  it('defensePowerEstimate rejects non-finite population', () => {
+    expect(() => defensePowerEstimate(1, Number.NaN)).toThrow(RangeError)
+    expect(() => defensePowerEstimate(1, Number.NEGATIVE_INFINITY)).toThrow(
+      RangeError,
+    )
+    expect(() => defensePowerEstimate(1, -1)).toThrow(RangeError)
+  })
+
+  it('estimateRatio rejects non-finite ap/dp/weariness and negative weariness', () => {
+    expect(() => estimateRatio(Number.NaN, 100)).toThrow(RangeError)
+    expect(() => estimateRatio(100, Number.POSITIVE_INFINITY)).toThrow(RangeError)
+    expect(() => estimateRatio(100, 100, -1)).toThrow(RangeError)
+  })
+
+  it('launchCost and travelSeconds reject non-finite / negative distance', () => {
+    expect(() => launchCost(100, Number.NaN)).toThrow(RangeError)
+    expect(() => launchCost(100, -1)).toThrow(RangeError)
+    expect(() => travelSeconds(-5)).toThrow(RangeError)
+    expect(() => travelSeconds(Number.NaN)).toThrow(RangeError)
+  })
+})
+
+describe('P3-T02-B estimator — estimateScout end-to-end preview', () => {
+  it('a strong raid vs a soft target previews decisive with 40% losses', () => {
+    const estimate = estimateScout({
+      soldiers: 1500,
+      shipyardTier: 3,
+      turretLevel: 0,
+      population: 1000,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    // AP 1500×3 = 4500 vs DP 0.15×1000 = 150 -> ratio 30 -> decisive
+    expect(estimate.ap).toBe(4500)
+    expect(estimate.dp).toBe(150)
+    expect(estimate.weariness).toBe(1)
+    expect(estimate.ratio).toBe(30)
+    expect(estimate.outcome).toBe('decisive')
+    expect(estimate.attackerLossPct).toBe(0.4)
+    expect(estimate.attackerLosses).toBe(600)
+  })
+
+  it('a weak raid with prior conquests drops through the buckets', () => {
+    const strong = estimateScout({
+      soldiers: 3000,
+      shipyardTier: 1,
+      turretLevel: 0,
+      population: 1000,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(strong.ratio).toBeCloseTo(20, 12)
+    expect(strong.outcome).toBe('decisive')
+
+    const weary = estimateScout({
+      soldiers: 3000,
+      shipyardTier: 1,
+      turretLevel: 0,
+      population: 1000,
+      massiveWorld: false,
+      recentLaunches: 3,
+    })
+    // weariness 1.2^3 = 1.728 -> ratio 20/1.728 ≈ 11.57 (still decisive)
+    expect(weary.weariness).toBeCloseTo(1.728, 12)
+    expect(weary.ratio).toBeCloseTo(20 / 1.728, 12)
+  })
+
+  it('the zero-DP edge previews decisive with AP>0', () => {
+    const estimate = estimateScout({
+      soldiers: 100,
+      shipyardTier: 1,
+      turretLevel: 0,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.dp).toBe(0)
+    expect(estimate.ratio).toBe(9999)
+    expect(estimate.outcome).toBe('decisive')
+  })
+})
