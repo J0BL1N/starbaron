@@ -618,3 +618,71 @@ describe('P3-T04-B estimator — combinedAttackPower (per-player weariness parit
     expect(() => combinedAttackPower({ soldiers: 100, shipyardTier: 3 })).toThrow(RangeError)
   })
 })
+
+describe('P3-T04-C estimator — combinedAttackPower deep edges (05 case-8 parity)', () => {
+  // Negative-path/regression deepening: single-member == attackPower, the
+  // three-tier per-player weariness stack from 05 case 8 (A 3 prior / B 1
+  // prior / C fresh), cross-player non-leak, and NaN/±Infinity member guards.
+
+  it('a single fresh member is exactly attackPower (solo equivalence)', () => {
+    const single = combinedAttackPower([{ soldiers: 720, shipyardTier: 3 }])
+    expect(single).toBe(attackPower(720, 3))
+    expect(single).toBe(2160)
+  })
+
+  it('three weariness tiers mirror the 05 case-8 pin: 1250 + 2500 + 1500 = 5250', () => {
+    // A: 720×3 = 2160 raw, /1.2^3 = 1250; B: 1000×3 = 3000, /1.2 = 2500;
+    // C: 500×3 = 1500 fresh (1.0). Same recipe the SQL suite pins.
+    const gang = [
+      { soldiers: 720, shipyardTier: 3, recentLaunches: 3 },
+      { soldiers: 1000, shipyardTier: 3, recentLaunches: 1 },
+      { soldiers: 500, shipyardTier: 3 },
+    ]
+    expect(combinedAttackPower(gang)).toBeCloseTo(5250, 6)
+    expect(combinedAttackPower([gang[0]])).toBeCloseTo(1250, 6)
+    expect(combinedAttackPower([gang[1]])).toBeCloseTo(2500, 6)
+    expect(combinedAttackPower([gang[2]])).toBeCloseTo(1500, 6)
+  })
+
+  it('weariness is per player — a weary member never deflates the others', () => {
+    // B and C are identical except recentLaunches: only the weary one is
+    // discounted, so the gang total = fresh members full-strength + weary
+    // member divided by his OWN stack only.
+    const weary = combinedAttackPower([
+      { soldiers: 100, shipyardTier: 3, recentLaunches: 3 },
+    ])
+    const fresh = combinedAttackPower([{ soldiers: 100, shipyardTier: 3 }])
+    expect(weary).toBeCloseTo(fresh / Math.pow(PVP_CONSTANTS.war_weariness_multiplier, 3), 12)
+    expect(
+      combinedAttackPower([
+        { soldiers: 100, shipyardTier: 3, recentLaunches: 3 },
+        { soldiers: 100, shipyardTier: 3 },
+      ]),
+    ).toBeCloseTo(fresh + weary, 12)
+  })
+
+  it('NaN / ±Infinity soldiers and recentLaunches are rejected by the member guards', () => {
+    expect(() =>
+      combinedAttackPower([{ soldiers: Number.NaN, shipyardTier: 3 }]),
+    ).toThrow(RangeError)
+    expect(() =>
+      combinedAttackPower([{ soldiers: Number.POSITIVE_INFINITY, shipyardTier: 3 }]),
+    ).toThrow(RangeError)
+    expect(() =>
+      combinedAttackPower([{ soldiers: Number.NEGATIVE_INFINITY, shipyardTier: 3 }]),
+    ).toThrow(RangeError)
+    expect(() =>
+      combinedAttackPower([{ soldiers: 100, shipyardTier: 3, recentLaunches: Number.NaN }]),
+    ).toThrow(RangeError)
+    expect(() =>
+      combinedAttackPower([{ soldiers: 100, shipyardTier: 3, recentLaunches: Number.POSITIVE_INFINITY }]),
+    ).toThrow(RangeError)
+    expect(() =>
+      combinedAttackPower([{ soldiers: 100, shipyardTier: 3, recentLaunches: Number.NEGATIVE_INFINITY }]),
+    ).toThrow(RangeError)
+  })
+
+  it('an empty gang is 0 AP — no guard needed, mirrors the resolver coalesce(sum,0)', () => {
+    expect(combinedAttackPower([])).toBe(0)
+  })
+})

@@ -50,6 +50,21 @@
 --   5    | t-ppw          | 3       | A 144 (2 prior) + B 700         | 2532   | 2400     | 1500| 1.6    | decisive (winner B)
 --   6    | t-min          | 1       | A 200 (no resolve)             | —      | —        | —   | —      | — (min-join guard)
 --   7    | t-rep          | 3       | A 300 + C 100                   | 1200   | 1200     | 1500| 0.8    | repelled (losses report-only)
+--   8    | t-ppw3         | 3       | A 720 (3 prior) + B 1000 (1 prior)
+--                               + C 500 (fresh)                     | 5250*  | 5250     | 1500| 3.5    | decisive (winner B — highest
+--                                  COMMITTER, not launcher A)       — per-member ap 1250/2500/1500;
+--                                  Σ = combined 5250; economy survives,
+--                                  turrets destroyed, losers NOT deducted
+--   9    | t-wedge(+r)    | —       | join-window clamp BOUNDARIES    | —      | —        | —   | —      | 1s-before-close ACCEPTED; exactly-
+--                                  AT-close REJECTED; resolves_at-term
+--                                  exact REJECTED; join_window_seconds=0
+--                                  rejected by the schema CHECK (> 0)
+--   10   | t-exp          | 3       | D 500 (1 prior EXPIRED 24h+1s)  | 1500   | 1500     | 1500| 1.0    | pyrrhic (weariness window cleared
+--                                  → 1.0; ap undiminished 1500, NOT 1250)
+--   11   | t-inf          | 3       | D 500 + D in-flight 100         | —      | 1250     | 1500| 0.8333 | repelled (IN-FLIGHT prior DOES
+--                                  count — pins live behaviour, see report)
+--   * raw sum = 2160 + 3000 + 1500 = 6660; DEFLATED sum = 5250 (combined_ap
+--     is the deflated total the ratio actually uses).
 -- =====================================================================
 
 begin;
@@ -110,6 +125,22 @@ do $$ begin
   perform public.claim_colony('t-rep',       1::smallint);
   perform public.claim_colony('t-w1',        1::smallint);
   perform public.claim_colony('t-w2',        1::smallint);
+  -- P3-T04-C targets (cases 8-11): t-ppw3 is the deep weariness pin,
+  -- t-pw-* are resolved prior-attack throwaways, t-exp/t-inf are the
+  -- expiry + in-flight pins, t-wedge/t-wedge-r/t-win0 are window-clamp
+  -- boundary probes (never resolved).
+  perform public.claim_colony('t-ppw3',      1::smallint);
+  perform public.claim_colony('t-pw-a1',     1::smallint);
+  perform public.claim_colony('t-pw-a2',     1::smallint);
+  perform public.claim_colony('t-pw-a3',     1::smallint);
+  perform public.claim_colony('t-pw-b1',     1::smallint);
+  perform public.claim_colony('t-exp',       1::smallint);
+  perform public.claim_colony('t-pw-d1',     1::smallint);
+  perform public.claim_colony('t-inf',       1::smallint);
+  perform public.claim_colony('t-inf-th',    1::smallint);
+  perform public.claim_colony('t-wedge',     1::smallint);
+  perform public.claim_colony('t-wedge-r',   1::smallint);
+  perform public.claim_colony('t-win0',      1::smallint);
 end $$;
 
 -- Seed context (as postgres): backdate ALL six shields (a shielded target is
@@ -134,6 +165,13 @@ update public.owned_planets set structure_levels = structure_levels || '{"shipya
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":1}' where planet_name = 'a1';
 update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":3}' where planet_name in ('t-fixed-1v1','t-fixed-1v5','t-ppw','t-rep');
 update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":1}' where planet_name in ('t-clamp','t-far','t-min');
+-- P3-T04-C recipes: t-ppw3/t-exp/t-inf face DP 1500 (t3); the t-pw-*
+-- throwaways face DP 500 (t1) so the low-AP prior attacks never take them.
+update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":3}' where planet_name in ('t-ppw3','t-exp','t-inf');
+update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":1}' where planet_name in ('t-pw-a1','t-pw-a2','t-pw-a3','t-pw-b1','t-pw-d1');
+-- t-ppw3 carries an economy to prove "everything survives EXCEPT defenses"
+-- on conquest (mirrors the 04 t-dec pin: oreMine 5 + shipyard 2 survive).
+update public.owned_planets set structure_levels = structure_levels || '{"shipyard":2,"oreMine":5}' where planet_name = 't-ppw3';
 
 -- ---------------------------------------------------------------------
 -- 1. Fixed-DP baseline — 1v1: A 750 × tier 3 = 2250 AP vs F t3 turrets
@@ -332,11 +370,42 @@ begin
   end;
 end $$;
 
+-- B3 regression: the REJECTED double-join must not have duplicated the
+-- earlier notification — the launcher (A) still holds exactly ONE
+-- attack_joined row for B's join on t-clamp.
+set local role postgres;
+do $$
+declare v_n int;
+begin
+  select count(*) into v_n
+    from public.notifications
+   where player_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+     and kind = 'attack_joined'
+     and payload->>'attack_id' = (select id::text from public.attacks where target_planet_name = 't-clamp')
+     and payload->>'actor_id' = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  if v_n <> 1 then
+    raise exception '8653 ASSERTION FAILED: double-join must not duplicate the attack_joined notification, got %', v_n;
+  end if;
+end $$;
+
+-- B3 schema pin: the notifications kind CHECK (re-created by 0011) admits
+-- 'attack_joined' alongside the five §5b kinds.
+do $$
+declare v_def text;
+begin
+  select pg_get_constraintdef(oid) into v_def
+    from pg_constraint where conname = 'notifications_kind_check';
+  if v_def is null or v_def !~ 'attack_joined' then
+    raise exception '8653 ASSERTION FAILED: notifications_kind_check must admit attack_joined, got %', v_def;
+  end if;
+end $$;
+
 -- Defender roster via get_attack: F (the CURRENT owner of t-clamp, i.e. the
 -- defender while the attack is inbound) reads the full member roster + the
 -- window state. window_closes_at must equal resolves_at (travel 600s is
 -- SHORTER than the 7200s join window, so the clamp binds the close to the
 -- arrival) and join_window_open must be true (still inbound + before close).
+set local role authenticated;
 set local request.jwt.claims = '{"sub":"ffffffff-ffff-4fff-8fff-ffffffffffff","role":"authenticated"}';
 do $$
 declare
@@ -595,6 +664,67 @@ begin
   end if;
 end $$;
 
+-- B4 edge: exactly-100.0 FLOAT passes the < 100 guard; NaN / ±Infinity are
+-- rejected by the finite guard BEFORE any state mutates (no membership row).
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-min' and status = 'inbound';
+  if (select public.join_attack(v_id, 100.0::float8, 'c3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: float 100.0 join must be accepted';
+  end if;
+end $$;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-min' and status = 'inbound';
+  begin
+    perform public.join_attack(v_id, 'NaN'::float8, 'd3');
+    raise exception '8653 ASSERTION FAILED: NaN join must be rejected';
+  exception
+    when others then
+      if sqlerrm !~ 'finite, positive' then raise; end if;
+  end;
+end $$;
+set local request.jwt.claims = '{"sub":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-min' and status = 'inbound';
+  begin
+    perform public.join_attack(v_id, 'Infinity'::float8, 'e3');
+    raise exception '8653 ASSERTION FAILED: Infinity join must be rejected';
+  exception
+    when others then
+      if sqlerrm !~ 'finite, positive' then raise; end if;
+  end;
+end $$;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-min' and status = 'inbound';
+  begin
+    perform public.join_attack(v_id, '-Infinity'::float8, 'a3');
+    raise exception '8653 ASSERTION FAILED: -Infinity join must be rejected';
+  exception
+    when others then
+      if sqlerrm !~ 'finite, positive' then raise; end if;
+  end;
+end $$;
+set local role postgres;
+do $$
+declare v_n int;
+begin
+  select count(*) into v_n from public.attack_members
+   where attack_id = (select id from public.attacks where target_planet_name = 't-min');
+  if v_n <> 3 then
+    raise exception '8653 ASSERTION FAILED: rejected NaN/±Infinity joins must not create memberships, got %', v_n;
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- 7. Loser casualties REPORT-ONLY (B6 carry, P3-T05): repelled band — A 300
 --    × 3 + C 100 × 3 = 1200 AP vs F t3 turrets (DP 1500) → ratio 0.8 →
@@ -685,6 +815,522 @@ begin
   select fleet into v_fleet from public.owned_planets where planet_name = 'c3';
   if v_fleet <> 0 then
     raise exception '8653 ASSERTION FAILED: loser C fleet must NOT be deducted (B2/P3-T05), got %', v_fleet;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 8. Deep per-player weariness (A 3 prior → 1.728, B 1 prior → 1.2, C
+--    fresh → 1.0) + winner allocation edge (B wins — the middle joiner and
+--    highest COMMITTER, NOT the launcher A) + planet transfer/turret
+--    destruction + economy survival + loser no-deduction + member-fan-out
+--    join notifications (existing members get told, the joiner does not).
+-- ---------------------------------------------------------------------
+set local role postgres;
+-- Weariness reset: backdate everything still in-window (t-rep resolved in
+-- case 7, etc.) out so A's stack is exactly the 3 fresh throwaways below
+-- and B's exactly the 1. A 720×3 = 2160 /1.728 = 1250; B 1000×3 = 3000 /1.2
+-- = 2500; C 500×3 = 1500 → combined 5250 vs DP 1500 → ratio 3.5 decisive.
+update public.attacks set launched_at = now() - interval '2 days'
+ where launched_at >= now() - interval '24 hours';
+
+-- A's 3 prior + B's 1 prior: RESOLVED in-window attacks on t1-turret
+-- colonies (crushed/repelled → F keeps the targets). Resolving them (rather
+-- than leaving them in-flight) pins that RESOLVED prior attacks count
+-- toward a member's own stack.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-pw-a1', 100, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-pw-a1 throwaway launch must be inbound';
+  end if;
+  if (select public.launch_attack('t-pw-a2', 100, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-pw-a2 throwaway launch must be inbound';
+  end if;
+  if (select public.launch_attack('t-pw-a3', 100, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-pw-a3 throwaway launch must be inbound';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-pw-b1', 100, 'b3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-pw-b1 throwaway launch must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name in ('t-pw-a1','t-pw-a2','t-pw-a3','t-pw-b1')
+   and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$ begin
+  -- resolve_due_attacks RESPONSE-GATES reports by caller (0005), so count
+  -- only the side-effect (status flip) in the attacks table, not the array.
+  perform public.resolve_due_attacks();
+end $$;
+
+-- All 4 prior attacks must have RESOLVED (t-pw-b1's report is B's — A never
+-- sees it — but the resolution side-effect is status-scoped, not gated).
+set local role postgres;
+do $$
+declare v_n int;
+begin
+  select count(*) into v_n from public.attacks
+   where target_planet_name in ('t-pw-a1','t-pw-a2','t-pw-a3','t-pw-b1')
+     and status = 'resolved';
+  if v_n <> 4 then
+    raise exception '8653 ASSERTION FAILED: all 4 throwaway attacks must resolve, got %', v_n;
+  end if;
+end $$;
+
+-- The throwaway colonies must survive their prior attacks (defensive pin).
+set local role postgres;
+do $$
+declare v_owner uuid;
+begin
+  select owner_id into v_owner from public.owned_planets where planet_name = 't-pw-a1';
+  if v_owner is distinct from 'ffffffff-ffff-4fff-8fff-ffffffffffff' then
+    raise exception '8653 ASSERTION FAILED: crushed throwaway t-pw-a1 must stay with F';
+  end if;
+  select owner_id into v_owner from public.owned_planets where planet_name = 't-pw-b1';
+  if v_owner is distinct from 'ffffffff-ffff-4fff-8fff-ffffffffffff' then
+    raise exception '8653 ASSERTION FAILED: repelled throwaway t-pw-b1 must stay with F';
+  end if;
+end $$;
+
+-- The pin: A (launcher, 720) + B (middle joiner, 1000) + C (last joiner, 500).
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-ppw3', 720, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 launch must be inbound';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-ppw3' and status = 'inbound';
+  if (select public.join_attack(v_id, 1000, 'b3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 B join (1000) must be accepted';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-ppw3' and status = 'inbound';
+  if (select public.join_attack(v_id, 500, 'c3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 C join must be accepted';
+  end if;
+end $$;
+
+-- B3 fan-out: launcher A is notified on B's join AND C's join (2 rows);
+-- existing member B is notified on C's join (1 row); the joiner C is NEVER
+-- self-notified (0 rows).
+set local role postgres;
+do $$
+declare
+  v_aid uuid;
+  v_a_n int; v_b_n int; v_c_n int;
+  v_ab int; v_ac int; v_bc int;
+begin
+  select id into v_aid from public.attacks where target_planet_name = 't-ppw3';
+  select count(*) into v_a_n
+    from public.notifications
+   where player_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+     and kind = 'attack_joined' and payload->>'attack_id' = v_aid::text;
+  select count(*) into v_b_n
+    from public.notifications
+   where player_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+     and kind = 'attack_joined' and payload->>'attack_id' = v_aid::text;
+  select count(*) into v_c_n
+    from public.notifications
+   where player_id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+     and kind = 'attack_joined' and payload->>'attack_id' = v_aid::text;
+  select count(*) into v_ab
+    from public.notifications
+   where player_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+     and kind = 'attack_joined' and payload->>'attack_id' = v_aid::text
+     and payload->>'actor_id' = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  select count(*) into v_ac
+    from public.notifications
+   where player_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+     and kind = 'attack_joined' and payload->>'attack_id' = v_aid::text
+     and payload->>'actor_id' = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  select count(*) into v_bc
+    from public.notifications
+   where player_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+     and kind = 'attack_joined' and payload->>'attack_id' = v_aid::text
+     and payload->>'actor_id' = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  if v_a_n <> 2 then
+    raise exception '8653 ASSERTION FAILED: launcher A must get 2 attack_joined (B + C), got %', v_a_n;
+  end if;
+  if v_b_n <> 1 then
+    raise exception '8653 ASSERTION FAILED: existing member B must get 1 attack_joined (C), got %', v_b_n;
+  end if;
+  if v_c_n <> 0 then
+    raise exception '8653 ASSERTION FAILED: joiner C must NOT self-notify, got %', v_c_n;
+  end if;
+  if v_ab <> 1 or v_ac <> 1 then
+    raise exception '8653 ASSERTION FAILED: A must have one notification per actor (B, C), got %/%', v_ab, v_ac;
+  end if;
+  if v_bc <> 1 then
+    raise exception '8653 ASSERTION FAILED: B must have one notification from actor C, got %', v_bc;
+  end if;
+end $$;
+
+-- Resolve the pin and pin the per-member weariness tiers + the winner.
+set local role postgres;
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name = 't-ppw3' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$
+declare
+  v_res jsonb;
+  v_a_ap numeric; v_b_ap numeric; v_c_ap numeric;
+  v_a_w numeric; v_b_w numeric; v_c_w numeric;
+begin
+  v_res := public.resolve_due_attacks();
+  select r into v_res from jsonb_array_elements(v_res) r
+   where r->>'target_planet_name' = 't-ppw3';
+  if v_res is null then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 report missing';
+  end if;
+  if (v_res->>'combined_ap')::numeric <> 5250 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 combined_ap expected 5250 (1250+2500+1500), got %', v_res->>'combined_ap';
+  end if;
+  if (v_res->>'defense_power')::numeric <> 1500 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 DP expected 1500, got %', v_res->>'defense_power';
+  end if;
+  if (v_res->>'ratio')::numeric <> 3.5 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 ratio expected 3.5 (5250/1500), got %', v_res->>'ratio';
+  end if;
+  if (v_res->>'outcome') <> 'decisive' then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 expected decisive, got %', v_res->>'outcome';
+  end if;
+  -- winner = B (middle joiner, highest COMMITTER 1000 — NOT the launcher A,
+  -- NOT the earliest joiner A; commit decides, tie-break irrelevant).
+  if (v_res->>'winner_id') is distinct from 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 winner must be the highest committer B (not launcher A)';
+  end if;
+  -- report-level launcher weariness stays backward-compatible (A's own stack).
+  if (v_res->>'war_weariness_multiplier')::numeric <> 1.728 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 report weariness expected 1.728 (launcher A), got %', v_res->>'war_weariness_multiplier';
+  end if;
+  -- per-member weariness tiers — A 1.728 / B 1.2 / C 1.0 (no cross-player leak).
+  select (m->>'ap')::numeric, (m->>'weariness')::numeric into v_a_ap, v_a_w
+    from jsonb_array_elements(v_res->'members') m
+   where m->>'player_id' = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  select (m->>'ap')::numeric, (m->>'weariness')::numeric into v_b_ap, v_b_w
+    from jsonb_array_elements(v_res->'members') m
+   where m->>'player_id' = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  select (m->>'ap')::numeric, (m->>'weariness')::numeric into v_c_ap, v_c_w
+    from jsonb_array_elements(v_res->'members') m
+   where m->>'player_id' = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  if v_a_ap is distinct from 1250 or v_a_w is distinct from 1.728 then
+    raise exception '8653 ASSERTION FAILED: A expected ap 1250 / weariness 1.728, got %/%', v_a_ap, v_a_w;
+  end if;
+  if v_b_ap is distinct from 2500 or v_b_w is distinct from 1.2 then
+    raise exception '8653 ASSERTION FAILED: B expected ap 2500 / weariness 1.2, got %/%', v_b_ap, v_b_w;
+  end if;
+  if v_c_ap is distinct from 1500 or v_c_w is distinct from 1.0 then
+    raise exception '8653 ASSERTION FAILED: C expected ap 1500 / weariness 1.0, got %/%', v_c_ap, v_c_w;
+  end if;
+  if (v_a_ap + v_b_ap + v_c_ap) is distinct from 5250 then
+    raise exception '8653 ASSERTION FAILED: member ap must sum to combined_ap 5250, got %+%+%', v_a_ap, v_b_ap, v_c_ap;
+  end if;
+end $$;
+
+-- Conquest transfer + turret destruction + economy survival + loser no-rdn.
+set local role postgres;
+do $$
+declare
+  v_owner uuid; v_turret int; v_ship int; v_ore int;
+  v_pop double precision; v_gar double precision; v_fleet double precision;
+  v_a_fleet double precision; v_c_fleet double precision;
+begin
+  select owner_id, coalesce((structure_levels->>'defenseTurret')::int, -1),
+         coalesce((structure_levels->>'shipyard')::int, -1),
+         coalesce((structure_levels->>'oreMine')::int, -1),
+         population, garrison, fleet
+    into v_owner, v_turret, v_ship, v_ore, v_pop, v_gar, v_fleet
+    from public.owned_planets where planet_name = 't-ppw3';
+  if v_owner is distinct from 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 must transfer to the winner B';
+  end if;
+  if v_turret <> -1 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 defenseTurret must be destroyed (key gone), got %', v_turret;
+  end if;
+  if v_ship <> 2 or v_ore <> 5 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 economy must survive (shipyard 2, oreMine 5), got %/%', v_ship, v_ore;
+  end if;
+  if v_pop <> 0 or v_gar <> 0 or v_fleet <> 0 then
+    raise exception '8653 ASSERTION FAILED: t-ppw3 fresh settlement (0/0/0), got %/%/%', v_pop, v_gar, v_fleet;
+  end if;
+  -- losers' committed soldiers are REPORT-ONLY (B6 carry): source fleets
+  -- are untouched even on a decisive conquest by someone else.
+  select fleet into v_a_fleet from public.owned_planets where planet_name = 'a3';
+  select fleet into v_c_fleet from public.owned_planets where planet_name = 'c3';
+  if v_a_fleet <> 0 then
+    raise exception '8653 ASSERTION FAILED: loser A fleet must NOT be deducted, got %', v_a_fleet;
+  end if;
+  if v_c_fleet <> 0 then
+    raise exception '8653 ASSERTION FAILED: loser C fleet must NOT be deducted, got %', v_c_fleet;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 9. Join-window clamp boundaries (G1/B1, 0011 `now() >= close`):
+--    (a) join 1s BEFORE the clamped close is accepted;
+--    (b) join EXACTLY AT the clamped close (window term binds) is rejected;
+--    (c) join EXACTLY AT resolves_at (the resolves term binds) is rejected;
+--    (d) join_window_seconds = 0 is a schema guard (0004 CHECK > 0) — the
+--        clamp-with-zero is unreachable by valid state.
+-- ---------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-wedge', 200, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-wedge launch must be inbound';
+  end if;
+end $$;
+
+-- (a) launched_at backdated 7199s (window 7200) → clamped close = now() + 1s
+-- → now() < close → accepted.
+set local role postgres;
+update public.attacks set launched_at = now() - interval '7199 seconds'
+ where target_planet_name = 't-wedge' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-wedge' and status = 'inbound';
+  if (select public.join_attack(v_id, 100, 'b3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: join 1s before the clamped close must be accepted';
+  end if;
+end $$;
+
+-- (b) launched_at backdated the FULL 7200s → clamped close = now() EXACTLY →
+-- now() >= close → rejected at the boundary (the 0005 `>` check would have
+-- accepted this exact instant).
+set local role postgres;
+update public.attacks set launched_at = now() - interval '7200 seconds'
+ where target_planet_name = 't-wedge' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-wedge' and status = 'inbound';
+  begin
+    perform public.join_attack(v_id, 100, 'c3');
+    raise exception '8653 ASSERTION FAILED: join exactly at the clamped close must be rejected';
+  exception
+    when others then
+      if sqlerrm !~ 'join window closed' then raise; end if;
+  end;
+end $$;
+
+-- (c) resolves_at-term exact boundary: fresh attack, resolves_at := now() →
+-- clamp = least(launched + 7200, now()) = now() → rejected.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-wedge-r', 200, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-wedge-r launch must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set resolves_at = now()
+ where target_planet_name = 't-wedge-r' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from public.attacks where target_planet_name = 't-wedge-r' and status = 'inbound';
+  begin
+    perform public.join_attack(v_id, 100, 'd3');
+    raise exception '8653 ASSERTION FAILED: join at resolves_at (exact) must be rejected';
+  exception
+    when others then
+      if sqlerrm !~ 'join window closed' then raise; end if;
+  end;
+end $$;
+
+-- Restore t-wedge-r's resolves_at to the future so it is NOT due for the
+-- later lazy resolves (the exact-boundary probe is done).
+set local role postgres;
+update public.attacks set resolves_at = now() + interval '1 hour'
+ where target_planet_name = 't-wedge-r' and status = 'inbound';
+
+-- (d) zero window is unreachable: the 0004 CHECK join_window_seconds > 0
+-- rejects 0. (If 0 were allowed the clamp would be least(launched+0,
+-- resolves) = launched_at — the window term binding trivially — not
+-- resolves_at; the schema guard is the honest edge pin.)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-win0', 200, 'a3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-win0 launch must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+do $$
+begin
+  begin
+    update public.attacks set join_window_seconds = 0
+     where target_planet_name = 't-win0' and status = 'inbound';
+    raise exception '8653 ASSERTION FAILED: join_window_seconds = 0 must violate the CHECK';
+  exception
+    when others then
+      if sqlerrm !~ 'join_window_seconds' then raise; end if;
+  end;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 10. Weariness window expiry (24h): D's single prior RESOLVED attack is
+--     backdated to 24h + 1s → it leaves the 24h window → D's next resolve
+--     faces 1.0x (ap 1500 undiminished, NOT 1500/1.2 = 1250; ratio 1.0
+--     pyrrhic, NOT 0.8333 repelled).
+-- ---------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-pw-d1', 100, 'd3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-pw-d1 throwaway launch must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name = 't-pw-d1' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$ begin
+  if (select count(*) from jsonb_array_elements(public.resolve_due_attacks())) <> 1 then
+    raise exception '8653 ASSERTION FAILED: t-pw-d1 must resolve (and only it)';
+  end if;
+end $$;
+
+-- expire it: 24h + 1s beyond the weariness window.
+set local role postgres;
+update public.attacks set launched_at = now() - interval '24 hours' - interval '1 second'
+ where target_planet_name = 't-pw-d1';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-exp', 500, 'd3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-exp launch must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name = 't-exp' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$
+declare
+  v_res jsonb;
+  v_ap numeric; v_w numeric;
+begin
+  v_res := public.resolve_due_attacks();
+  select r into v_res from jsonb_array_elements(v_res) r
+   where r->>'target_planet_name' = 't-exp';
+  if v_res is null then
+    raise exception '8653 ASSERTION FAILED: t-exp report missing';
+  end if;
+  select (m->>'ap')::numeric, (m->>'weariness')::numeric into v_ap, v_w
+    from jsonb_array_elements(v_res->'members') m
+   where m->>'player_id' = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  if v_w is distinct from 1.0 then
+    raise exception '8653 ASSERTION FAILED: expired prior must leave weariness 1.0, got %', v_w;
+  end if;
+  if v_ap is distinct from 1500 then
+    raise exception '8653 ASSERTION FAILED: expired prior must leave ap 1500 (undiminished), got %', v_ap;
+  end if;
+  if (v_res->>'ratio')::numeric <> 1.0 then
+    raise exception '8653 ASSERTION FAILED: t-exp expected ratio 1.0 (1500/1500), got %', v_res->>'ratio';
+  end if;
+  if (v_res->>'outcome') <> 'pyrrhic' then
+    raise exception '8653 ASSERTION FAILED: t-exp expected pyrrhic (weariness cleared), got %', v_res->>'outcome';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 11. In-flight weariness regression pin: an INBOUND in-window attack DOES
+--     count toward the player's own stack. Live war_weariness_multiplier_for
+--     (0008) has NO status filter — the existing case-5 t-w1/t-w2 in-flight
+--     throwaways already rely on this. NOTE: this pins ACTUAL behaviour,
+--     which differs from a "RESOLVED-only" reading of DESIGN §5b — flagged
+--     in the P3-T04-C report, no code changed.
+-- ---------------------------------------------------------------------
+set local role postgres;
+-- reset: D's t-exp (resolved in case 10) is still in-window → backdate it out.
+update public.attacks set launched_at = now() - interval '2 days'
+ where launched_at >= now() - interval '24 hours';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('t-inf', 500, 'd3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-inf launch must be inbound';
+  end if;
+  -- second launch stays IN-FLIGHT (never resolved) but is in-window.
+  if (select public.launch_attack('t-inf-th', 100, 'd3'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: t-inf-th launch must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name = 't-inf' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","role":"authenticated"}';
+do $$
+declare
+  v_res jsonb;
+  v_ap numeric; v_w numeric;
+begin
+  v_res := public.resolve_due_attacks();
+  select r into v_res from jsonb_array_elements(v_res) r
+   where r->>'target_planet_name' = 't-inf';
+  if v_res is null then
+    raise exception '8653 ASSERTION FAILED: t-inf report missing';
+  end if;
+  -- the in-flight t-inf-th counts → weariness 1.2 → ap 1500/1.2 = 1250.
+  select (m->>'ap')::numeric, (m->>'weariness')::numeric into v_ap, v_w
+    from jsonb_array_elements(v_res->'members') m
+   where m->>'player_id' = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  if v_w is distinct from 1.2 then
+    raise exception '8653 ASSERTION FAILED: in-flight prior must count (weariness 1.2), got %', v_w;
+  end if;
+  if v_ap is distinct from 1250 then
+    raise exception '8653 ASSERTION FAILED: in-flight prior must deflate ap to 1250, got %', v_ap;
+  end if;
+  if (v_res->>'ratio')::numeric <> 0.8333 then
+    raise exception '8653 ASSERTION FAILED: t-inf expected ratio 0.8333 (1250/1500), got %', v_res->>'ratio';
+  end if;
+  if (v_res->>'outcome') <> 'repelled' then
+    raise exception '8653 ASSERTION FAILED: t-inf expected repelled, got %', v_res->>'outcome';
   end if;
 end $$;
 

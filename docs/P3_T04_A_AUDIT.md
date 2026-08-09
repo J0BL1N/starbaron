@@ -158,7 +158,24 @@ Caveat: **required DP does scale with the LAUNCHER's weariness** (`greatest(v_dp
 
 ---
 
-## 8. Files Touched (this audit)
+## 8. Surfaced Findings (P3-T04-C)
+
+*Subsection added during the P3-T04-C correction round — the live contract suite (`supabase/tests/05_band_together.sql`, cases 8–11) surfaced two semantics notes that must be surfaced in the tracked record, not only as inline test comments. This is the "P3-T04-C report" that the case-11 comment references (05_band_together.sql:1281–1283).*
+
+### 8.1 Weariness semantics — IN-FLIGHT attacks count toward a player's own weariness
+
+- **What case 11 pins:** the live resolver counts a member's **IN-FLIGHT** (in-window, not-yet-resolved) attacks toward that member's **own** war-weariness stack. `war_weariness_multiplier_for` (0008) has **no status filter**, so any attack inside the weariness period inflates the multiplier — resolved or not. Case 11 (`05_band_together.sql:1278–1283`, targets `t-inf` / `t-inf-th`) pins this: attacker D's second, still-inbound launch `t-inf-th` deflates D's own contribution on `t-inf` from 1500 AP to **1250** (`weariness` 1.2), flipping the outcome to `repelled`.
+- **Deviation from a strict DESIGN §5b "resolved-only" reading:** one plausible reading of "+20%/24h per player" is that only attacks **resolved** within the 24h period count toward the tax. The live resolver instead counts **all** launches in the period, including those still in flight. This is a genuine semantic deviation from that stricter reading, and it is why the case-5 `t-w1`/`t-w2` in-flight throwaways already depend on in-flight counting (0008, no status filter).
+- **Bridge decision — KEEP the resolver behaviour:** recent war activity genuinely includes attacks still in flight (the player is actively committed to a fight that has not yet resolved), and counting them needs no status filter and no race on when "resolved" flips the counter. The deviation is deliberate and defensible.
+- **FLAGGED FOR JAY for playtest:** if playtesting shows the in-flight tax is punishing (e.g. launching two simultaneous attacks taxes both at 1.2×), the fix is to add a status filter to `war_weariness_multiplier_for` (count only `status = 'resolved'` launches) and re-pin case 11 + estimator parity accordingly. Documented here so the deviation is an honest surfaced note, not hidden in a test comment.
+
+### 8.2 Concurrency — single-session suite limitation
+
+- `05_band_together.sql` runs as a single `db query` session (`BEGIN…ROLLBACK`); its sequential joins prove membership + PK dedup but **cannot** exercise `FOR UPDATE` lock serialisation or a genuine simultaneous-join race (see §6 "Concurrency — known limitation"). No concurrent-join coverage is claimed by this suite; the `FOR UPDATE` mechanism itself is verified by code inspection (§2.1, 0005:314–318).
+
+---
+
+## 9. Files Touched (this audit)
 
 - **Created:** `docs/P3_T04_A_AUDIT.md` (this file). **Nothing else changed.** No commit. No `main` work. No remote contact.
 - Evidence reviewed: DESIGN §5b/§5a/§5.2/§6 (lines 110–135, 137–159), ROADMAP P3-T04 rows, docs/P3_T03_EVIDENCE.md + P3_T02_EVIDENCE.md, `supabase/migrations/0004/0005/0006/0008/0009/0010`, `supabase/tests/02_attack_rls.sql` + `04_conquest_math.sql`, `src/sim/player/estimator.ts`, `src/backend/api.ts`, `tests/backend-api.test.ts`, `tests/backend-estimator.test.ts`.
