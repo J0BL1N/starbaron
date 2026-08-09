@@ -121,6 +121,40 @@ export function warWearinessMultiplier(
   return Math.pow(constants.war_weariness_multiplier, recentLaunches)
 }
 
+// Band-together (DESIGN §5b): a forming attack's members combine their AP
+// against the defender's FIXED, unchanged DP. Combined AP is per-member
+// deflated by that member's OWN 1.2^recentLaunches stack (P3-T04-B B2/G3 —
+// war-weariness is per PLAYER, not a launcher-wide divisor on the total),
+// mirroring the 0011 resolver exactly:
+//   combined_ap = Σ (soldiers × effectiveLevel(shipyardTier)) / 1.2^recentLaunches
+// recentLaunches is optional and defaults to 0 (a fresh attacker's soldiers
+// count at full strength; pass each gang member's own 24h conquest count for
+// the faithful gang preview).
+export interface AttackMember {
+  soldiers: number
+  shipyardTier: number
+  recentLaunches?: number
+}
+
+export function combinedAttackPower(
+  members: AttackMember[],
+  constants: Pick<PvpConstants, 'war_weariness_multiplier'> = PVP_CONSTANTS,
+): number {
+  if (!Array.isArray(members)) {
+    throw new RangeError(`members must be an array, got ${members}`)
+  }
+  let total = 0
+  for (const member of members) {
+    const ap = attackPower(member.soldiers, member.shipyardTier)
+    const weariness = warWearinessMultiplier(
+      member.recentLaunches ?? 0,
+      constants,
+    )
+    total += ap / weariness
+  }
+  return total
+}
+
 // Ratio = AP / (max(DP,0) × weariness). Zero-DP edge mirrors resolve_attack:
 // AP>0 → 9999 (decisive); AP=0 → 0 (crushed).
 export function estimateRatio(ap: number, dp: number, weariness = 1): number {

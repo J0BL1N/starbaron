@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PVP_CONSTANTS,
   attackPower,
+  combinedAttackPower,
   defensePowerEstimate,
   estimateOutcome,
   estimateRatio,
@@ -549,5 +550,71 @@ describe('P3-T03-C estimator — boundary, zero-edge, MW-flip, rounding, parity'
     expect(weary.weariness).toBeCloseTo(1.728, 12)
     expect(weary.ratio).toBeCloseTo(2250 / (1500 * 1.728), 12) // 0.8681
     expect(weary.outcome).toBe('repelled')
+  })
+})
+
+describe('P3-T04-B estimator — combinedAttackPower (per-player weariness parity)', () => {
+  // Mirrors the 0011 resolver exactly: combined_ap = Σ (soldiers ×
+  // effectiveLevel(shipyardTier)) / 1.2^own_recentLaunches. A fresh member
+  // (recentLaunches 0, or omitted) counts at full strength; a weary member
+  // counts at reduced strength. Sums Σ members[].ap == combined_ap.
+
+  it('empty gang → 0', () => {
+    expect(combinedAttackPower([])).toBe(0)
+  })
+
+  it('two fresh members combine their effectiveLevel AP (04 t-band / 05 1v5 parity)', () => {
+    expect(
+      combinedAttackPower([
+        { soldiers: 500, shipyardTier: 3 },
+        { soldiers: 250, shipyardTier: 3 },
+      ]),
+    ).toBe(2250) // 1500 + 750
+  })
+
+  it('recentLaunches defaults to 0 when omitted (fresh attacker, full strength)', () => {
+    expect(combinedAttackPower([{ soldiers: 750, shipyardTier: 3 }])).toBe(2250)
+  })
+
+  it('per-player weariness: only the weary member is deflated (05 case-5 pin)', () => {
+    // A: 2 prior → 432/1.44 = 300 (NOT 432); B: 0 prior → 2100 (undiminished).
+    const gang = [
+      { soldiers: 144, shipyardTier: 3, recentLaunches: 2 },
+      { soldiers: 700, shipyardTier: 3, recentLaunches: 0 },
+    ]
+    expect(combinedAttackPower(gang)).toBeCloseTo(2400, 6) // 300 + 2100
+    expect(combinedAttackPower([gang[0]])).toBeCloseTo(432 / 1.44, 6)
+    expect(combinedAttackPower([gang[1]])).toBeCloseTo(2100, 6)
+  })
+
+  it('effectiveLevel applies past tier 10 inside a gang (D1 parity)', () => {
+    // tier 15 → ×12.5 = 1250; tier 21 → ×15.5 = 1550.
+    expect(
+      combinedAttackPower([
+        { soldiers: 100, shipyardTier: 15 },
+        { soldiers: 100, shipyardTier: 21 },
+      ]),
+    ).toBe(2800)
+  })
+
+  it('mixed weariness + high tier: tier-21 member with 2 prior is /1.44', () => {
+    expect(
+      combinedAttackPower([{ soldiers: 100, shipyardTier: 21, recentLaunches: 2 }]),
+    ).toBeCloseTo(1550 / 1.44, 6)
+  })
+
+  it('delegates member validation to attackPower / warWearinessMultiplier', () => {
+    expect(() => combinedAttackPower([{ soldiers: 0, shipyardTier: 3 }])).toThrow(RangeError)
+    expect(() => combinedAttackPower([{ soldiers: 100, shipyardTier: 101 }])).toThrow(
+      RangeError,
+    )
+    expect(() =>
+      combinedAttackPower([{ soldiers: 100, shipyardTier: 3, recentLaunches: -1 }]),
+    ).toThrow(RangeError)
+    expect(() => combinedAttackPower([{ soldiers: 100, shipyardTier: 3, recentLaunches: 1.5 }])).toThrow(
+      RangeError,
+    )
+    // @ts-expect-error — the function guards non-array input at runtime.
+    expect(() => combinedAttackPower({ soldiers: 100, shipyardTier: 3 })).toThrow(RangeError)
   })
 })
