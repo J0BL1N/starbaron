@@ -44,7 +44,7 @@ create index attacks_due_idx      on public.attacks (resolves_at) where status =
 create table public.attack_members (
   attack_id          uuid not null references public.attacks (id) on delete cascade,
   player_id          uuid not null references public.players (id),
-  soldiers_committed double precision not null check (isfinite(soldiers_committed) and soldiers_committed > 0),  -- permanent war cost (§4a); finite+positive (NaN/±∞/0 rejected)
+  soldiers_committed double precision not null check (soldiers_committed <> 'NaN'::float8 and soldiers_committed <> 'Infinity'::float8 and soldiers_committed <> '-Infinity'::float8 and soldiers_committed > 0),  -- permanent war cost (§4a); finite+positive (NaN/±∞/0 rejected)
   shipyard_tier      smallint not null check (shipyard_tier between 0 and 100),  -- AP = soldiers × shipyard tier (§5a) — snapshot at join
   joined_at          timestamptz not null default now(),
   primary key (attack_id, player_id)

@@ -134,7 +134,7 @@ begin
     raise exception 'authenticated caller required' using errcode = '42501'; -- insufficient_privilege
   end if;
 
-  if p_soldiers is null or not isfinite(p_soldiers) or p_soldiers <= 0 then
+  if p_soldiers is null or p_soldiers = 'NaN'::float8 or p_soldiers = 'Infinity'::float8 or p_soldiers = '-Infinity'::float8 or p_soldiers <= 0 then
     raise exception 'soldiers must be a finite, positive number, got %', p_soldiers;
   end if;
 
@@ -296,7 +296,7 @@ begin
     raise exception 'authenticated caller required' using errcode = '42501'; -- insufficient_privilege
   end if;
 
-  if p_soldiers is null or not isfinite(p_soldiers) or p_soldiers <= 0 then
+  if p_soldiers is null or p_soldiers = 'NaN'::float8 or p_soldiers = 'Infinity'::float8 or p_soldiers = '-Infinity'::float8 or p_soldiers <= 0 then
     raise exception 'soldiers must be a finite, positive number, got %', p_soldiers;
   end if;
 

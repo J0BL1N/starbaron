@@ -53,7 +53,7 @@ begin
     raise exception 'tier must be between 1 and 5, got %', p_tier;
   end if;
 
-  if p_distance_pc is not null and (not isfinite(p_distance_pc) or p_distance_pc < 0) then
+  if p_distance_pc is not null and (p_distance_pc = 'NaN'::float8 or p_distance_pc = 'Infinity'::float8 or p_distance_pc = '-Infinity'::float8 or p_distance_pc < 0) then
     raise exception 'distance_pc must be null or a finite, non-negative number, got %', p_distance_pc;
   end if;
 
@@ -160,7 +160,7 @@ begin
     raise exception 'tier must be between 1 and 5, got %', p_tier;
   end if;
 
-  if p_distance_pc is not null and (not isfinite(p_distance_pc) or p_distance_pc < 0) then
+  if p_distance_pc is not null and (p_distance_pc = 'NaN'::float8 or p_distance_pc = 'Infinity'::float8 or p_distance_pc = '-Infinity'::float8 or p_distance_pc < 0) then
     raise exception 'distance_pc must be null or a finite, non-negative number, got %', p_distance_pc;
   end if;
 

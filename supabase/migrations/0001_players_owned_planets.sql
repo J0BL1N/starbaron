@@ -16,8 +16,8 @@
 create table public.players (
   id               uuid primary key references auth.users (id) on delete cascade,
   display_name     text not null default '',
-  credits          double precision not null default 1000 check (isfinite(credits) and credits >= 0),   -- STARTER_CREDITS (src/sim/player/wallet.ts); NaN/±∞ rejected
-  alloys           double precision not null default 0    check (isfinite(alloys) and alloys >= 0),      -- STARTER_ALLOYS; NaN/±∞ rejected
+  credits          double precision not null default 1000 check (credits <> 'NaN'::float8 and credits <> 'Infinity'::float8 and credits <> '-Infinity'::float8 and credits >= 0),   -- STARTER_CREDITS (src/sim/player/wallet.ts); NaN/±∞ rejected
+  alloys           double precision not null default 0    check (alloys <> 'NaN'::float8 and alloys <> 'Infinity'::float8 and alloys <> '-Infinity'::float8 and alloys >= 0),      -- STARTER_ALLOYS; NaN/±∞ rejected
   last_seen_at     timestamptz not null default now(),
   created_at       timestamptz not null default now()                             -- new-player shield (3d) derived from this, no column (D10)
 );
@@ -37,17 +37,17 @@ create table public.owned_planets (
   owner_id                    uuid not null references public.players (id) on delete cascade,
   planet_name                 text not null,
   tier                        smallint not null check (tier between 1 and 5),
-  baseline_income_per_sec     double precision not null check (isfinite(baseline_income_per_sec) and baseline_income_per_sec >= 0),   -- 10 × tier at claim (DESIGN §4d); NaN/±∞ rejected
-  population_cap_multiplier   double precision not null check (isfinite(population_cap_multiplier) and population_cap_multiplier > 0),  -- tier table §4d; NaN/±∞ rejected
-  distance_pc                 double precision check (distance_pc is null or (isfinite(distance_pc) and distance_pc >= 0)), -- catalogue, denormalised (travel time, §5.2); NaN/±∞ rejected
+  baseline_income_per_sec     double precision not null check (baseline_income_per_sec <> 'NaN'::float8 and baseline_income_per_sec <> 'Infinity'::float8 and baseline_income_per_sec <> '-Infinity'::float8 and baseline_income_per_sec >= 0),   -- 10 × tier at claim (DESIGN §4d); NaN/±∞ rejected
+  population_cap_multiplier   double precision not null check (population_cap_multiplier <> 'NaN'::float8 and population_cap_multiplier <> 'Infinity'::float8 and population_cap_multiplier <> '-Infinity'::float8 and population_cap_multiplier > 0),  -- tier table §4d; NaN/±∞ rejected
+  distance_pc                 double precision check (distance_pc is null or (distance_pc <> 'NaN'::float8 and distance_pc <> 'Infinity'::float8 and distance_pc <> '-Infinity'::float8 and distance_pc >= 0)), -- catalogue, denormalised (travel time, §5.2); NaN/±∞ rejected
   claimed_at                  timestamptz not null default now(),
   is_home                     boolean not null default false,
   unconquerable               boolean not null default false, -- = is_home at claim (DESIGN §5 "unconquerable home")
   massive_world               boolean not null default false, -- combat quirk flag (D4): DP × massive_world_multiplier at resolve (§5.3)
   dense_core                  boolean not null default false, -- combat quirk flag (D4): housing pop-cap × dense_core_multiplier (P3-T05 accrual)
-  population                  double precision not null default 0 check (isfinite(population) and population >= 0),
-  garrison                    double precision not null default 0 check (isfinite(garrison) and garrison >= 0),
-  fleet                       double precision not null default 0 check (isfinite(fleet) and fleet >= 0),
+  population                  double precision not null default 0 check (population <> 'NaN'::float8 and population <> 'Infinity'::float8 and population <> '-Infinity'::float8 and population >= 0),
+  garrison                    double precision not null default 0 check (garrison <> 'NaN'::float8 and garrison <> 'Infinity'::float8 and garrison <> '-Infinity'::float8 and garrison >= 0),
+  fleet                       double precision not null default 0 check (fleet <> 'NaN'::float8 and fleet <> 'Infinity'::float8 and fleet <> '-Infinity'::float8 and fleet >= 0),
   structure_levels            jsonb not null check (jsonb_typeof(structure_levels) = 'object') -- Record<StructureId, number> (§1.3)
 );
 
