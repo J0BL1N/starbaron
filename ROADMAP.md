@@ -76,9 +76,9 @@
 | Task | Subtask | Scope | Status |
 |---|---|---|---|
 | **P3-T01** Supabase schema | **-A** | Audit: schema design — players, planets, structures, population, attack timers, RLS | **Complete** — docs/P3_T01_A_AUDIT.md (b8f5b24); 12 decisions D1–D12 approved by Jay 2026-08-09 (anon auth, JSONB grids, no server catalogue, game_config balance seed, DB-function resolve, server-authoritative) |
-| | **-B** | Implement: forward-only migrations, tables + RLS + indexes | **Complete** — supabase/migrations 0001–0006 (players/owned_planets JSONB grids + uniqueness, meta tables, claim/colonise RPCs, attacks/attack_members, attack RPCs, game_config seed); zero remote contact; **Codex PASS after 6 audit rounds** (8+3+3+2+2 findings all fixed: anon sign-ins, resolve gating, RLS recursion, NaN/∞ guards, game_config ordering, FOR UPDATE, doc sync) |
-| | **-C** | RLS probes: anon/authenticated/service_role behaviour | Not started |
-| | **-D** | Evidence + Codex PASS | Not started |
+| | **-B** | Implement: forward-only migrations, tables + RLS + indexes | **Complete** — supabase/migrations 0001–0007 (players/owned_planets JSONB grids + uniqueness, meta tables, claim/colonise RPCs, attacks/attack_members, attack RPCs + lazy resolve, game_config seed, 0007 security revokes); **Codex PASS after 6 audit rounds** (8+3+3+2+2 findings all fixed: anon sign-ins, resolve gating, RLS recursion, NaN/∞ guards, game_config ordering, FOR UPDATE, doc sync); isfinite() → float8-safe NaN/∞ guards (13 sites, unapplied migrations) |
+| | **-C** | RLS probes: anon/authenticated/service_role behaviour | **Complete** — supabase/tests 01_claim_rls / 02_attack_rls / 03_config contract suites + P3_T01_C_PLAN; **all 7 migrations applied to live (ogsleukfykumxsyvyusz, Sydney)**; all 3 suites **exit 0**; 0007 closes the authenticated-EXECUTE leak on resolve_attack (found by live probe) + RPC signature alignment + ACL assertions |
+| | **-D** | Evidence + Codex PASS | **Complete** — docs/P3_T01_EVIDENCE.md; 515 tests / 33 files PASS, tsc 0, lint 0, live suites exit 0; Codex PASS per subtask; see evidence |
 | **P3-T02** Attack flow | **-A** | Audit: scout → commit → launch → travel (real distance) → resolve | Not started |
 | | **-B** | Implement: full async attack lifecycle with distance-based travel timers | Not started |
 | | **-C** | Edge: travel time calc, concurrent attacks, cancellation | Not started |
