@@ -399,3 +399,155 @@ describe('P3-T03-B resolver-expected parity — 04_conquest_math recipe pins', (
     expect(estimate.attackerLosses).toBe(525) // round(750×0.7)
   })
 })
+
+describe('P3-T03-C estimator — boundary, zero-edge, MW-flip, rounding, parity', () => {
+  it('just-below boundaries 1.4999 / 0.9999 / 0.7499 drop to the NEXT bucket', () => {
+    // >= inclusivity is pinned at the exact boundaries elsewhere; these pin
+    // the OPEN side — one epsilon below each boundary must fall through.
+    expect(estimateOutcome(1.4999)).toEqual({
+      outcome: 'pyrrhic',
+      attackerLossPct: 0.7,
+    })
+    expect(estimateOutcome(0.9999)).toEqual({
+      outcome: 'repelled',
+      attackerLossPct: 0.6,
+    })
+    expect(estimateOutcome(0.7499)).toEqual({
+      outcome: 'crushed',
+      attackerLossPct: 0.9,
+    })
+  })
+
+  it('BOTH-zero edge (DP 0 AND AP 0) → defined crushed, no crash', () => {
+    // Mirrors resolve_attack: required = max(DP,0)×weariness = 0; AP not
+    // > 0 → v_ratio := 0 → crushed (04_conquest_math t-zero0 pin).
+    expect(estimateRatio(0, 0, 1)).toBe(0)
+    const estimate = estimateScout({
+      soldiers: 100,
+      shipyardTier: 0,
+      turretLevel: 0,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(0)
+    expect(estimate.dp).toBe(0)
+    expect(estimate.ratio).toBe(0)
+    expect(estimate.outcome).toBe('crushed')
+    expect(estimate.attackerLosses).toBe(90) // round(100×0.9)
+  })
+
+  it('massiveWorld flips a boundary: same stats, MW repelled / control pyrrhic', () => {
+    const base = {
+      soldiers: 350,
+      shipyardTier: 3,
+      turretLevel: 2,
+      population: 0,
+      recentLaunches: 0,
+    }
+    const control = estimateScout({ ...base, massiveWorld: false })
+    expect(control.dp).toBe(1000) // 500×2, no militia
+    expect(control.ratio).toBe(1.05) // 1050/1000 → pyrrhic
+    expect(control.outcome).toBe('pyrrhic')
+    expect(control.attackerLosses).toBe(245) // round(350×0.7)
+
+    const massive = estimateScout({ ...base, massiveWorld: true })
+    expect(massive.dp).toBe(1100) // ×1.1
+    expect(massive.ratio).toBeCloseTo(1050 / 1100, 12) // 0.9545 → repelled
+    expect(massive.outcome).toBe('repelled')
+    expect(massive.attackerLosses).toBe(210) // round(350×0.6)
+  })
+
+  it('AP effectiveLevel parity at tiers 11 / 15 / 21 (half-after-10, D1)', () => {
+    // effectiveLevel(t) = min(t,10) + max(0,t−10)×0.5 — identical to the
+    // resolver's least/greatest expression (04_conquest_math t-ap11/t-ap21).
+    expect(attackPower(100, 11)).toBe(1050) // 100 × 10.5
+    expect(attackPower(100, 15)).toBe(1250) // 100 × 12.5
+    expect(attackPower(100, 21)).toBe(1550) // 100 × 15.5
+    for (const tier of [0, 1, 5, 10, 11, 15, 21, 100]) {
+      expect(attackPower(100, tier)).toBe(100 * effectiveLevel(tier))
+    }
+  })
+
+  it('DP effectiveLevel parity at turret levels 11 / 21 / 100', () => {
+    for (const t of [0, 10, 11, 21, 100]) {
+      expect(defensePowerEstimate(t, 0)).toBe(500 * effectiveLevel(t))
+    }
+    expect(defensePowerEstimate(21, 0)).toBe(7750) // 500 × 15.5
+  })
+
+  it('casualty rounding is round(), not floor — 12×0.4→5 and 501×0.4→200', () => {
+    // round(12×0.4)=round(4.8)=5 discriminates round from floor (4). The
+    // resolver pins the same values server-side (t-roundfl / t-rounddec).
+    const twelve = estimateScout({
+      soldiers: 12,
+      shipyardTier: 3,
+      turretLevel: 0,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(twelve.ap).toBe(36)
+    expect(twelve.dp).toBe(0)
+    expect(twelve.ratio).toBe(9999) // zero-DP guard
+    expect(twelve.outcome).toBe('decisive')
+    expect(twelve.attackerLosses).toBe(5)
+
+    const five01 = estimateScout({
+      soldiers: 501,
+      shipyardTier: 3,
+      turretLevel: 2,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(five01.ap).toBe(1503)
+    expect(five01.dp).toBe(1000)
+    expect(five01.ratio).toBeCloseTo(1503 / 1000, 12) // 1.503
+    expect(five01.outcome).toBe('decisive')
+    expect(five01.attackerLosses).toBe(200) // round(200.4)
+  })
+
+  it('empty-pop colony: DP is turrets-only, militia contributes 0', () => {
+    expect(defensePowerEstimate(2, 0)).toBe(1000)
+    const estimate = estimateScout({
+      soldiers: 200,
+      shipyardTier: 3,
+      turretLevel: 2,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(estimate.ap).toBe(600)
+    expect(estimate.dp).toBe(1000)
+    expect(estimate.ratio).toBeCloseTo(600 / 1000, 12)
+    expect(estimate.outcome).toBe('crushed')
+    expect(estimate.attackerLosses).toBe(180) // round(200×0.9)
+  })
+
+  it('weariness via estimateScout: 0 prior → 1.0x, 3 prior → 1.728x', () => {
+    const fresh = estimateScout({
+      soldiers: 750,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 0,
+    })
+    expect(fresh.weariness).toBe(1)
+    expect(fresh.ratio).toBe(1.5)
+    expect(fresh.outcome).toBe('decisive')
+
+    const weary = estimateScout({
+      soldiers: 750,
+      shipyardTier: 3,
+      turretLevel: 3,
+      population: 0,
+      massiveWorld: false,
+      recentLaunches: 3,
+    })
+    expect(weary.weariness).toBeCloseTo(1.728, 12)
+    expect(weary.ratio).toBeCloseTo(2250 / (1500 * 1.728), 12) // 0.8681
+    expect(weary.outcome).toBe('repelled')
+  })
+})
