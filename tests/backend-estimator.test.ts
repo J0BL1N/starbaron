@@ -2,14 +2,19 @@ import { describe, expect, it } from 'vitest'
 import {
   PVP_CONSTANTS,
   attackPower,
+  attackSurvivors,
+  canDeploy,
   combinedAttackPower,
   defensePowerEstimate,
   estimateOutcome,
   estimateRatio,
   estimateScout,
+  fleetCapFor,
+  garrisonCapFor,
   launchCost,
   travelSeconds,
   warWearinessMultiplier,
+  wearinessLaunchCount,
 } from '../src/sim/player/estimator'
 import { effectiveLevel } from '../src/sim/planets/levels'
 
@@ -684,5 +689,112 @@ describe('P3-T04-C estimator — combinedAttackPower deep edges (05 case-8 parit
 
   it('an empty gang is 0 AP — no guard needed, mirrors the resolver coalesce(sum,0)', () => {
     expect(combinedAttackPower([])).toBe(0)
+  })
+})
+
+describe('P3-T05-B estimator — canDeploy + survivor-math + weariness-count parity', () => {
+  // Mirrors the 0012 server guards/behaviour: canDeploy == the launch/join
+  // garrison + fleet-cap gates (06_fortification case 3), attackSurvivors ==
+  // the resolver's UNIFORM survivor return (committed − round(committed ×
+  // loss_pct), 06 cases 4-5), garrisonCapFor/fleetCapFor == the cap reads
+  // (barracks_garrison_cap_per_level / shipyard_fleet_cap_per_level), and
+  // wearinessLaunchCount == the my_weariness inverse (audit §2.2, B7).
+
+  it('canDeploy accepts a valid deployment and reflects the post-launch state (06 case 3)', () => {
+    // Seed garrison 1000, shipyard tier 3 → fleetCap 3000: launch 400 ok.
+    expect(canDeploy(1000, 0, fleetCapFor(3), 400)).toBe(true)
+    // Post-launch state: garrison 600, fleet 400 — deploy 400 again ok.
+    expect(canDeploy(600, 400, fleetCapFor(3), 400)).toBe(true)
+  })
+
+  it('canDeploy rejects over-garrison and over-fleet-cap commits (06 case 3)', () => {
+    // garrison 600 < 700 → 'insufficient garrison' mirror.
+    expect(canDeploy(600, 400, fleetCapFor(3), 700)).toBe(false)
+    // fleet 2900 + 200 > 3000 → 'fleet cap exceeded' mirror.
+    expect(canDeploy(1000, 2900, fleetCapFor(3), 200)).toBe(false)
+    // soldiers <= 0 are rejected before any garrison check (server raises).
+    expect(canDeploy(1000, 0, 3000, 0)).toBe(false)
+    expect(canDeploy(1000, 0, 3000, -5)).toBe(false)
+  })
+
+  it('canDeploy throws on structurally invalid (non-finite / negative) inputs', () => {
+    expect(() => canDeploy(Number.NaN, 0, 3000, 100)).toThrow(RangeError)
+    expect(() => canDeploy(1000, Number.POSITIVE_INFINITY, 3000, 100)).toThrow(
+      RangeError,
+    )
+    expect(() => canDeploy(1000, 0, -1, 100)).toThrow(RangeError)
+    expect(() => canDeploy(1000, 0, 3000, Number.NaN)).toThrow(RangeError)
+  })
+
+  it('attackSurvivors = committed − round(committed × loss_pct) — UNIFORM for winner and losers (06 cases 4-5)', () => {
+    // decisive 0.4 → +0.6×; pyrrhic 0.7 → +0.3×; repelled 0.6 → +0.4×;
+    // crushed 0.9 → +0.1×. round, not floor (501×0.4 → 200 → 301 survivors).
+    expect(attackSurvivors(1000, 0.4)).toBe(600)
+    expect(attackSurvivors(1000, 0.7)).toBe(300)
+    expect(attackSurvivors(500, 0.6)).toBe(200)
+    expect(attackSurvivors(1000, 0.9)).toBe(100)
+    expect(attackSurvivors(501, 0.4)).toBe(301) // round(200.4)=200 → 301
+    expect(attackSurvivors(12, 0.4)).toBe(7) // round(4.8)=5 → 7
+  })
+
+  it('attackSurvivors throws on non-finite committed / out-of-range lossPct', () => {
+    expect(() => attackSurvivors(Number.NaN, 0.4)).toThrow(RangeError)
+    expect(() => attackSurvivors(0, 0.4)).toThrow(RangeError)
+    expect(() => attackSurvivors(-100, 0.4)).toThrow(RangeError)
+    expect(() => attackSurvivors(100, -0.1)).toThrow(RangeError)
+    expect(() => attackSurvivors(100, 1.1)).toThrow(RangeError)
+  })
+
+  it('garrisonCapFor / fleetCapFor mirror the 0006 seed caps (5000 / 1000 × effectiveLevel)', () => {
+    // effectiveLevel = min(l,10) + max(0,l−10)×0.5 (half-after-10).
+    expect(garrisonCapFor(0)).toBe(0)
+    expect(garrisonCapFor(1)).toBe(5000)
+    expect(garrisonCapFor(5)).toBe(25000)
+    expect(garrisonCapFor(11)).toBe(5000 * 10.5) // half-after-10
+    expect(fleetCapFor(0)).toBe(0)
+    expect(fleetCapFor(3)).toBe(3000)
+    expect(fleetCapFor(15)).toBe(1000 * 12.5) // half-after-10
+  })
+
+  it('garrisonCapFor / fleetCapFor reject invalid levels', () => {
+    expect(() => garrisonCapFor(-1)).toThrow(RangeError)
+    expect(() => garrisonCapFor(1.5)).toThrow(RangeError)
+    expect(() => fleetCapFor(101)).toThrow(RangeError)
+    expect(() => fleetCapFor(2.5)).toThrow(RangeError)
+  })
+
+  it('wearinessLaunchCount is the inverse of warWearinessMultiplier (audit §2.2, B7)', () => {
+    // my_weariness = 1.2^n ⇒ n = log₁.₂(weariness) = prior in-window launches.
+    expect(wearinessLaunchCount(1)).toBe(0)
+    expect(wearinessLaunchCount(1.2)).toBe(1)
+    expect(wearinessLaunchCount(1.44)).toBe(2)
+    expect(wearinessLaunchCount(1.728)).toBe(3)
+    expect(wearinessLaunchCount(2.0736)).toBe(4)
+    for (const n of [0, 1, 2, 3, 4]) {
+      expect(wearinessLaunchCount(warWearinessMultiplier(n))).toBe(n)
+    }
+    expect(() => wearinessLaunchCount(0.5)).toThrow(RangeError)
+    expect(() => wearinessLaunchCount(Number.NaN)).toThrow(RangeError)
+  })
+
+  it('turret cost curve pins (B6, documented flat alloy) — structureCost parity', async () => {
+    // Client-side curve (src/sim/core/economy.ts): credits = base × 1.15^level;
+    // alloy stays FLAT at 1,000/level for the defense turret (data.ts:68) — the
+    // 06_fortification suite's "turret cost curve pins" row documents this
+    // client-side (the server build_structure charges the same values).
+    const { structureCost } = await import('../src/sim/core/economy')
+    const { STRUCTURES } = await import('../src/sim/structures/data')
+    expect(STRUCTURES.defenseTurret.alloyCost).toBe(1000)
+    expect(structureCost(STRUCTURES.defenseTurret.baseCost, 0)).toBe(2000)
+    expect(structureCost(STRUCTURES.defenseTurret.baseCost, 1)).toBe(2300)
+    // 2000 × 1.15^n — the audit's ≈8,091 / ≈32,733 rounded figures.
+    expect(structureCost(STRUCTURES.defenseTurret.baseCost, 10)).toBeCloseTo(
+      2000 * Math.pow(1.15, 10),
+      6,
+    )
+    expect(structureCost(STRUCTURES.defenseTurret.baseCost, 20)).toBeCloseTo(
+      2000 * Math.pow(1.15, 20),
+      6,
+    )
   })
 })

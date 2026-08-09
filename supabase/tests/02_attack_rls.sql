@@ -81,6 +81,14 @@ update public.players set created_at = now() - interval '10 days'
 update public.players set credits = 1000000 where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":3}' where planet_name = 'alpha-colony';
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":2}' where planet_name = 'gamma-colony';
+-- P3-T05-B garrison seeding: the new launch/join guards require garrison >=
+-- committed and deduct it (garrison -= soldiers, fleet += soldiers) at every
+-- successful launch/join. Seeded high enough to cover each source's cumulative
+-- commits (alpha-colony 4×100+1000=1300, gamma-colony 500, delta 1000). The
+-- pinned AP/DP/outcome/loss numbers are unaffected — only the deployment state.
+update public.owned_planets set garrison = 2000 where planet_name = 'alpha-colony';
+update public.owned_planets set garrison = 1000 where planet_name = 'gamma-colony';
+update public.owned_planets set garrison = 2000 where planet_name = 'delta';
 
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
 
@@ -195,15 +203,33 @@ do $$ begin
   end if;
 end $$;
 
+-- P3-T05-B post-launch deployment state: alpha-colony seeded garrison 2000;
+-- the three 100-soldier throwaways (t-floor/t-mid/t-cap) plus this 1000-soldier
+-- main launch deduct garrison and deploy into the fleet (garrison 700, fleet 1300).
+do $$
+declare v_gar double precision; v_fleet double precision;
+begin
+  select garrison, fleet into v_gar, v_fleet from public.owned_planets where planet_name = 'alpha-colony';
+  if v_gar <> 700 or v_fleet <> 1300 then
+    raise exception '8653 ASSERTION FAILED: alpha-colony post-launch state expected garrison 700 fleet 1300, got %/%', v_gar, v_fleet;
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","role":"authenticated"}';
 do $$
 declare
   v_id uuid;
+  v_gar double precision; v_fleet double precision;
 begin
   select id into v_id from public.attacks
    where target_planet_name = 'beta-colony' and status = 'inbound';
   if (select public.join_attack(v_id, 500, 'gamma-colony'))->>'status' <> 'inbound' then
     raise exception '8653 ASSERTION FAILED: join_attack failed';
+  end if;
+  -- P3-T05-B: C's 500-soldier join deploys from gamma-colony (garrison 500, fleet 500).
+  select garrison, fleet into v_gar, v_fleet from public.owned_planets where planet_name = 'gamma-colony';
+  if v_gar <> 500 or v_fleet <> 500 then
+    raise exception '8653 ASSERTION FAILED: gamma-colony post-join state expected garrison 500 fleet 500, got %/%', v_gar, v_fleet;
   end if;
   begin
     perform public.join_attack(v_id, 500, 'gamma-colony');

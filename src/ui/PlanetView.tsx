@@ -10,6 +10,7 @@ import ColonisePanel from './components/ColonisePanel'
 import OfflineSummary from './components/OfflineSummary'
 import Onboarding from './components/Onboarding'
 import SaveNotice from './components/SaveNotice'
+import WarWearinessPanel from './components/WarWearinessPanel'
 import './App.css'
 
 interface PlanetViewProps {
@@ -47,6 +48,7 @@ export default function PlanetView({ options }: PlanetViewProps) {
         <StructureGrid levels={game.state.levels} derived={game.derived} />
         <BuildMenu state={game.state} onBuy={game.buy} />
       </div>
+      <WarWearinessPanel />
       {game.saveNotice ? (
         <SaveNotice message={game.saveNotice} onClose={game.dismissSaveNotice} />
       ) : null}

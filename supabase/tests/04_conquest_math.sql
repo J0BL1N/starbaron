@@ -124,6 +124,23 @@ update public.owned_planets set structure_levels = structure_levels || '{"shipya
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":11}' where planet_name = 'a11-math';
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":21}' where planet_name = 'a21-math';
 
+-- P3-T05-B garrison/barracks seeding: the new launch/join guards require
+-- garrison >= committed (deducted at launch) and fleet + soldiers <= fleetCap
+-- (fleetCap = 1000 × effectiveLevel(shipyard)). a3-math hosts ~21 SEQUENTIAL
+-- launches (cumulative ~9110) with a resolve between each — the resolver's
+-- survivor-return clamp (garrison = least(garrison + survivors, 5000 ×
+-- effectiveLevel(barracks))) would zero a barracks-less source at the first
+-- resolve, breaking every later launch, so a3-math carries barracks 5 (cap
+-- 25000) above its garrison. a1-math (multiple launches after resolves) and
+-- c3-math (band joins after resolves) carry barracks 1 (cap 5000). The
+-- single-launch sources (a15/a11/a21) only need garrison 1000. a0-math's two
+-- zero-AP recipes are direct-seeded below (the fleet-cap guard makes a tier-0
+-- shipyard unable to launch ANY fleet — effectiveLevel(0) = 0).
+update public.owned_planets set garrison = 20000, structure_levels = structure_levels || '{"barracks":5}' where planet_name = 'a3-math';
+update public.owned_planets set garrison = 2000,  structure_levels = structure_levels || '{"barracks":1}' where planet_name = 'a1-math';
+update public.owned_planets set garrison = 2000,  structure_levels = structure_levels || '{"barracks":1}' where planet_name = 'c3-math';
+update public.owned_planets set garrison = 1000 where planet_name in ('a15-math','a11-math','a21-math','a0-math');
+
 -- Target grids. t-dec also carries economy keys (oreMine 5, shipyard 2) to
 -- prove non-defense structures SURVIVE a conquest (transfer removes only
 -- defenseTurret, §5 line 129 LOCKED).
@@ -450,16 +467,20 @@ end $$;
 -- ---------------------------------------------------------------------
 -- 6. zero-AP guard: tier-0 shipyard source, soldiers 100 → AP 0 vs DP 500
 --    → ratio 0 → crushed (audit edge #5: constructible per T02 finding).
+--    P3-T05-B: the new fleet-cap guard makes a tier-0 source unable to launch
+--    ANY fleet (fleetCap = 1000 × effectiveLevel(0) = 0 → 'fleet cap
+--    exceeded'), so this recipe is now SEEDED DIRECTLY as an attack row
+--    (postgres) — the resolver's AP=0 → ratio 0 → crushed handling is what
+--    the case pins, and the pinned numbers are UNCHANGED. a0-math carries
+--    garrison 1000 (the resolver's survivor-return fleet−=committed is
+--    clamped with greatest(...,0), so no CHECK violation).
 -- ---------------------------------------------------------------------
-set local role authenticated;
-set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
-do $$ begin
-  if (select public.launch_attack('t-zap', 100, 'a0-math'))->>'status' <> 'inbound' then
-    raise exception '8653 ASSERTION FAILED: t-zap launch must be inbound';
-  end if;
-end $$;
-
 set local role postgres;
+insert into public.attacks (target_planet_name, launcher_id, travel_seconds, resolves_at, join_window_seconds)
+values ('t-zap', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 600, now() + interval '1 hour', 7200);
+insert into public.attack_members (attack_id, player_id, soldiers_committed, shipyard_tier, source_planet_name)
+values ((select id from public.attacks where target_planet_name = 't-zap' and status = 'inbound'),
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 100, 0, 'a0-math');
 update public.attacks set launched_at = launched_at - interval '2 days'
  where target_planet_name = 't-zap' and status = 'inbound';
 update public.attacks set resolves_at = now() - interval '1 second'
@@ -1003,16 +1024,16 @@ end $$;
 --     shipyard source (AP 0). The resolver guard falls through to
 --     v_ratio := 0 → outcome CRUSHED — a DEFINED outcome, no crash, no
 --     division by zero. (Estimator mirrors: estimateRatio(0,0) = 0.)
+--     P3-T05-B: direct-seeded exactly like t-zap (case 6) — the fleet-cap
+--     guard makes a tier-0 source unable to launch, so the resolver's
+--     both-zero edge is pinned via the seeded attack row, numbers unchanged.
 -- ---------------------------------------------------------------------
-set local role authenticated;
-set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
-do $$ begin
-  if (select public.launch_attack('t-zero0', 100, 'a0-math'))->>'status' <> 'inbound' then
-    raise exception '8653 ASSERTION FAILED: t-zero0 launch must be inbound';
-  end if;
-end $$;
-
 set local role postgres;
+insert into public.attacks (target_planet_name, launcher_id, travel_seconds, resolves_at, join_window_seconds)
+values ('t-zero0', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 600, now() + interval '1 hour', 7200);
+insert into public.attack_members (attack_id, player_id, soldiers_committed, shipyard_tier, source_planet_name)
+values ((select id from public.attacks where target_planet_name = 't-zero0' and status = 'inbound'),
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 100, 0, 'a0-math');
 update public.attacks set launched_at = launched_at - interval '2 days'
  where target_planet_name = 't-zero0' and status = 'inbound';
 update public.attacks set resolves_at = now() - interval '1 second'

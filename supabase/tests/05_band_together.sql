@@ -165,6 +165,31 @@ update public.owned_planets set structure_levels = structure_levels || '{"shipya
 update public.owned_planets set structure_levels = structure_levels || '{"shipyard":1}' where planet_name = 'a1';
 update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":3}' where planet_name in ('t-fixed-1v1','t-fixed-1v5','t-ppw','t-rep');
 update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":1}' where planet_name in ('t-clamp','t-far','t-min');
+-- P3-T05-B garrison/barracks seeding: the new launch/join guards require
+-- garrison >= committed (deducted at launch, fleet += soldiers) and
+-- fleetCap = 1000 × effectiveLevel(shipyard). The multi-launch sources carry
+-- 'barracks':2 (cap 10,000 — exactly the seeded garrison of 10000, so the
+-- resolver's survivor-return clamp (garrison = least(garrison + survivors,
+-- cap)) never bites) on a3 and b3; a1/c3/d3 carry 'barracks':1 (cap 5000,
+-- matching their seeded garrisons) and e3 carries no barracks. A barracks-less
+-- source would fail every later launch. Cumulative
+-- commits: a3 3614, a1 1000, b3 2075, c3 750, d3 1200, e3 100. The pinned
+-- AP/DP/weariness/outcome/loss numbers are unaffected (only deployment state).
+update public.owned_planets set garrison = 10000, structure_levels = structure_levels || '{"barracks":2}' where planet_name = 'a3';
+update public.owned_planets set garrison = 2000,  structure_levels = structure_levels || '{"barracks":1}' where planet_name = 'a1';
+update public.owned_planets set garrison = 10000, structure_levels = structure_levels || '{"barracks":2}' where planet_name = 'b3';
+update public.owned_planets set garrison = 5000,  structure_levels = structure_levels || '{"barracks":1}' where planet_name = 'c3';
+update public.owned_planets set garrison = 5000,  structure_levels = structure_levels || '{"barracks":1}' where planet_name = 'd3';
+update public.owned_planets set garrison = 1000 where planet_name = 'e3';
+
+-- P3-T05-B: baseline-capture table for the post-resolve garrison/fleet DELTA
+-- assertions. A source's absolute fleet legitimately retains OTHER in-flight
+-- attacks' deployments (t-clamp/t-far/t-min stay inbound across the suite,
+-- and t-clamp itself becomes due and resolves during case 5), so absolute
+-- values are history-dependent; the deltas pin the deployment semantics
+-- exactly: fleet −= THIS attack's committed, garrison += THIS member's
+-- survivors (committed − round(committed × loss_pct)).
+create temporary table t_source_base (planet text primary key, gar double precision, fleet double precision);
 -- P3-T04-C recipes: t-ppw3/t-exp/t-inf face DP 1500 (t3); the t-pw-*
 -- throwaways face DP 500 (t1) so the low-AP prior attacks never take them.
 update public.owned_planets set structure_levels = structure_levels || '{"defenseTurret":3}' where planet_name in ('t-ppw3','t-exp','t-inf');
@@ -767,7 +792,13 @@ declare
   v_res jsonb;
   v_a_los numeric; v_c_los numeric;
   v_owner uuid; v_fleet double precision; v_turret int;
+  v_a3g double precision; v_a3f double precision;
+  v_c3g double precision; v_c3f double precision;
 begin
+  -- P3-T05-B baseline: capture the sources' pre-resolve deployment state.
+  select garrison, fleet into v_a3g, v_a3f from public.owned_planets where planet_name = 'a3';
+  select garrison, fleet into v_c3g, v_c3f from public.owned_planets where planet_name = 'c3';
+
   v_res := public.resolve_due_attacks();
   select r into v_res from jsonb_array_elements(v_res) r
    where r->>'target_planet_name' = 't-rep';
@@ -797,8 +828,10 @@ begin
     raise exception '8653 ASSERTION FAILED: t-rep C losses expected 60 (round(100×0.6)), got %', v_c_los;
   end if;
 
-  -- ...but NO deduction: source fleets are untouched (B2/P3-T05 carry) and
-  -- the defender keeps the planet with turrets fully surviving (B4).
+  -- P3-T05-B: the deployed pool DRAINS at resolve (fleet -= THIS attack's
+  -- committed) and UNIFORM survivors return to the source garrison (a3 +120 =
+  -- 300 − round(300×0.6); c3 +40 = 100 − round(100×0.6)), clamped to the
+  -- barracks cap. The defender keeps the planet with turrets fully surviving (B4).
   select owner_id, fleet, coalesce((structure_levels->>'defenseTurret')::int, -1)
     into v_owner, v_fleet, v_turret
     from public.owned_planets where planet_name = 't-rep';
@@ -809,12 +842,20 @@ begin
     raise exception '8653 ASSERTION FAILED: t-rep turrets must fully survive (B4), got %', v_turret;
   end if;
   select fleet into v_fleet from public.owned_planets where planet_name = 'a3';
-  if v_fleet <> 0 then
-    raise exception '8653 ASSERTION FAILED: loser A fleet must NOT be deducted (B2/P3-T05), got %', v_fleet;
+  if v_fleet <> v_a3f - 300 then
+    raise exception '8653 ASSERTION FAILED: loser A fleet must drain by 300 (committed) at resolve, got % (before %)', v_fleet, v_a3f;
   end if;
   select fleet into v_fleet from public.owned_planets where planet_name = 'c3';
-  if v_fleet <> 0 then
-    raise exception '8653 ASSERTION FAILED: loser C fleet must NOT be deducted (B2/P3-T05), got %', v_fleet;
+  if v_fleet <> v_c3f - 100 then
+    raise exception '8653 ASSERTION FAILED: loser C fleet must drain by 100 (committed) at resolve, got % (before %)', v_fleet, v_c3f;
+  end if;
+  select garrison into v_fleet from public.owned_planets where planet_name = 'a3';
+  if v_fleet <> v_a3g + 120 then
+    raise exception '8653 ASSERTION FAILED: loser A garrison must return 120 survivors, got % (before %)', v_fleet, v_a3g;
+  end if;
+  select garrison into v_fleet from public.owned_planets where planet_name = 'c3';
+  if v_fleet <> v_c3g + 40 then
+    raise exception '8653 ASSERTION FAILED: loser C garrison must return 40 survivors, got % (before %)', v_fleet, v_c3g;
   end if;
 end $$;
 
@@ -989,6 +1030,14 @@ set local role postgres;
 update public.attacks set resolves_at = now() - interval '1 second'
  where target_planet_name = 't-ppw3' and status = 'inbound';
 
+-- P3-T05-B baseline: capture the sources' pre-resolve deployment state so the
+-- post-resolve assertions pin DELTAS (fleet −= committed, garrison +=
+-- survivors) independent of the suite's in-flight history.
+delete from t_source_base;
+insert into t_source_base (planet, gar, fleet)
+select planet_name, garrison, fleet from public.owned_planets
+ where planet_name in ('a3','b3','c3');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
 do $$
@@ -1074,15 +1123,31 @@ begin
   if v_pop <> 0 or v_gar <> 0 or v_fleet <> 0 then
     raise exception '8653 ASSERTION FAILED: t-ppw3 fresh settlement (0/0/0), got %/%/%', v_pop, v_gar, v_fleet;
   end if;
-  -- losers' committed soldiers are REPORT-ONLY (B6 carry): source fleets
-  -- are untouched even on a decisive conquest by someone else.
+  -- P3-T05-B: loser committed soldiers DRAIN at resolve (fleet −= committed)
+  -- and UNIFORM survivors return to the source garrisons (winner AND losers
+  -- alike — B4), clamped to the barracks cap. Deltas vs the pre-resolve
+  -- baseline: A 720 committed → a3 fleet −720, gar +432 (720−round(720×0.4));
+  -- C 500 committed → c3 fleet −500, gar +300; the WINNER B 1000 committed →
+  -- b3 fleet −1000, gar +600 (round(1000×0.4)=400 lost).
   select fleet into v_a_fleet from public.owned_planets where planet_name = 'a3';
   select fleet into v_c_fleet from public.owned_planets where planet_name = 'c3';
-  if v_a_fleet <> 0 then
-    raise exception '8653 ASSERTION FAILED: loser A fleet must NOT be deducted, got %', v_a_fleet;
+  if v_a_fleet <> (select fleet from t_source_base where planet = 'a3') - 720 then
+    raise exception '8653 ASSERTION FAILED: loser A fleet must drain by 720 (committed) at resolve, got %', v_a_fleet;
   end if;
-  if v_c_fleet <> 0 then
-    raise exception '8653 ASSERTION FAILED: loser C fleet must NOT be deducted, got %', v_c_fleet;
+  if v_c_fleet <> (select fleet from t_source_base where planet = 'c3') - 500 then
+    raise exception '8653 ASSERTION FAILED: loser C fleet must drain by 500 (committed) at resolve, got %', v_c_fleet;
+  end if;
+  select garrison into v_gar from public.owned_planets where planet_name = 'a3';
+  if v_gar <> (select gar from t_source_base where planet = 'a3') + 432 then
+    raise exception '8653 ASSERTION FAILED: loser A garrison must return 432 survivors, got %', v_gar;
+  end if;
+  select garrison into v_gar from public.owned_planets where planet_name = 'c3';
+  if v_gar <> (select gar from t_source_base where planet = 'c3') + 300 then
+    raise exception '8653 ASSERTION FAILED: loser C garrison must return 300 survivors, got %', v_gar;
+  end if;
+  select garrison into v_gar from public.owned_planets where planet_name = 'b3';
+  if v_gar <> (select gar from t_source_base where planet = 'b3') + 600 then
+    raise exception '8653 ASSERTION FAILED: winner B garrison must return 600 survivors, got %', v_gar;
   end if;
 end $$;
 

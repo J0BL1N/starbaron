@@ -1,5 +1,9 @@
 import { effectiveLevel } from '../planets/levels'
-import { defensePower } from '../structures/effects'
+import {
+  BARRACKS_GARRISON_CAP_PER_LEVEL,
+  defensePower,
+  SHIPYARD_FLEET_CAP_PER_LEVEL,
+} from '../structures/effects'
 
 // =====================================================================
 // Client-side scout/launch estimator (P3-T02-B, §2.2). The server owns
@@ -259,6 +263,102 @@ export interface ScoutEstimate {
   outcome: OutcomeId
   attackerLossPct: number
   attackerLosses: number
+}
+
+// Garrison cap = BARRACKS_GARRISON_CAP_PER_LEVEL (5,000) × effectiveLevel
+// (barracks) — mirrors the server's garrison cap read at survivor return
+// (0012 resolve_attack, barracks_garrison_cap_per_level) and the sim's
+// structureEffect('barracks').garrisonCap (effects.ts:60). The multiplier
+// values come from src/sim/structures/effects.ts (the same source the
+// estimator's defensePower already uses) — the caps are NOT part of
+// get_galaxy's pvp payload, so PvpConstants is untouched.
+export function garrisonCapFor(barracksLevel: number): number {
+  if (!Number.isInteger(barracksLevel) || barracksLevel < 0) {
+    throw new RangeError(
+      `barracksLevel must be a non-negative integer, got ${barracksLevel}`,
+    )
+  }
+  return BARRACKS_GARRISON_CAP_PER_LEVEL * effectiveLevel(barracksLevel)
+}
+
+// Fleet cap = SHIPYARD_FLEET_CAP_PER_LEVEL (1,000) × effectiveLevel(shipyard
+// tier) — mirrors the server's launch/join fleetCap guard (0012, DESIGN §4d
+// "1,000 × shipyard levels") and the sim's structureEffect('shipyard')
+// .fleetCap (effects.ts:65).
+export function fleetCapFor(shipyardTier: number): number {
+  if (!Number.isInteger(shipyardTier) || shipyardTier < 0 || shipyardTier > 100) {
+    throw new RangeError(
+      `shipyardTier must be an integer between 0 and 100, got ${shipyardTier}`,
+    )
+  }
+  return SHIPYARD_FLEET_CAP_PER_LEVEL * effectiveLevel(shipyardTier)
+}
+
+// Launch/join deployment guard mirror (P3-T05-B, §3.a): the server raises
+// 'insufficient garrison' when p_soldiers > garrison and 'fleet cap exceeded'
+// when fleet + p_soldiers > fleetCap. This mirror returns false for the same
+// rejection conditions so the client can gate a deploy button without a
+// server round-trip. Structurally invalid inputs (non-finite, negative
+// garrison/fleet/cap) throw, mirroring the RPC's validation.
+export function canDeploy(
+  garrison: number,
+  fleet: number,
+  fleetCap: number,
+  soldiers: number,
+): boolean {
+  assertFinite(garrison, 'garrison')
+  assertFinite(fleet, 'fleet')
+  assertFinite(fleetCap, 'fleetCap')
+  assertFinite(soldiers, 'soldiers')
+  if (garrison < 0 || fleet < 0 || fleetCap < 0) {
+    throw new RangeError(
+      `garrison/fleet/fleetCap must be non-negative, got ${garrison}/${fleet}/${fleetCap}`,
+    )
+  }
+  if (soldiers <= 0) {
+    return false // the server rejects non-positive soldiers before deployment
+  }
+  if (soldiers > garrison) {
+    return false // 'insufficient garrison'
+  }
+  if (fleet + soldiers > fleetCap) {
+    return false // 'fleet cap exceeded'
+  }
+  return true
+}
+
+// Survivor math mirror (P3-T05-B §3.c, B4 UNIFORM reading): survivors =
+// committed − round(committed × loss_pct) return to the source garrison;
+// the report's `losses` stays round(committed × loss_pct). Mirrors 0012
+// resolve_attack exactly (round, not floor — the t-roundfl discriminator).
+export function attackSurvivors(committed: number, lossPct: number): number {
+  assertFinite(committed, 'committed')
+  assertFinite(lossPct, 'lossPct')
+  if (committed <= 0) {
+    throw new RangeError(`committed must be positive, got ${committed}`)
+  }
+  if (lossPct < 0 || lossPct > 1) {
+    throw new RangeError(`lossPct must be in [0,1], got ${lossPct}`)
+  }
+  return committed - Math.round(committed * lossPct)
+}
+
+// Inverse of warWearinessMultiplier: my_weariness = 1.2^n ⇒ n = log₁.₂
+// (weariness) = the caller's PRIOR launches inside the rolling 24h period
+// (audit §2.2 — a raw count for the weariness UI surface; n ≥ 0 for
+// weariness ≥ 1). The server never returns weariness < 1, so the result is
+// rounded to the integer the 1.2^n curve implies.
+export function wearinessLaunchCount(
+  weariness: number,
+  constants: Pick<PvpConstants, 'war_weariness_multiplier'> = PVP_CONSTANTS,
+): number {
+  assertFinite(weariness, 'weariness')
+  if (weariness < 1) {
+    throw new RangeError(`weariness must be >= 1, got ${weariness}`)
+  }
+  return Math.round(
+    Math.log(weariness) / Math.log(constants.war_weariness_multiplier),
+  )
 }
 
 // One-shot scout preview: AP vs DP vs odds before committing (§5 defaults).
