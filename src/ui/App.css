@@ -15,10 +15,11 @@
   border-radius: 12px;
 }
 
-.planet-emoji {
-  font-size: 64px;
-  line-height: 1;
+.planet-canvas {
+  display: block;
+  border-radius: 50%;
   filter: drop-shadow(0 0 18px var(--planet));
+  flex-shrink: 0;
 }
 
 .planet-display h1 {

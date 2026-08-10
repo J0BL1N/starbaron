@@ -1,6 +1,8 @@
 import { formatNumber } from '../../sim/core/format'
 import type { OwnedPlanet } from '../../sim/player'
 import type { PlanetIdentity } from '../../sim/planets/types'
+import { radiusBandOf, resolveRadius } from '../../sim/planets'
+import PlanetCanvas from './PlanetCanvas'
 
 interface PlanetDisplayProps {
   planet: OwnedPlanet
@@ -13,11 +15,17 @@ export default function PlanetDisplay({
   identity,
   defensePower,
 }: PlanetDisplayProps) {
+  const radius = resolveRadius(planet.entry, () => 0.5)
+  const radiusBand = radiusBandOf(radius)
+
   return (
     <header className="planet-display">
-      <span className="planet-emoji" role="img" aria-label={planet.name}>
-        {identity.visual.emoji}
-      </span>
+      <PlanetCanvas
+        name={planet.name}
+        profile={identity.visual}
+        tier={planet.tier}
+        radiusBand={radiusBand}
+      />
       <div>
         <h1>{planet.name}</h1>
         <p className="planet-subtitle mono">
