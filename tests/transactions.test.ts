@@ -48,11 +48,11 @@ describe('transactionId', () => {
     expect(transactionId('income', 100, AT + 1, 1)).not.toBe(base)
   })
 
-  it('emits a valid id format: hex hash + verbatim nonce, <= 64 chars, no control chars', () => {
+  it('emits a valid id format: hex hash + type-tagged nonce, <= 64 chars, no control chars', () => {
     const id = transactionId('transfer', 50, AT, 42)
     expect(id.length).toBeGreaterThan(0)
     expect(id.length).toBeLessThanOrEqual(64)
-    expect(/^[0-9a-f]+-[0-9a-zA-Z.+-]+$/.test(id)).toBe(true)
+    expect(/^[0-9a-f]+-[ns]:[0-9a-zA-Z.+-]+$/.test(id)).toBe(true)
     const hasControlChars = [...id].some((c) => {
       const code = c.charCodeAt(0)
       return code <= 0x1f || code === 0x7f
@@ -67,22 +67,37 @@ describe('transactionId', () => {
     expect(ids.size).toBe(3)
   })
 
-  it('keeps ids within 64 chars for nonces up to the documented 55-char bound', () => {
-    const maxBoundNonce = 'a'.repeat(55)
-    const id = transactionId('income', 100, AT, maxBoundNonce)
+  it('keeps ids within 64 chars for the maximum 40-char nonce', () => {
+    const maxNonce = 'a'.repeat(40)
+    const id = transactionId('income', 100, AT, maxNonce)
     expect(id.length).toBeLessThanOrEqual(64)
+    expect(id.endsWith(`-s:${maxNonce}`)).toBe(true)
   })
 
-  it('embeds longer nonces verbatim, extending past 64 chars (documented bound)', () => {
-    const longNonce = 'n'.repeat(100)
-    const id = transactionId('income', 100, AT, longNonce)
-    expect(id.endsWith(`-${longNonce}`)).toBe(true)
-    expect(id).toMatch(/^[0-9a-f]+-n+$/)
-    expect(id.length).toBeGreaterThan(64)
+  it('rejects an empty string nonce', () => {
+    expect(() => transactionId('income', 100, AT, '')).toThrow(/nonce/)
   })
 
-  it('treats a string nonce that stringifies the same as its number equal', () => {
-    expect(transactionId('income', 100, AT, '1')).toBe(
+  it('rejects a string nonce containing control characters', () => {
+    expect(() => transactionId('income', 100, AT, 'a\nb')).toThrow(/nonce/)
+    expect(() => transactionId('income', 100, AT, '\x00')).toThrow(/nonce/)
+    expect(() => transactionId('income', 100, AT, '\x7f')).toThrow(/nonce/)
+  })
+
+  it('rejects a 41-character string nonce', () => {
+    const tooLong = 'a'.repeat(41)
+    expect(() => transactionId('income', 100, AT, tooLong)).toThrow(/nonce/)
+  })
+
+  it('rejects non-finite number nonces', () => {
+    expect(() => transactionId('income', 100, AT, Number.NaN)).toThrow(/nonce/)
+    expect(() =>
+      transactionId('income', 100, AT, Number.POSITIVE_INFINITY),
+    ).toThrow(/nonce/)
+  })
+
+  it('yields distinct ids for a number nonce and the string that stringifies the same', () => {
+    expect(transactionId('income', 100, AT, '1')).not.toBe(
       transactionId('income', 100, AT, 1),
     )
   })

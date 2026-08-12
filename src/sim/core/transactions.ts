@@ -55,25 +55,50 @@ function assertFinitePositive(value: number, field: string): void {
 }
 
 /**
- * Deterministic id for a transaction. Format: `<hex>-<nonce>`, where `<hex>`
- * is the FNV-1a hash of `kind|amount|at|nonce` and `<nonce>` is the verbatim
- * nonce. The verbatim nonce component makes the mapping injective on nonce
- * values, so distinct nonces always yield distinct ids (a number and a string
- * that stringify identically, e.g. 5 and '5', intentionally share an id). The
- * FNV-1a component is at most 8 hex chars (32-bit), so ids stay within 64
- * chars whenever the nonce's string form is at most 55 chars; longer nonces
- * extend past that documented bound while remaining unambiguous. Uniqueness
- * across a ledger is the caller's responsibility: they must supply distinct
- * nonces.
+ * Deterministic id for a transaction. Format: `<hex>-<tag>:<nonce>`, where
+ * `<hex>` is the FNV-1a hash of `kind|amount|at|<tag>:<nonce>`, `<tag>` is the
+ * nonce type (`n` for number, `s` for string) and `<nonce>` is the verbatim
+ * nonce. The type-tagged suffix makes the mapping injective on (type, value),
+ * so `1` and `'1'` yield distinct ids. The FNV-1a component is at most 8 hex
+ * chars (32-bit) and the suffix is at most 42 chars (`s:` + 40), so ids stay
+ * within 64 chars. Nonces are validated before an id is produced: number
+ * nonces must be finite; string nonces must be non-empty, free of control
+ * characters and at most 40 chars. Uniqueness across a ledger is the caller's
+ * responsibility: they must supply distinct nonces.
  */
+function assertValidNonce(nonce: number | string): void {
+  if (typeof nonce === 'number') {
+    if (!Number.isFinite(nonce)) {
+      throw new Error(`nonce must be a finite number, got ${nonce}`)
+    }
+    return
+  }
+  if (nonce.length === 0) {
+    throw new Error('nonce string must not be empty')
+  }
+  for (let i = 0; i < nonce.length; i++) {
+    const code = nonce.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) {
+      throw new Error('nonce string must not contain control characters')
+    }
+  }
+  if (nonce.length > 40) {
+    throw new Error(
+      `nonce string must be at most 40 characters, got ${nonce.length}`,
+    )
+  }
+}
+
 export function transactionId(
   kind: CreditKind,
   amount: number,
   at: number,
   nonce: number | string,
 ): string {
-  const hex = fnv1a(`${kind}|${amount}|${at}|${nonce}`).toString(16)
-  return `${hex}-${String(nonce)}`
+  assertValidNonce(nonce)
+  const tag = typeof nonce === 'number' ? 'n' : 's'
+  const hex = fnv1a(`${kind}|${amount}|${at}|${tag}:${nonce}`).toString(16)
+  return `${hex}-${tag}:${nonce}`
 }
 
 /**
