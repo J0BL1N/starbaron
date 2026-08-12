@@ -174,7 +174,8 @@ export function planetEfficiency(
  * structures). Totals reconcile with the locked computePlanetDerived up to the
  * constant passive baseline: summary.total + baselinePassiveIncome(tier) x
  * binarySystemFactor == locked creditsPerSec (alloys match exactly).
- * perStructure is sorted by structure id; description comes from data.ts.
+ * perStructure follows the canonical STRUCTURE_IDS roster order; description
+ * comes from data.ts.
  */
 export function productionSummaryFor(input: {
   name: string
@@ -203,8 +204,9 @@ export function productionSummaryFor(input: {
       description: STRUCTURES[structure].name,
     }
   })
-  perStructure.sort((a, b) => a.structure.localeCompare(b.structure))
-
+  // perStructure follows the canonical STRUCTURE_IDS roster order (the map
+  // above preserves it) — no locale-dependent string comparison, so the
+  // ordering is identical on every runtime and locale.
   let creditsPerSec = 0
   let alloysPerSec = 0
   for (const entry of perStructure) {

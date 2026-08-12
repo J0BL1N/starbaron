@@ -24,8 +24,15 @@ import type { WalletState } from '../player/types'
  *   `queueConstruction`. Validation (canBuild + grid/fromLevel consistency)
  *   guarantees the reservation never exceeds the wallet.
  *
+ * LEVEL RULE (centralised, DESIGN-locked): structure levels are UNLIMITED —
+ * finite non-negative integers with NO hard cap. queueConstruction validates
+ * every level as a non-negative integer (see assertNonNegativeInteger) and
+ * the single-level step toLevel === fromLevel + 1; queueInvariants re-asserts
+ * both on every job. There is no maxLevelFor check anywhere (the framework
+ * removed that cap in the same audit).
+ *
  * Pure module — deterministic, no wall clock (all timestamps are inputs), no
- * module-level mutable state, no `any`.
+ * module-level mutable state, strictly typed.
  */
 
 export type ConstructionJobStatus = 'building' | 'complete' | 'cancelled'
@@ -98,8 +105,9 @@ function assertNonNegativeInteger(value: number, field: string): void {
 }
 
 /**
- * Reserves a construction job. Validates the level step, the canBuild ladder
- * (prerequisites + funds, via framework.canBuild) and timestamp sanity, then
+ * Reserves a construction job. Validates the level step (single-level, finite
+ * non-negative integers — see the module-level LEVEL RULE), the canBuild
+ * ladder (funds, via framework.canBuild) and timestamp sanity, then
  * appends the new job to a copy of the queue. The wallet is never debited.
  *
  * The job id is the FNV-1a hash (hex) of
@@ -142,8 +150,6 @@ export function queueConstruction(
   const decision = canBuild(structure, grid, wallet)
   if (!decision.ok) {
     switch (decision.reason) {
-      case 'prerequisites':
-        throw new Error(`cannot build ${structure}: prerequisites not met`)
       case 'insufficient-credits':
         throw new Error(
           `cannot build ${structure}: need ${cost.credits} cr, have ${wallet.credits} cr`,

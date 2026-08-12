@@ -59,7 +59,12 @@ export interface QuirkCategoryCounts {
  * reserved category for a future extension and every current quirk maps away
  * from it.
  */
-const QUIRK_CATEGORY: Readonly<Record<QuirkId, QuirkCategory>> = {
+/**
+ * IMMUTABLE lookup table: quirk id -> category. Deep-frozen at module load so
+ * no caller can reassign a mapping (values are primitive strings, so a single
+ * Object.freeze makes the whole table immutable).
+ */
+export const QUIRK_CATEGORY: Readonly<Record<QuirkId, QuirkCategory>> = Object.freeze({
   highGravity: 'gravity',
   coldStar: 'star',
   hotStar: 'star',
@@ -67,7 +72,7 @@ const QUIRK_CATEGORY: Readonly<Record<QuirkId, QuirkCategory>> = {
   gasGiant: 'density',
   binarySystem: 'environment',
   massiveWorld: 'mass',
-}
+})
 
 /**
  * Production-modifier targets that mirror the LOCKED accrual composition in
@@ -77,15 +82,21 @@ const QUIRK_CATEGORY: Readonly<Record<QuirkId, QuirkCategory>> = {
  * itself is taken from the locked quirk's own multiplier so the model can
  * never drift from the table.
  */
-const PRODUCTION_TARGET: Readonly<Record<QuirkId, ProductionTarget | null>> = {
-  highGravity: 'ore-mine-alloys',
-  coldStar: null,
-  hotStar: null,
-  denseCore: null,
-  gasGiant: null,
-  binarySystem: 'trade-hub-credits',
-  massiveWorld: null,
-}
+/**
+ * IMMUTABLE lookup table: quirk id -> production target (or null). Deep-frozen
+ * at module load so no caller can reassign a mapping (values are primitive
+ * strings or null, so a single Object.freeze makes the whole table immutable).
+ */
+export const PRODUCTION_TARGET: Readonly<Record<QuirkId, ProductionTarget | null>> =
+  Object.freeze({
+    highGravity: 'ore-mine-alloys',
+    coldStar: null,
+    hotStar: null,
+    denseCore: null,
+    gasGiant: null,
+    binarySystem: 'trade-hub-credits',
+    massiveWorld: null,
+  })
 
 export function quirkSummary(quirk: PlanetQuirk): QuirkEffectSummary {
   const target = PRODUCTION_TARGET[quirk.id]

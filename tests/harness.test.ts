@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { STRUCTURE_IDS } from '../src/sim/structures/data'
-import { productionSummaryFor } from '../src/sim/structures/production'
+import { computePlanetDerived } from '../src/sim/player/accrual'
 import { populationCapFor } from '../src/sim/core/population-model'
 import { populationCapMultiplier } from '../src/sim/planets/levels'
 import {
@@ -9,6 +9,7 @@ import {
   DEFAULT_TICK_SECONDS,
   INITIAL_POPULATION,
   harnessInvariants,
+  harnessPlanet,
   harnessTelemetry,
   runEconomySimulation,
 } from '../src/sim/balance/harness'
@@ -102,15 +103,222 @@ describe('runEconomySimulation', () => {
     }
   })
 
-  it('records income identical to the locked productionSummaryFor at each point', () => {
+  it('records income identical to the locked computePlanetDerived at each point', () => {
     const run = runEconomySimulation({ ...STANDARD, horizonSeconds: 7_200 })
     for (const point of run.points) {
-      const locked = productionSummaryFor({
-        name: 'Home',
-        tier: run.config.tier,
-        grid: point.structureLevels,
-      }).total
-      expect(point.income).toEqual(locked)
+      const locked = computePlanetDerived(
+        harnessPlanet(run.config.tier, point.population),
+        point.structureLevels,
+      )
+      expect(point.income).toEqual({
+        creditsPerSec: locked.creditsPerSec,
+        alloysPerSec: locked.alloysPerSec,
+      })
+    }
+  })
+
+  it('a tier-1 empty grid earns the locked baseline passive income (10 cr/s), not 0', () => {
+    const run = runEconomySimulation({ ...STANDARD, horizonSeconds: 120 })
+    const first = run.points[0]
+    expect(first.structureLevels).toEqual({
+      oreMine: 0,
+      tradeHub: 0,
+      housing: 0,
+      hydroponics: 0,
+      barracks: 0,
+      shipyard: 0,
+      defenseTurret: 0,
+    })
+    expect(first.income).toEqual({ creditsPerSec: 10, alloysPerSec: 0 })
+    const locked = computePlanetDerived(
+      harnessPlanet(run.config.tier, first.population),
+      first.structureLevels,
+    )
+    expect(first.income).toEqual({
+      creditsPerSec: locked.creditsPerSec,
+      alloysPerSec: locked.alloysPerSec,
+    })
+  })
+
+  it('a tier-2 empty grid earns the locked tier-2 baseline (20 cr/s)', () => {
+    const run = runEconomySimulation({
+      tier: 2,
+      initialCredits: 0,
+      initialAlloys: 0,
+      horizonSeconds: 120,
+    })
+    expect(run.points[0].income).toEqual({ creditsPerSec: 20, alloysPerSec: 0 })
+    expect(harnessInvariants(run).ok).toBe(true)
+  })
+
+  it('tier-3 and tier-5 empty grids earn the locked baselines (30 and 50 cr/s)', () => {
+    const t3 = runEconomySimulation({ tier: 3, initialCredits: 0, initialAlloys: 0, horizonSeconds: 60 })
+    expect(t3.points[0].income).toEqual({ creditsPerSec: 30, alloysPerSec: 0 })
+    const t5 = runEconomySimulation({ tier: 5, initialCredits: 0, initialAlloys: 0, horizonSeconds: 60 })
+    expect(t5.points[0].income).toEqual({ creditsPerSec: 50, alloysPerSec: 0 })
+  })
+
+  it('alloy income appears once an ore mine is built (locked derived alloysPerSec)', () => {
+    const run = runEconomySimulation({
+      ...STANDARD,
+      initialCredits: 100_000,
+      initialAlloys: 10_000,
+      horizonSeconds: 3_600,
+    })
+    const minePoint = run.points.find((p) => p.structureLevels.oreMine >= 1)
+    expect(minePoint).toBeDefined()
+    expect(minePoint!.income.alloysPerSec).toBeGreaterThan(0)
+    const locked = computePlanetDerived(
+      harnessPlanet(run.config.tier, minePoint!.population),
+      minePoint!.structureLevels,
+    )
+    expect(minePoint!.income).toEqual({
+      creditsPerSec: locked.creditsPerSec,
+      alloysPerSec: locked.alloysPerSec,
+    })
+  })
+
+  it('passes harnessInvariants at every tier', () => {
+    for (const tier of [1, 2, 3, 4, 5]) {
+      const run = runEconomySimulation({
+        tier,
+        initialCredits: 1_000_000,
+        initialAlloys: 10_000,
+        horizonSeconds: BAND_MID_SECONDS,
+      })
+      expect(harnessInvariants(run).ok, `tier ${tier}`).toBe(true)
+    }
+  })
+
+  it('income is non-decreasing across the run (structure levels only grow)', () => {
+    const run = runEconomySimulation({
+      ...STANDARD,
+      initialCredits: 1_000_000,
+      horizonSeconds: BAND_MID_SECONDS,
+    })
+    for (let i = 1; i < run.points.length; i++) {
+      expect(run.points[i].income.creditsPerSec).toBeGreaterThanOrEqual(
+        run.points[i - 1].income.creditsPerSec,
+      )
+      expect(run.points[i].income.alloysPerSec).toBeGreaterThanOrEqual(
+        run.points[i - 1].income.alloysPerSec,
+      )
+    }
+  })
+
+  it('a custom 30s tick still reconciles every point income with the locked derived rates', () => {
+    const run = runEconomySimulation({ ...STANDARD, tickSeconds: 30, horizonSeconds: 3_600 })
+    for (const point of run.points) {
+      const locked = computePlanetDerived(
+        harnessPlanet(run.config.tier, point.population),
+        point.structureLevels,
+      )
+      expect(point.income).toEqual({
+        creditsPerSec: locked.creditsPerSec,
+        alloysPerSec: locked.alloysPerSec,
+      })
+    }
+  })
+
+  it('the first upgrade point shows exactly one cumulative structure level', () => {
+    const run = runEconomySimulation(STANDARD)
+    const first = run.points.find((p) =>
+      STRUCTURE_IDS.some((id) => p.structureLevels[id] > 0),
+    )
+    expect(first).toBeDefined()
+    const cumulative = STRUCTURE_IDS.reduce((sum, id) => sum + first!.structureLevels[id], 0)
+    expect(cumulative).toBe(1)
+    expect(run.summary.timeToFirstUpgradeSeconds).toBe(first!.atSeconds)
+  })
+
+  it('finalCredits equals the last point credits and stays finite', () => {
+    const run = runEconomySimulation(LONG)
+    expect(run.summary.finalCredits).toBe(run.points[run.points.length - 1].credits)
+    expect(Number.isFinite(run.summary.finalCredits)).toBe(true)
+  })
+
+  it('telemetry income reflects the locked derived rates for each band', () => {
+    const run = runEconomySimulation({
+      ...STANDARD,
+      initialCredits: 1_000_000,
+      horizonSeconds: BAND_MID_SECONDS + 7_200,
+    })
+    const lines = harnessTelemetry(run).split('\n')
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) {
+      const [band, credits, alloys] = line.split(',')
+      const point = [...run.points].reverse().find((p) => p.band === band)
+      expect(point, `band ${band}`).toBeDefined()
+      expect(credits).toBe(String(point!.income.creditsPerSec))
+      expect(alloys).toBe(String(point!.income.alloysPerSec))
+    }
+  })
+
+  it('income reflects the locked trade-hub multiplier increment (tier 1, hub Lv 1 -> 11 cr/s)', () => {
+    const grid = {
+      oreMine: 0,
+      tradeHub: 1,
+      housing: 0,
+      hydroponics: 0,
+      barracks: 0,
+      shipyard: 0,
+      defenseTurret: 0,
+    }
+    const derived = computePlanetDerived(harnessPlanet(1, 1_000), grid)
+    expect(derived.creditsPerSec).toBe(11)
+    const run = runEconomySimulation({
+      ...STANDARD,
+      initialCredits: 1_000_000,
+      horizonSeconds: 3_600,
+    })
+    const hubPoint = run.points.find((p) => p.structureLevels.tradeHub >= 1)
+    expect(hubPoint).toBeDefined()
+    const locked = computePlanetDerived(
+      harnessPlanet(run.config.tier, hubPoint!.population),
+      hubPoint!.structureLevels,
+    )
+    expect(hubPoint!.income).toEqual({
+      creditsPerSec: locked.creditsPerSec,
+      alloysPerSec: locked.alloysPerSec,
+    })
+  })
+
+  it('tier-2 population grows past the legacy raw cap toward the derived cap (no negative delta)', () => {
+    const run = runEconomySimulation({
+      tier: 2,
+      initialCredits: 1_000_000,
+      initialAlloys: 10_000,
+      horizonSeconds: BAND_MID_SECONDS,
+    })
+    const last = run.points[run.points.length - 1]
+    const derived = computePlanetDerived(
+      harnessPlanet(run.config.tier, last.population),
+      last.structureLevels,
+    )
+    expect(last.population).toBeGreaterThan(5_500)
+    expect(last.population).toBeLessThanOrEqual(derived.populationCap)
+    for (let i = 1; i < run.points.length; i++) {
+      expect(run.points[i].population).toBeGreaterThanOrEqual(
+        run.points[i - 1].population,
+      )
+    }
+  })
+
+  it('keeps population at or below the LOCKED derived cap at every point', () => {
+    const run = runEconomySimulation({
+      tier: 2,
+      initialCredits: 1_000_000,
+      initialAlloys: 10_000,
+      horizonSeconds: BAND_MID_SECONDS,
+    })
+    for (const point of run.points) {
+      const derived = computePlanetDerived(
+        harnessPlanet(run.config.tier, point.population),
+        point.structureLevels,
+      )
+      expect(point.population, `point ${point.atSeconds}`).toBeLessThanOrEqual(
+        derived.populationCap,
+      )
     }
   })
 
@@ -133,10 +341,16 @@ describe('runEconomySimulation', () => {
     expect(harnessInvariants(run).ok).toBe(true)
   })
 
-  it('with zero starting credits builds nothing and reports the horizon as the first-upgrade time', () => {
+  it('with zero starting credits, baseline passive income still funds builds (derived timing)', () => {
     const run = runEconomySimulation({ ...STANDARD, initialCredits: 0, initialAlloys: 0 })
-    expect(run.summary.totalUpgrades).toBe(0)
-    expect(run.summary.timeToFirstUpgradeSeconds).toBe(STANDARD.horizonSeconds)
+    expect(run.summary.totalUpgrades).toBeGreaterThan(0)
+    expect(run.summary.timeToFirstUpgradeSeconds).toBeLessThan(run.config.horizonSeconds)
+    const first = run.points.find((p) =>
+      STRUCTURE_IDS.some((id) => p.structureLevels[id] > 0),
+    )
+    expect(first).toBeDefined()
+    expect(first!.atSeconds).toBe(run.summary.timeToFirstUpgradeSeconds)
+    expect(harnessInvariants(run).ok).toBe(true)
   })
 
   it('a tiny horizon only reaches the early band', () => {

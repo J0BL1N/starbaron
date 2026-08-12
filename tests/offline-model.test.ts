@@ -1,21 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_OFFLINE_BANK_SECONDS, calculateOfflineEarnings } from '../src/sim/core/offline'
-import { populationCap } from '../src/sim/core/population'
-import { applyGrowth } from '../src/sim/core/population-model'
-import type { PopulationState } from '../src/sim/core/population-model'
+import { projectedPopulation } from '../src/sim/core/population-model'
 import {
   offlineProgress,
   offlineSummary,
   validateOfflineResult,
 } from '../src/sim/core/offline-model'
 import type { OfflineResult } from '../src/sim/core/offline-model'
-import { accruePlayer, empireRates } from '../src/sim/player/accrual'
+import { accruePlayer, computePlanetDerived, empireRates } from '../src/sim/player/accrual'
 import { claimColony, firstUnclaimedByIndex } from '../src/sim/player/claim'
 import { STARTER_STRUCTURES, emptyStructureLevels } from '../src/sim/player/grid'
 import { createPlayer } from '../src/sim/player/player'
 import type { PlayerState, StructureGrid } from '../src/sim/player/types'
 import { queueConstruction } from '../src/sim/structures/queues'
 import type { ConstructionQueue } from '../src/sim/structures/queues'
+import type { PlanetCatalogueEntry } from '../src/sim/data/planets'
 
 const NOW = 1_700_000_000_000
 const ANCHOR = 'offline-anchor'
@@ -74,19 +73,6 @@ function queuedPlayer(): { player: PlayerState; queue: ConstructionQueue } {
     grid: { ...grid, housing: grid.housing + 1 },
   })
   return { player, queue: second.queue }
-}
-
-function popStateFor(
-  planet: PlayerState['homePlanet'],
-  grid: StructureGrid,
-  lastTickAt: number,
-): PopulationState {
-  return {
-    population: planet.population,
-    housingLevels: grid.housing,
-    hydroponicsLevels: grid.hydroponics,
-    lastTickAt,
-  }
 }
 
 describe('offlineProgress — elapsed / banked / capped mirror offline.ts', () => {
@@ -223,8 +209,28 @@ describe('offlineProgress — credit/alloy delta delegates to calculateOfflineEa
   })
 })
 
-describe('offlineProgress — population growth', () => {
-  it('home planet delta equals applyGrowth over the banked window', () => {
+describe('offlineProgress — population growth (derived model, projectedPopulation)', () => {
+  function lockedFor(
+    planet: PlayerState['homePlanet'],
+    grid: StructureGrid,
+  ): { populationCap: number; populationPerSec: number } {
+    const derived = computePlanetDerived(planet, grid)
+    return { populationCap: derived.populationCap, populationPerSec: derived.populationPerSec }
+  }
+
+  function projectedDelta(
+    planet: PlayerState['homePlanet'],
+    grid: StructureGrid,
+    seconds: number,
+  ): number {
+    return projectedPopulation({
+      population: planet.population,
+      seconds,
+      derived: lockedFor(planet, grid),
+    }).growthDelta
+  }
+
+  it('home planet delta equals projectedPopulation over the banked window (derived model)', () => {
     const player = basePlayer()
     const result = offlineProgress({
       player,
@@ -232,10 +238,8 @@ describe('offlineProgress — population growth', () => {
       at: player.lastTickAt + 7200 * 1000,
     })
     const grid = player.structureLevels[player.homePlanet.name]
-    const base = popStateFor(player.homePlanet, grid, player.lastTickAt)
-    const grown = applyGrowth(base, player.lastTickAt + result.bankedSeconds)
     expect(result.populationByPlanet[player.homePlanet.name]).toBe(
-      grown.population - player.homePlanet.population,
+      projectedDelta(player.homePlanet, grid, result.bankedSeconds),
     )
   })
 
@@ -248,38 +252,249 @@ describe('offlineProgress — population growth', () => {
     })
     expect(result.capped).toBe(true)
     const grid = player.structureLevels[player.homePlanet.name]
-    const base = popStateFor(player.homePlanet, grid, player.lastTickAt)
-    const banked = applyGrowth(base, player.lastTickAt + result.bankedSeconds)
-    const full = applyGrowth(base, player.lastTickAt + result.elapsedSeconds)
-    expect(result.populationByPlanet[player.homePlanet.name]).toBe(
-      banked.population - player.homePlanet.population,
-    )
-    expect(result.populationByPlanet[player.homePlanet.name]).toBeLessThanOrEqual(
-      full.population - player.homePlanet.population,
-    )
+    const banked = projectedDelta(player.homePlanet, grid, result.bankedSeconds)
+    const full = projectedDelta(player.homePlanet, grid, result.elapsedSeconds)
+    expect(result.populationByPlanet[player.homePlanet.name]).toBe(banked)
+    expect(result.populationByPlanet[player.homePlanet.name]).toBeLessThanOrEqual(full)
   })
 
-  it('clamps population at the cap (never overshoots)', () => {
+  it('clamps population at the DERIVED cap (never overshoots)', () => {
     const player = { ...basePlayer() }
-    player.homePlanet = { ...player.homePlanet, population: 5_999 }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    player.homePlanet = {
+      ...player.homePlanet,
+      population: derived.populationCap - 1,
+    }
     const result = offlineProgress({
       player,
       queue: emptyQueue(player),
       at: player.lastTickAt + 2 * 3600 * 1000,
     })
     const delta = result.populationByPlanet[player.homePlanet.name]
-    expect(player.homePlanet.population + delta).toBe(populationCap(1))
+    expect(player.homePlanet.population + delta).toBe(derived.populationCap)
   })
 
-  it('a planet already at its cap reports a zero population delta', () => {
+  it('a planet already at its derived cap reports a zero population delta', () => {
     const player = { ...basePlayer() }
-    player.homePlanet = { ...player.homePlanet, population: populationCap(1) }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    player.homePlanet = { ...player.homePlanet, population: derived.populationCap }
     const result = offlineProgress({
       player,
       queue: emptyQueue(player),
       at: player.lastTickAt + 2 * 3600 * 1000,
     })
     expect(result.populationByPlanet[player.homePlanet.name]).toBe(0)
+  })
+
+  it('a tier-2 planet at 5,500 pop grows toward the derived 6,000 cap (no negative delta)', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Tier Two World',
+      hostname: 'T2 Host',
+      systemCount: 1,
+      tier: 2,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 5_500 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: emptyStructureLevels(),
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationCap).toBe(6_000)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 7200 * 1000,
+    })
+    const delta = result.populationByPlanet[player.homePlanet.name]
+    expect(delta).toBeGreaterThan(0)
+    expect(delta).toBe(500)
+    expect(player.homePlanet.population + delta).toBe(derived.populationCap)
+    expect(validateOfflineResult(result).ok).toBe(true)
+  })
+
+  it('growth is linear before the derived cap, then clamps exactly at it (short vs long window)', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Linear Growth World',
+      hostname: 'LG Host',
+      systemCount: 1,
+      tier: 1,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 1_000 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: emptyStructureLevels(),
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationCap).toBe(5_000)
+    const short = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 10 * 1000,
+    })
+    expect(short.populationByPlanet[player.homePlanet.name]).toBe(
+      derived.populationPerSec * 10,
+    )
+    const long = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 7200 * 1000,
+    })
+    expect(long.populationByPlanet[player.homePlanet.name]).toBe(4_000)
+    expect(
+      player.homePlanet.population + long.populationByPlanet[player.homePlanet.name],
+    ).toBe(derived.populationCap)
+  })
+
+  it('a denseCore quirk lifts the derived cap (quirk modifiers honoured in the offline path)', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Dense Core World',
+      hostname: 'DC Host',
+      systemCount: 1,
+      tier: 1,
+      radiusEarth: 1.0,
+      massJup: 0.003,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 6_000 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: { ...emptyStructureLevels(), housing: 1 },
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationCap).toBe(6_100)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 7200 * 1000,
+    })
+    const delta = result.populationByPlanet[player.homePlanet.name]
+    expect(delta).toBeGreaterThan(0)
+    expect(player.homePlanet.population + delta).toBe(derived.populationCap)
+  })
+
+  it('a planet at its derived cap stays at the cap in every window (never a negative delta)', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Saturated World',
+      hostname: 'SAT Host',
+      systemCount: 1,
+      tier: 2,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 6_000 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: emptyStructureLevels(),
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationCap).toBe(6_000)
+    for (const hours of [1, 2, 10]) {
+      const result = offlineProgress({
+        player,
+        queue: emptyQueue(player),
+        at: player.lastTickAt + hours * 3600 * 1000,
+      })
+      expect(result.populationByPlanet[player.homePlanet.name]).toBe(0)
+      expect(validateOfflineResult(result).ok).toBe(true)
+    }
+  })
+
+  it('a tier-5 planet at its derived cap also reports zero delta (cap multiplier honoured)', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Tier Five World',
+      hostname: 'T5 Host',
+      systemCount: 1,
+      tier: 5,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 10_000 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: emptyStructureLevels(),
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationCap).toBe(10_000)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 7200 * 1000,
+    })
+    expect(result.populationByPlanet[player.homePlanet.name]).toBe(0)
+  })
+
+  it('hydroponics boosts the derived growth rate (quirk + growth multiplier path)', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Hydro World',
+      hostname: 'HY Host',
+      systemCount: 1,
+      tier: 1,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 1_000 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: { ...emptyStructureLevels(), hydroponics: 2 },
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationPerSec).toBe(4)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 60 * 1000,
+    })
+    expect(result.populationByPlanet[player.homePlanet.name]).toBe(
+      derived.populationPerSec * 60,
+    )
+  })
+
+  it('diminishing effective levels (housing > 10) cap the derived population below the raw cap', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Diminishing World',
+      hostname: 'DM Host',
+      systemCount: 1,
+      tier: 1,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 6_000 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: { ...emptyStructureLevels(), housing: 20 },
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationCap).toBe(20_000)
+    expect(derived.populationCap).toBeLessThan(25_000)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 7200 * 1000,
+    })
+    const delta = result.populationByPlanet[player.homePlanet.name]
+    expect(delta).toBeGreaterThan(0)
+    expect(player.homePlanet.population + delta).toBe(derived.populationCap)
   })
 
   it('reports a colony delta under the colony name; a zero-population colony still grows', () => {
@@ -304,6 +519,124 @@ describe('offlineProgress — population growth', () => {
     const delta = grown.populationByPlanet[colonyName]
     expect(Number.isFinite(delta)).toBe(true)
     expect(delta).toBeGreaterThanOrEqual(0)
+  })
+
+  it('colony delta equals the derived projection under the colony own rates', () => {
+    const player = playerWithColony()
+    const colony = player.colonies[0]
+    const grid = player.structureLevels[colony.name]
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 3600 * 1000,
+    })
+    const derived = computePlanetDerived(colony, grid)
+    const expected = projectedPopulation({
+      population: colony.population,
+      seconds: result.bankedSeconds,
+      derived: {
+        populationCap: derived.populationCap,
+        populationPerSec: derived.populationPerSec,
+      },
+    }).growthDelta
+    expect(result.populationByPlanet[colony.name]).toBe(expected)
+  })
+
+  it('reports a delta per planet, keyed by name, across home plus multiple colonies', () => {
+    let player = playerWithColony()
+    const colony2Entry = firstUnclaimedByIndex(player)
+    if (colony2Entry === null) {
+      throw new Error('fixture needs a second unclaimed catalogue planet')
+    }
+    const colony2 = claimColony(colony2Entry, NOW)
+    player = {
+      ...player,
+      colonies: [...player.colonies, { ...colony2, population: 3_000 }],
+      structureLevels: {
+        ...player.structureLevels,
+        [colony2.name]: emptyStructureLevels(),
+      },
+    }
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 3600 * 1000,
+    })
+    for (const planet of [player.homePlanet, ...player.colonies]) {
+      expect(result.populationByPlanet[planet.name], planet.name).toBeGreaterThanOrEqual(
+        0,
+      )
+    }
+  })
+
+  it('grows linearly at the derived rate when far from the cap', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Underpopulated World',
+      hostname: 'UP Host',
+      systemCount: 1,
+      tier: 1,
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 100 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: emptyStructureLevels(),
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 600 * 1000,
+    })
+    expect(result.populationByPlanet[player.homePlanet.name]).toBe(
+      derived.populationPerSec * 600,
+    )
+  })
+
+  it('never reports a negative population delta for any planet or window', () => {
+    const player = playerWithColony()
+    for (const hours of [1, 4, 10]) {
+      const result = offlineProgress({
+        player,
+        queue: emptyQueue(player),
+        at: player.lastTickAt + hours * 3600 * 1000,
+      })
+      for (const [name, delta] of Object.entries(result.populationByPlanet)) {
+        expect(delta, `${name} @ ${hours}h`).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+
+  it('a coldStar planet (growth dampener) still grows toward its derived cap', () => {
+    const entry: PlanetCatalogueEntry = {
+      name: 'Cold Star World',
+      hostname: 'CS Host',
+      systemCount: 1,
+      tier: 1,
+      starType: 'M2 V',
+    }
+    const player = {
+      ...basePlayer(),
+      homePlanet: { ...claimColony(entry, NOW), population: 4_500 },
+      structureLevels: {
+        ...basePlayer().structureLevels,
+        [entry.name]: emptyStructureLevels(),
+      },
+    }
+    const grid = player.structureLevels[player.homePlanet.name]
+    const derived = computePlanetDerived(player.homePlanet, grid)
+    expect(derived.populationPerSec).toBe(1.8)
+    const result = offlineProgress({
+      player,
+      queue: emptyQueue(player),
+      at: player.lastTickAt + 7200 * 1000,
+    })
+    const delta = result.populationByPlanet[player.homePlanet.name]
+    expect(delta).toBeGreaterThan(0)
+    expect(player.homePlanet.population + delta).toBe(derived.populationCap)
   })
 })
 

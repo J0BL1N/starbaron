@@ -1,7 +1,8 @@
 import {
+  BASE_GROWTH_PER_SEC,
   BASE_POPULATION_CAP,
-  HOUSING_GROWTH_PER_LEVEL,
   populationCap,
+  populationGrowthPerSec,
 } from '../core/population'
 import { applyGrowth } from '../core/population-model'
 import type { PopulationState } from '../core/population-model'
@@ -65,14 +66,14 @@ export function housingCapBonus(level: number): number {
 }
 
 /**
- * Per-level growth contribution of housing. WRAPS the locked per-level
- * growth term HOUSING_GROWTH_PER_LEVEL × level — verified against
- * population.ts `populationGrowthPerSec` (its housing term is
- * HOUSING_GROWTH_PER_LEVEL * housingLevels on the raw level).
+ * Per-level growth contribution of housing. DELEGATES to the LOCKED formula
+ * exactly: `populationGrowthPerSec(level, 0) - BASE_GROWTH_PER_SEC` (the
+ * housing term of the locked population.ts helper; hydroponics levels pinned
+ * to 0 so only the housing term remains). Nothing is re-derived here.
  */
 export function housingGrowthBonus(level: number): number {
   assertValidLevel(level)
-  return HOUSING_GROWTH_PER_LEVEL * level
+  return populationGrowthPerSec(level, 0) - BASE_GROWTH_PER_SEC
 }
 
 /**

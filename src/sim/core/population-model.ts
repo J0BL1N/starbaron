@@ -68,6 +68,70 @@ export function applyWarLoss(state: PopulationState, fraction: number, at: numbe
   return { ...state, population, lastTickAt: at }
 }
 
+export interface ProjectedPopulationInput {
+  population: number
+  seconds: number
+  derived: {
+    populationCap: number
+    populationPerSec: number
+  }
+}
+
+export interface ProjectedPopulationResult {
+  population: number
+  growthDelta: number
+}
+
+/**
+ * Derived-cap population projection (phase-3 whole-phase audit finding 4).
+ *
+ * Clamped growth over a `seconds` window using an ALREADY-DERIVED cap and
+ * rate: `population + populationPerSec x seconds`, clamped to
+ * `populationCap`. The caller obtains `derived.populationCap` and
+ * `derived.populationPerSec` from the LOCKED accrual.computePlanetDerived
+ * for the planet's tier/grid/quirks — this projection NEVER re-derives, so
+ * tier cap multipliers, diminishing effective levels and quirk growth/cap
+ * modifiers are all honoured exactly once, upstream.
+ *
+ * This is the path that keeps offline and harness population in lock-step
+ * with live accrual: a tier-2 planet at 5,500 pop (raw legacy cap 5,000 but
+ * derived cap 6,000) grows toward 6,000 here instead of being clamped to a
+ * negative delta by the legacy raw-level model.
+ *
+ * Pure and deterministic — no clocks (the window is an input), no mutable
+ * state.
+ */
+export function projectedPopulation(
+  input: ProjectedPopulationInput,
+): ProjectedPopulationResult {
+  const { population, seconds, derived } = input
+  if (!Number.isFinite(population) || population < 0) {
+    throw new RangeError(
+      `population must be a finite number >= 0, got ${population}`,
+    )
+  }
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    throw new RangeError(
+      `seconds must be a finite number >= 0, got ${seconds}`,
+    )
+  }
+  if (!Number.isFinite(derived.populationCap) || derived.populationCap <= 0) {
+    throw new RangeError(
+      `derived.populationCap must be a finite number > 0, got ${derived.populationCap}`,
+    )
+  }
+  if (!Number.isFinite(derived.populationPerSec) || derived.populationPerSec < 0) {
+    throw new RangeError(
+      `derived.populationPerSec must be a finite number >= 0, got ${derived.populationPerSec}`,
+    )
+  }
+  const projected = Math.min(
+    population + derived.populationPerSec * seconds,
+    derived.populationCap,
+  )
+  return { population: projected, growthDelta: projected - population }
+}
+
 export function populationInvariants(state: PopulationState): {
   ok: boolean
   problems: string[]

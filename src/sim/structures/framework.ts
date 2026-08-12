@@ -11,61 +11,22 @@ import type { StructureCategory, StructureId } from './types'
 export type StructureGrid = Record<StructureId, number>
 
 /**
- * The canonical structure framework: build/upgrade costs, prerequisites,
- * placement-validation, max levels and build eligibility.
+ * The canonical structure framework: build/upgrade costs, placement
+ * validation and build eligibility.
  *
- * Pure module — deterministic, no wall clock, no module-level mutable state
- * (PREREQUISITES is deeply frozen).
+ * DESIGN (locked): structure levels are UNLIMITED — there is NO hard max
+ * level and NO numeric prerequisite table. §4d says only "Housing grows
+ * population → Barracks turns people into fleet → …" narratively; the
+ * economy never locks a number, so nothing here invents one. Levels are
+ * simply finite non-negative integers; diminishing returns beyond 10 are an
+ * effective-level rule owned by the locked planets/levels.ts, not a cap.
+ *
+ * Pure module — deterministic, no wall clock, no module-level mutable state.
  *
  * Costs are NOT re-derived here: buildCost/upgradeCost delegate to the LOCKED
  * economy.structureCost formula (baseCost × 1.15^level) and mirror
  * effects.nextBuildCost exactly (see src/sim/core/economy.ts).
  */
-
-/** A structure that must exist at or above `minLevel` before another can build. */
-export interface Prerequisite {
-  structure: StructureId
-  minLevel: number
-}
-
-/**
- * Source of the prerequisite table. DESIGN §4c/§4d defines the dependency
- * chain narratively ("Housing grows population → Barracks turns people into
- * fleet → Shipyard launches bigger invasions … more Turrets") but locks NO
- * numeric prerequisites, so the set below is a minimal sensible draft.
- */
-export const PREREQUISITE_SOURCE = 'draft — T10 balancing input' as const
-
-const PREREQUISITE_TABLE: Readonly<Record<StructureId, readonly Prerequisite[]>> = {
-  oreMine: [],
-  tradeHub: [],
-  housing: [],
-  hydroponics: [],
-  barracks: [{ structure: 'housing', minLevel: 1 }],
-  shipyard: [{ structure: 'oreMine', minLevel: 3 }],
-  defenseTurret: [{ structure: 'barracks', minLevel: 1 }],
-}
-
-function deepFreezePrerequisites(
-  table: Readonly<Record<StructureId, readonly Prerequisite[]>>,
-): Readonly<Record<StructureId, readonly Prerequisite[]>> {
-  for (const id of Object.keys(table) as StructureId[]) {
-    for (const prerequisite of table[id]) {
-      Object.freeze(prerequisite)
-    }
-    Object.freeze(table[id])
-  }
-  return Object.freeze(table)
-}
-
-export const PREREQUISITES = deepFreezePrerequisites(PREREQUISITE_TABLE)
-
-/**
- * Engineering max level for the framework. DESIGN is silent on a numeric cap
- * (levels are "unlimited", with diminishing returns after 10 being an
- * effective-level rule, not a cap) — 100 is a guard against runaway grids.
- */
-export const MAX_LEVEL = 100
 
 function assertKnownStructure(id: unknown): asserts id is StructureId {
   if (!isStructureId(id)) {
@@ -91,19 +52,7 @@ export function upgradeCost(structure: StructureId, currentLevel: number): numbe
   return structureCost(STRUCTURES[structure].baseCost, currentLevel)
 }
 
-/** Every prerequisite structure is present at or above its minLevel. */
-export function prerequisitesMet(
-  structure: StructureId,
-  grid: StructureGrid,
-): boolean {
-  assertKnownStructure(structure)
-  return PREREQUISITES[structure].every(
-    (p) => (grid[p.structure] ?? 0) >= p.minLevel,
-  )
-}
-
 export type CanBuildReason =
-  | 'prerequisites'
   | 'insufficient-credits'
   | 'insufficient-alloys'
   | 'unknown-structure'
@@ -113,8 +62,10 @@ export type CanBuildResult =
   | { ok: false; reason: CanBuildReason }
 
 /**
- * Build-eligibility ladder: unknown → prerequisites → funds (credits, then
- * alloys). Alloy cost is the flat per-build `alloyCost` from data.ts (only
+ * Build-eligibility ladder: unknown → funds (credits, then alloys). There is
+ * no prerequisite rung — DESIGN locks no numeric prerequisites (§4d), so any
+ * structure is buildable from level 0 the moment its cost is affordable.
+ * Alloy cost is the flat per-build `alloyCost` from data.ts (only
  * defenseTurret pays alloys; the locked cost formula scales credits only).
  */
 export function canBuild(
@@ -124,9 +75,6 @@ export function canBuild(
 ): CanBuildResult {
   if (!isStructureId(structure)) {
     return { ok: false, reason: 'unknown-structure' }
-  }
-  if (!prerequisitesMet(structure, grid)) {
-    return { ok: false, reason: 'prerequisites' }
   }
   const cost = buildCost(structure, grid[structure] ?? 0)
   if (wallet.credits < cost) {
@@ -139,20 +87,15 @@ export function canBuild(
   return { ok: true }
 }
 
-/** Max level for a known structure (engineering guard; DESIGN silent on a cap). */
-export function maxLevelFor(structure: StructureId): number {
-  assertKnownStructure(structure)
-  return STRUCTURES[structure].maxLevel ?? MAX_LEVEL
-}
-
 export interface GridValidation {
   ok: boolean
   problems: string[]
 }
 
 /**
- * Validates a structure grid: every StructureId present, levels are
- * non-negative integers within [0, maxLevelFor], and no unknown keys.
+ * Validates a structure grid: every StructureId present, levels are finite
+ * non-negative integers (NO upper bound — levels are unlimited per DESIGN),
+ * and no unknown keys.
  */
 export function validateGrid(grid: StructureGrid): GridValidation {
   const problems: string[] = []
@@ -164,10 +107,6 @@ export function validateGrid(grid: StructureGrid): GridValidation {
     }
     if (!Number.isInteger(level) || level < 0) {
       problems.push(`invalid level for ${id}: ${level}`)
-      continue
-    }
-    if (level > maxLevelFor(id)) {
-      problems.push(`level above max for ${id}: ${level}`)
     }
   }
   for (const key of Object.keys(grid)) {
@@ -184,7 +123,6 @@ export interface StructureSummary {
   category: StructureCategory
   baseCost: number
   buildTimeSeconds: number
-  prerequisites: readonly Prerequisite[]
 }
 
 export function structureSummary(structure: StructureId): StructureSummary {
@@ -196,6 +134,5 @@ export function structureSummary(structure: StructureId): StructureSummary {
     category: record.category,
     baseCost: record.baseCost,
     buildTimeSeconds: record.buildTimeSec,
-    prerequisites: PREREQUISITES[structure],
   }
 }

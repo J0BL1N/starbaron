@@ -145,6 +145,16 @@ describe('structureRates mirrors effects.ts exactly', () => {
       )
     }
   })
+
+  it('structureRates is deterministic for every structure and level', () => {
+    for (const id of STRUCTURE_IDS) {
+      for (const level of [0, 1, 3, 10, 15]) {
+        expect(structureRates(id, level), `${id}@${level}`).toEqual(
+          structureRates(id, level),
+        )
+      }
+    }
+  })
 })
 
 describe('planetEfficiency matches the locked production modifiers', () => {
@@ -210,6 +220,12 @@ describe('planetEfficiency matches the locked production modifiers', () => {
 
   it('validation: unknown quirk id throws RangeError', () => {
     expect(() => planetEfficiency(1, ['superQuirk' as QuirkId])).toThrow(RangeError)
+  })
+
+  it('planetEfficiency is deterministic across repeated calls', () => {
+    expect(planetEfficiency(3, ['binarySystem', 'highGravity'])).toBe(
+      planetEfficiency(3, ['binarySystem', 'highGravity']),
+    )
   })
 })
 
@@ -400,7 +416,7 @@ describe('productionSummaryFor', () => {
     expect(row(t1, 'shipyard').creditsPerSec).toBeCloseTo(1.6666666666666667, 12)
   })
 
-  it('perStructure is sorted by structure id ascending', () => {
+  it('perStructure follows the canonical STRUCTURE_IDS roster order (no locale sorting)', () => {
     const summary = productionSummaryFor({
       name: 'X-1',
       tier: 3,
@@ -411,10 +427,87 @@ describe('productionSummaryFor', () => {
       ]),
     })
     const ids = summary.perStructure.map((entry) => entry.structure)
-    expect(ids).toEqual([...ids].sort())
-    expect(ids).toEqual(
-      ['barracks', 'defenseTurret', 'housing', 'hydroponics', 'oreMine', 'shipyard', 'tradeHub'],
-    )
+    expect(ids).toEqual(STRUCTURE_IDS as unknown as StructureId[])
+    expect(ids).toEqual([
+      'oreMine',
+      'tradeHub',
+      'housing',
+      'hydroponics',
+      'barracks',
+      'shipyard',
+      'defenseTurret',
+    ])
+  })
+
+  it('the roster order is invariant across grids, tiers and quirks (no locale ordering)', () => {
+    const inputs: Array<Record<string, unknown>> = [
+      { name: 'A', tier: 1, grid: fullGrid([]) },
+      { name: 'B', tier: 5, grid: fullGrid([['shipyard', 9], ['defenseTurret', 4]]) },
+      {
+        name: 'C',
+        tier: 3,
+        quirks: ['binarySystem', 'highGravity'],
+        grid: fullGrid([['oreMine', 1], ['tradeHub', 1], ['housing', 1]]),
+      },
+    ]
+    for (const input of inputs) {
+      const summary = productionSummaryFor(
+        input as Parameters<typeof productionSummaryFor>[0],
+      )
+      expect(summary.perStructure.map((e) => e.structure)).toEqual([
+        'oreMine',
+        'tradeHub',
+        'housing',
+        'hydroponics',
+        'barracks',
+        'shipyard',
+        'defenseTurret',
+      ])
+    }
+  })
+
+  it('keeps the roster order for a full grid at every tier', () => {
+    for (const tier of [1, 2, 3, 4, 5]) {
+      const summary = productionSummaryFor({
+        name: `T${tier}`,
+        tier,
+        grid: fullGrid([
+          ['oreMine', 5],
+          ['tradeHub', 3],
+          ['housing', 4],
+          ['hydroponics', 2],
+          ['barracks', 2],
+          ['shipyard', 1],
+          ['defenseTurret', 2],
+        ]),
+      })
+      expect(summary.perStructure.map((e) => e.structure)).toEqual(
+        STRUCTURE_IDS as unknown as StructureId[],
+      )
+    }
+  })
+
+  it('total always equals the sum of per-structure rows (full grid)', () => {
+    const summary = productionSummaryFor({
+      name: 'X-1',
+      tier: 5,
+      quirks: ['binarySystem', 'highGravity'],
+      grid: fullGrid([
+        ['oreMine', 7],
+        ['tradeHub', 4],
+        ['shipyard', 6],
+        ['housing', 3],
+        ['hydroponics', 1],
+        ['barracks', 2],
+        ['defenseTurret', 5],
+      ]),
+    })
+    const credits = summary.perStructure.reduce((sum, e) => sum + e.creditsPerSec, 0)
+    const alloys = summary.perStructure.reduce((sum, e) => sum + e.alloysPerSec, 0)
+    expect(summary.total.creditsPerSec).toBe(credits)
+    expect(summary.total.alloysPerSec).toBe(alloys)
+    expect(summary.total.creditsPerSec).toBeGreaterThan(0)
+    expect(summary.total.alloysPerSec).toBeGreaterThan(0)
   })
 
   it('descriptions come from data.ts STRUCTURES names', () => {

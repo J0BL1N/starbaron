@@ -9,22 +9,29 @@
  *
  * The harness never re-derives a locked formula — it SIMULATES using the
  * locked modules:
- *   - income:      productionSummaryFor(tier, grid, no quirks) per tick
- *   - costs:       framework.buildCost / prerequisitesMet / maxLevelFor
+ *   - income:      computePlanetDerived (accrual.ts) creditsPerSec/alloysPerSec
+ *                  for the harness's quirk-free planet + current grid — the
+ *                  LIVE accrual rate: baseline passive income (10 cr/s on a
+ *                  tier-1 empty grid) plus the binarySystem level-0 floor
+ *                  semantics are both inside the locked function
+ *   - costs:       framework.buildCost
  *   - construction: queues.queueConstruction + completeDueJobs (ms timestamps)
- *   - population:  core/population-model applyGrowth (locked legacy raw-level
- *                  model), rebound to the grid's housing/hydroponics each tick;
- *                  the tier-scaled cap used by harnessInvariants is the locked
- *                  populationCapFor(housing, populationCapMultiplier(tier)).
+ *   - population:  core/population-model projectedPopulation per tick, fed the
+ *                  ALREADY-DERIVED cap/rate from computePlanetDerived (tier
+ *                  cap multiplier, diminishing effective levels and quirk
+ *                  growth/cap modifiers all apply — the same model as live
+ *                  accrual). harnessInvariants bounds population with the
+ *                  locked raw populationCapFor as a superset check.
  *
  * HARNESS-INPUT DECISIONS (documented — deliberately NOT gameplay decisions):
  *   - Greedy policy: each tick enqueues AT MOST ONE build — the structure with
- *     the smallest nextBuildCost that is affordable (credits + alloys) and has
- *     its prerequisites met. Ties break in STRUCTURE_IDS order. A structure
- *     with an in-flight building job is excluded (builds are serial per
- *     structure; parallel builds across DIFFERENT structures are permitted, as
- *     the locked queue module allows). This policy is a balance-harness input
- *     for measuring the economy, not a gameplay decision.
+ *     the smallest nextBuildCost that is affordable (credits + alloys). Ties
+ *     break in STRUCTURE_IDS order. A structure with an in-flight building job
+ *     is excluded (builds are serial per structure; parallel builds across
+ *     DIFFERENT structures are permitted, as the locked queue module allows).
+ *     There is NO prerequisite rung and NO max level (DESIGN: levels are
+ *     unlimited, no numeric prerequisites). This policy is a balance-harness
+ *     input for measuring the economy, not a gameplay decision.
  *   - Income is accrued with the grid as of the START of the tick window
  *     (discrete approximation); a final partial tick accrues for its partial
  *     window.
@@ -43,18 +50,17 @@
  * BAND_MID_SECONDS], late = beyond BAND_MID_SECONDS.
  */
 
-import { MAX_TIER, MIN_TIER } from '../core/economy'
-import { applyGrowth, populationCapFor } from '../core/population-model'
-import type { PopulationState } from '../core/population-model'
+import { MAX_TIER, MIN_TIER, baselinePassiveIncome } from '../core/economy'
+import { populationCapFor, projectedPopulation } from '../core/population-model'
 import { populationCapMultiplier } from '../planets/levels'
-import type { PlanetTier } from '../data/planets'
+import type { PlanetCatalogueEntry, PlanetTier } from '../data/planets'
 import { STRUCTURES, STRUCTURE_IDS, isStructureId } from '../structures/data'
-import { buildCost, maxLevelFor, prerequisitesMet } from '../structures/framework'
-import { productionSummaryFor } from '../structures/production'
+import { buildCost } from '../structures/framework'
+import { computePlanetDerived } from '../player/accrual'
+import type { OwnedPlanet, WalletState } from '../player/types'
 import { completeDueJobs, queueConstruction } from '../structures/queues'
 import type { ConstructionQueue } from '../structures/queues'
 import type { StructureId } from '../structures/types'
-import type { WalletState } from '../player/types'
 
 /** End of the early band, in simulated seconds (first 15 minutes). */
 export const BAND_EARLY_SECONDS = 900
@@ -92,7 +98,7 @@ export interface HarnessSummary {
 }
 
 export interface HarnessRunConfig {
-  tier: number
+  tier: PlanetTier
   initialCredits: number
   initialAlloys: number
   horizonSeconds: number
@@ -139,8 +145,58 @@ function emptyGrid(): Record<StructureId, number> {
   }
 }
 
+/**
+ * The harness's quirk-free OwnedPlanet fixture for a tier. The minimal
+ * catalogue entry carries no radius/mass/starType/systemCount that could
+ * trigger a quirk, so ownedPlanetIdentity yields an empty quirk list and
+ * computePlanetDerived runs the pure locked composition (baseline passive
+ * income x trade-hub multiplier + shipyard income; no quirk modifiers).
+ * `population` tracks the sim's current population — computePlanetDerived
+ * reads it for defense power only, never for credits/alloys.
+ *
+ * Exported so tests can reconcile point income against the SAME locked
+ * fixture the simulation uses (single source of truth).
+ */
+export function harnessPlanet(tier: PlanetTier, population: number): OwnedPlanet {
+  const entry: PlanetCatalogueEntry = {
+    name: PLANET_NAME,
+    hostname: 'Harness-Host',
+    systemCount: 1,
+    tier,
+  }
+  return {
+    name: PLANET_NAME,
+    entry,
+    tier,
+    baselineIncomePerSec: baselinePassiveIncome(tier),
+    populationCapMultiplier: populationCapMultiplier(tier),
+    claimedAt: 0,
+    isHome: true,
+    unconquerable: true,
+    population,
+    garrison: 0,
+    fleet: 0,
+  }
+}
+
+/**
+ * The LOCKED per-second income for the current grid/tier: the
+ * computePlanetDerived creditsPerSec/alloysPerSec of the quirk-free harness
+ * planet. This IS the live accrual rate — baselinePassiveIncome (10 cr/s on a
+ * tier-1 empty grid) and the binarySystem level-0 floor semantics live inside
+ * the locked function, so the harness and live accrual share one source.
+ */
+function lockedRatesFor(
+  tier: PlanetTier,
+  grid: Record<StructureId, number>,
+  population: number,
+): { creditsPerSec: number; alloysPerSec: number } {
+  const derived = computePlanetDerived(harnessPlanet(tier, population), grid)
+  return { creditsPerSec: derived.creditsPerSec, alloysPerSec: derived.alloysPerSec }
+}
+
 function resolveConfig(config: EconomySimulationConfig): HarnessRunConfig {
-  if (!Number.isInteger(config.tier) || config.tier < MIN_TIER || config.tier > MAX_TIER) {
+  if (!isPlanetTier(config.tier)) {
     throw new RangeError(
       `tier must be an integer in [${MIN_TIER}, ${MAX_TIER}], got ${config.tier}`,
     )
@@ -188,8 +244,9 @@ interface BuildCandidate {
 
 /**
  * The harness greedy policy: the structure with the smallest nextBuildCost that
- * is affordable (credits and alloys) and has its prerequisites met, with no
- * in-flight building job. Ties break in STRUCTURE_IDS order. Returns null when
+ * is affordable (credits and alloys), with no in-flight building job. There is
+ * NO prerequisite rung and NO max level (DESIGN: levels are unlimited, no
+ * numeric prerequisites). Ties break in STRUCTURE_IDS order. Returns null when
  * nothing qualifies.
  */
 function cheapestAffordableBuild(
@@ -199,18 +256,11 @@ function cheapestAffordableBuild(
 ): BuildCandidate | null {
   const candidates: BuildCandidate[] = []
   for (const id of STRUCTURE_IDS) {
-    const level = grid[id]
-    if (level >= maxLevelFor(id)) {
-      continue
-    }
     if (hasBuildingJob(queue, id)) {
       continue
     }
-    if (!prerequisitesMet(id, grid)) {
-      continue
-    }
     const cost = {
-      credits: buildCost(id, level),
+      credits: buildCost(id, grid[id]),
       alloys: STRUCTURES[id].alloyCost ?? 0,
     }
     if (wallet.credits < cost.credits || wallet.alloys < cost.alloys) {
@@ -295,13 +345,13 @@ function expectedFirstUpgradeTime(points: readonly HarnessPoint[]): number | nul
 /**
  * DETERMINISTIC economy simulation: fresh home planet (tier from config), empty
  * grid, empty queue, wallet from config. Each tick (default 60s): accrue income
- * (productionSummaryFor x elapsed), complete due queue jobs, then enqueue the
- * cheapest affordable next build (see module docstring). Identical config
- * yields deep-equal runs.
+ * (locked computePlanetDerived x elapsed), complete due queue jobs, grow
+ * population via the derived model, then enqueue the cheapest affordable next
+ * build (see module docstring). Identical config yields deep-equal runs.
  */
 export function runEconomySimulation(config: EconomySimulationConfig): HarnessRun {
   const resolved = resolveConfig(config)
-  const tier = resolved.tier
+  const tier: PlanetTier = resolved.tier
   const horizonSeconds = resolved.horizonSeconds
   const tickSeconds = resolved.tickSeconds
 
@@ -311,26 +361,21 @@ export function runEconomySimulation(config: EconomySimulationConfig): HarnessRu
     alloys: resolved.initialAlloys,
   }
   let queue: ConstructionQueue = { planet: PLANET_NAME, jobs: [] }
-  let population: PopulationState = {
-    population: INITIAL_POPULATION,
-    housingLevels: 0,
-    hydroponicsLevels: 0,
-    lastTickAt: 0,
-  }
+  let population = INITIAL_POPULATION
 
   const points: HarnessPoint[] = []
   let totalUpgrades = 0
   let timeToFirstUpgradeSeconds: number | null = null
 
-  const initialIncome = productionSummaryFor({ name: PLANET_NAME, tier, grid }).total
-  points.push(makePoint(0, grid, wallet, population.population, initialIncome))
+  const initialIncome = lockedRatesFor(tier, grid, population)
+  points.push(makePoint(0, grid, wallet, population, initialIncome))
 
   let atSeconds = 0
   while (atSeconds < horizonSeconds) {
     const stepSeconds = Math.min(tickSeconds, horizonSeconds - atSeconds)
     const nextSeconds = atSeconds + stepSeconds
 
-    const windowRates = productionSummaryFor({ name: PLANET_NAME, tier, grid }).total
+    const windowRates = lockedRatesFor(tier, grid, population)
     wallet.credits += windowRates.creditsPerSec * stepSeconds
     wallet.alloys += windowRates.alloysPerSec * stepSeconds
 
@@ -361,15 +406,19 @@ export function runEconomySimulation(config: EconomySimulationConfig): HarnessRu
       wallet.alloys -= built.cost.alloys
     }
 
-    population = applyGrowth(population, nextSeconds)
-    population = {
-      ...population,
-      housingLevels: grid.housing,
-      hydroponicsLevels: grid.hydroponics,
-    }
+    const derived = computePlanetDerived(harnessPlanet(tier, population), grid)
+    const grown = projectedPopulation({
+      population,
+      seconds: stepSeconds,
+      derived: {
+        populationCap: derived.populationCap,
+        populationPerSec: derived.populationPerSec,
+      },
+    })
+    population = grown.population
 
-    const pointRates = productionSummaryFor({ name: PLANET_NAME, tier, grid }).total
-    points.push(makePoint(nextSeconds, grid, wallet, population.population, pointRates))
+    const pointRates = lockedRatesFor(tier, grid, population)
+    points.push(makePoint(nextSeconds, grid, wallet, population, pointRates))
     atSeconds = nextSeconds
   }
 
@@ -389,7 +438,7 @@ export function runEconomySimulation(config: EconomySimulationConfig): HarnessRu
  * Structural invariants of a harness run: points sorted by time, non-negative
  * credits/alloys/population, population within the tier-scaled cap, valid
  * levels, bands consistent with the time thresholds and in order, income
- * reconciled against the locked productionSummaryFor, and finite summary
+ * reconciled against the locked computePlanetDerived, and finite summary
  * numbers consistent with the run.
  */
 export function harnessInvariants(run: HarnessRun): {
@@ -469,8 +518,6 @@ export function harnessInvariants(run: HarnessRun): {
       const level = point.structureLevels[id]
       if (!Number.isInteger(level) || level < 0) {
         problems.push(`structureLevels.${id} must be a non-negative integer (point ${i})`)
-      } else if (level > maxLevelFor(id)) {
-        problems.push(`structureLevels.${id} exceeds max level (point ${i})`)
       }
     }
     for (const key of Object.keys(point.structureLevels)) {
@@ -481,21 +528,20 @@ export function harnessInvariants(run: HarnessRun): {
 
     if (isPlanetTier(config.tier)) {
       try {
-        const locked = productionSummaryFor({
-          name: PLANET_NAME,
-          tier: config.tier,
-          grid: point.structureLevels,
-        }).total
+        const locked = computePlanetDerived(
+          harnessPlanet(config.tier, point.population),
+          point.structureLevels,
+        )
         if (
           locked.creditsPerSec !== point.income.creditsPerSec ||
           locked.alloysPerSec !== point.income.alloysPerSec
         ) {
           problems.push(
-            `income must equal productionSummaryFor for the point grid (point ${i})`,
+            `income must equal computePlanetDerived for the point grid (point ${i})`,
           )
         }
       } catch {
-        problems.push(`structureLevels unreadable by productionSummaryFor (point ${i})`)
+        problems.push(`structureLevels unreadable by computePlanetDerived (point ${i})`)
       }
     }
   }

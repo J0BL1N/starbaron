@@ -244,13 +244,22 @@ describe('queueConstruction', () => {
     ).toThrow(new RegExp(`need ${cost} alloys, have ${cost - 1} alloys`))
   })
 
-  it('throws a descriptive error when prerequisites are unmet', () => {
-    expect(() =>
-      build({ structure: 'shipyard', fromLevel: 0, grid: gridFor('shipyard', 0) }),
-    ).toThrow(/prerequisites/)
-    expect(() =>
-      build({ structure: 'defenseTurret', fromLevel: 0, grid: gridFor('defenseTurret', 0) }),
-    ).toThrow(/prerequisites/)
+  it('queues formerly prereq-gated structures with funds only (no prerequisite rung)', () => {
+    const shipyard = build({
+      structure: 'shipyard',
+      fromLevel: 0,
+      grid: gridFor('shipyard', 0),
+    })
+    expect(shipyard.queue.jobs).toHaveLength(1)
+    expect(shipyard.job.structure).toBe('shipyard')
+    const turret = build({
+      structure: 'defenseTurret',
+      fromLevel: 0,
+      grid: gridFor('defenseTurret', 0),
+    })
+    expect(turret.queue.jobs).toHaveLength(1)
+    expect(turret.job.structure).toBe('defenseTurret')
+    expect(turret.job.cost.alloys).toBe(1_000)
   })
 
   it('throws for a non-finite or non-positive startedAt', () => {
@@ -319,6 +328,71 @@ describe('queueConstruction', () => {
     expect(walletState).toEqual(beforeWallet)
     expect(grid).toEqual(beforeGrid)
     expect(existing).toEqual(beforeExisting)
+  })
+
+  it('accepts jobs at arbitrarily high levels (levels are UNLIMITED — no max cap)', () => {
+    const highLevel = 1_000
+    const richWallet = wallet(1e64, 1e9)
+    const { job, cost } = queueConstruction({
+      planet: PLANET,
+      structure: 'housing',
+      fromLevel: highLevel,
+      toLevel: highLevel + 1,
+      startedAt: AT,
+      wallet: richWallet,
+      existingJobs: [],
+      grid: gridWith({ housing: highLevel }),
+    })
+    expect(job.fromLevel).toBe(highLevel)
+    expect(job.toLevel).toBe(highLevel + 1)
+    expect(cost.credits).toBe(buildCost('housing', highLevel))
+    expect(queueInvariants({ planet: PLANET, jobs: [job] }).ok).toBe(true)
+  })
+
+  it('is deterministic at a high level and completes due high-level jobs', () => {
+    const highLevel = 500
+    const richWallet = wallet(1e64, 1e9)
+    const a = queueConstruction({
+      planet: PLANET,
+      structure: 'housing',
+      fromLevel: highLevel,
+      toLevel: highLevel + 1,
+      startedAt: AT,
+      wallet: richWallet,
+      existingJobs: [],
+      grid: gridWith({ housing: highLevel }),
+    })
+    const b = queueConstruction({
+      planet: PLANET,
+      structure: 'housing',
+      fromLevel: highLevel,
+      toLevel: highLevel + 1,
+      startedAt: AT,
+      wallet: richWallet,
+      existingJobs: [],
+      grid: gridWith({ housing: highLevel }),
+    })
+    expect(a).toEqual(b)
+    const done = completeDueJobs(a.queue, AT + 30_000)
+    expect(done.completed).toHaveLength(1)
+    expect(done.completed[0].toLevel).toBe(highLevel + 1)
+    expect(queueInvariants(done.queue).ok).toBe(true)
+  })
+
+  it('rejects toLevel below fromLevel and non-adjacent steps', () => {
+    expect(() =>
+      build({ structure: 'oreMine', fromLevel: 1, toLevel: 0 }),
+    ).toThrow(/single-level/)
+    expect(() =>
+      build({ structure: 'oreMine', fromLevel: 1, toLevel: 3 }),
+    ).toThrow(/single-level/)
+  })
+
+  it('completeDueJobs is a no-op on an empty queue', () => {
+    const result = completeDueJobs(queueFromJobs([]), AT + 1_000_000)
+    expect(result.completed).toEqual([])
+    expect(result.queue.jobs).toEqual([])
+    expect(result.queue.planet).toBe(PLANET)
   })
 })
 
@@ -525,5 +599,44 @@ describe('queueInvariants', () => {
     )
     expect(combined.ok).toBe(false)
     expect(combined.problems.length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('keeps every job level a finite non-negative integer with toLevel === fromLevel + 1', () => {
+    const base = build({ structure: 'oreMine', fromLevel: 0 })
+    const fractional = queueInvariants(
+      queueFromJobs([{ ...base.job, fromLevel: 1.5, toLevel: 2.5 }]),
+    )
+    expect(fractional.ok).toBe(false)
+    expect(fractional.problems.join('\n')).toMatch(/fromLevel/)
+    const negative = queueInvariants(
+      queueFromJobs([{ ...base.job, fromLevel: -1, toLevel: 0 }]),
+    )
+    expect(negative.ok).toBe(false)
+    expect(negative.problems.join('\n')).toMatch(/fromLevel/)
+    const nonFinite = queueInvariants(
+      queueFromJobs([{ ...base.job, fromLevel: Number.NaN, toLevel: Number.NaN }]),
+    )
+    expect(nonFinite.ok).toBe(false)
+    expect(nonFinite.problems.join('\n')).toMatch(/fromLevel/)
+    const step = queueInvariants(
+      queueFromJobs([{ ...base.job, toLevel: 5 }]),
+    )
+    expect(step.problems.join('\n')).toMatch(/single-level/)
+    const healthyHigh = build({
+      structure: 'housing',
+      fromLevel: 999,
+      grid: gridWith({ housing: 999 }),
+      wallet: wallet(1e64, 1e9),
+    })
+    expect(queueInvariants(queueFromJobs([healthyHigh.job])).ok).toBe(true)
+  })
+
+  it('rejects a non-finite toLevel alongside a healthy job', () => {
+    const base = build({ structure: 'oreMine', fromLevel: 0 })
+    const bad = queueInvariants(
+      queueFromJobs([{ ...base.job, toLevel: Number.NaN }]),
+    )
+    expect(bad.ok).toBe(false)
+    expect(bad.problems.join('\n')).toMatch(/toLevel/)
   })
 })

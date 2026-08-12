@@ -1,8 +1,8 @@
 import { MAX_OFFLINE_BANK_SECONDS, calculateOfflineEarnings } from './offline'
-import { applyGrowth } from './population-model'
-import type { PopulationState } from './population-model'
-import { empireRates } from '../player/accrual'
-import type { PlayerState } from '../player/types'
+import { projectedPopulation } from './population-model'
+import { computePlanetDerived, empireRates } from '../player/accrual'
+import { emptyStructureLevels } from '../player/grid'
+import type { PlayerState, StructureGrid } from '../player/types'
 import { completeDueJobs } from '../structures/queues'
 import type { ConstructionJob, ConstructionQueue } from '../structures/queues'
 
@@ -28,11 +28,14 @@ import type { ConstructionJob, ConstructionQueue } from '../structures/queues'
  *   per-second rates, then `calculateOfflineEarnings` for the capped amount.
  *   For elapsed <= the 8h bank this equals `accruePlayer(player, elapsedMs)`
  *   wallet deltas at equal elapsed time.
- * - population: `applyGrowth` per owned planet (population-model, P3-T03),
- *   clamped at the population cap. NOTE the population-model unit quirk: its
- *   `applyGrowth` treats the timestamp delta as seconds, so the banked window
- *   is fed as `lastTickAt + bankedSeconds` (seconds, matching the model's
- *   contract). With the locked caps (~5-6k pop reached in well under an hour)
+ * - population: `projectedPopulation` per owned planet (population-model,
+ *   P3-T03), fed the ALREADY-DERIVED cap/rate from the LOCKED
+ *   computePlanetDerived (tier cap multiplier, diminishing effective levels
+ *   and quirk growth/cap modifiers all apply — same model as live accrual),
+ *   over the BANKED window in seconds. Clamped at the derived cap: a planet
+ *   already at its derived cap banks a zero delta; a tier-2 planet at 5,500
+ *   pop with a 6,000 derived cap grows toward 6,000 (never a negative
+ *   delta). With the locked caps (~5-6k pop reached in well under an hour)
  *   the banked window is indistinguishable from the full window for
  *   population, but the excess is structurally never fed to growth.
  * - completedJobs: `completeDueJobs(queue, at)` at the FULL `at` (construction
@@ -76,18 +79,19 @@ function assertFinite(value: number, field: string): void {
 
 function populationDeltaFor(
   planet: PlayerState['homePlanet'],
-  grid: Record<string, number>,
-  lastTickAt: number,
-  bankedAt: number,
+  grid: StructureGrid,
+  bankedSeconds: number,
 ): number {
-  const base: PopulationState = {
+  const derived = computePlanetDerived(planet, grid)
+  const projection = projectedPopulation({
     population: planet.population,
-    housingLevels: grid.housing ?? 0,
-    hydroponicsLevels: grid.hydroponics ?? 0,
-    lastTickAt,
-  }
-  const grown = applyGrowth(base, bankedAt)
-  return grown.population - planet.population
+    seconds: bankedSeconds,
+    derived: {
+      populationCap: derived.populationCap,
+      populationPerSec: derived.populationPerSec,
+    },
+  })
+  return projection.growthDelta
 }
 
 export function offlineProgress(input: OfflineProgressInput): OfflineResult {
@@ -110,16 +114,14 @@ export function offlineProgress(input: OfflineProgressInput): OfflineResult {
     alloys: calculateOfflineEarnings(rates.alloysPerSec, elapsedSeconds),
   }
 
-  const bankedAt = player.lastTickAt + bankedSeconds
   const populationByPlanet: Record<string, number> = {}
   for (const planet of [player.homePlanet, ...player.colonies]) {
     const grid =
-      player.structureLevels[planet.name] ?? { housing: 0, hydroponics: 0 }
+      player.structureLevels[planet.name] ?? emptyStructureLevels()
     populationByPlanet[planet.name] = populationDeltaFor(
       planet,
       grid,
-      player.lastTickAt,
-      bankedAt,
+      bankedSeconds,
     )
   }
 

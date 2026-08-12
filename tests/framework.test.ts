@@ -5,16 +5,10 @@ import { nextBuildCost } from '../src/sim/structures/effects'
 import {
   buildCost,
   canBuild,
-  maxLevelFor,
-  PREREQUISITES,
-  PREREQUISITE_SOURCE,
-  prerequisitesMet,
   structureSummary,
   upgradeCost,
   validateGrid,
-  MAX_LEVEL,
 } from '../src/sim/structures/framework'
-import type { Prerequisite } from '../src/sim/structures/framework'
 import { emptyStructureLevels, STARTER_STRUCTURES } from '../src/sim/player/grid'
 import type { StructureGrid } from '../src/sim/player/types'
 import type { StructureId } from '../src/sim/structures/types'
@@ -30,65 +24,6 @@ function wallet(credits: number, alloys: number) {
 function fullGrid(): StructureGrid {
   return gridWith({ housing: 1, barracks: 1, oreMine: 3 })
 }
-
-describe('PREREQUISITES', () => {
-  it('documents its source as a draft (DESIGN locks the chain, not numbers)', () => {
-    expect(PREREQUISITE_SOURCE).toBe('draft — T10 balancing input')
-  })
-
-  it('defenseTurret requires barracks >= 1', () => {
-    expect(PREREQUISITES.defenseTurret).toEqual([
-      { structure: 'barracks', minLevel: 1 },
-    ])
-  })
-
-  it('shipyard requires oreMine >= 3', () => {
-    expect(PREREQUISITES.shipyard).toEqual([{ structure: 'oreMine', minLevel: 3 }])
-  })
-
-  it('barracks requires housing >= 1', () => {
-    expect(PREREQUISITES.barracks).toEqual([{ structure: 'housing', minLevel: 1 }])
-  })
-
-  it('covers every structure id; economy/population structures have none', () => {
-    for (const id of STRUCTURE_IDS) {
-      expect(PREREQUISITES[id], `${id}.prerequisites`).toBeDefined()
-    }
-    for (const id of ['oreMine', 'tradeHub', 'housing', 'hydroponics']) {
-      expect(PREREQUISITES[id as StructureId]).toEqual([])
-    }
-  })
-
-  it('is deeply frozen (immutability)', () => {
-    expect(Object.isFrozen(PREREQUISITES)).toBe(true)
-    for (const id of STRUCTURE_IDS) {
-      expect(Object.isFrozen(PREREQUISITES[id]), `${id}.prerequisites`).toBe(true)
-      for (const prerequisite of PREREQUISITES[id]) {
-        expect(Object.isFrozen(prerequisite), `${id}.prerequisites[].minLevel`).toBe(true)
-      }
-    }
-    expect(() =>
-      (PREREQUISITES.defenseTurret as Prerequisite[]).push({
-        structure: 'oreMine',
-        minLevel: 9,
-      }),
-    ).toThrow(TypeError)
-  })
-
-  it('mutating a contained prerequisite object throws and leaves results unchanged', () => {
-    const grid = gridWith({ housing: 0, barracks: 0, oreMine: 0 })
-    const beforeMet = prerequisitesMet('defenseTurret', grid)
-    const beforeCanBuild = canBuild('defenseTurret', grid, wallet(1e9, 1e9))
-
-    expect(() => {
-      PREREQUISITES.defenseTurret[0].minLevel = 0
-    }).toThrow(TypeError)
-
-    expect(PREREQUISITES.defenseTurret[0].minLevel).toBe(1)
-    expect(prerequisitesMet('defenseTurret', grid)).toBe(beforeMet)
-    expect(canBuild('defenseTurret', grid, wallet(1e9, 1e9))).toEqual(beforeCanBuild)
-  })
-})
 
 describe('buildCost', () => {
   it('delegates to the LOCKED structureCost formula and is deterministic', () => {
@@ -112,6 +47,21 @@ describe('buildCost', () => {
   it('throws RangeError for an unknown id', () => {
     expect(() => buildCost('nukePlant' as StructureId, 1)).toThrow(RangeError)
   })
+
+  it('is deterministic across a wide level sweep for every structure', () => {
+    for (const id of STRUCTURE_IDS) {
+      for (const level of [0, 1, 2, 5, 10, 25, 100, 500]) {
+        expect(buildCost(id, level), `${id}@${level}`).toBe(buildCost(id, level))
+        expect(Number.isFinite(buildCost(id, level)), `${id}@${level}`).toBe(true)
+      }
+    }
+  })
+
+  it('throws RangeError for negative and fractional levels (via the locked structureCost)', () => {
+    expect(() => buildCost('oreMine', -1)).toThrow(RangeError)
+    expect(() => buildCost('oreMine', 1.5)).toThrow(RangeError)
+    expect(() => buildCost('oreMine', Number.NaN)).toThrow(RangeError)
+  })
 })
 
 describe('upgradeCost', () => {
@@ -126,47 +76,23 @@ describe('upgradeCost', () => {
     expect(upgradeCost('oreMine', 2)).toBeCloseTo(500 * 1.15 ** 2, 10)
   })
 
+  it('throws RangeError for negative and fractional current levels', () => {
+    expect(() => upgradeCost('oreMine', -1)).toThrow(RangeError)
+    expect(() => upgradeCost('oreMine', 2.5)).toThrow(RangeError)
+    expect(() => upgradeCost('oreMine', Number.NaN)).toThrow(RangeError)
+  })
+
   it('throws RangeError for an unknown id', () => {
     expect(() => upgradeCost('nukePlant' as StructureId, 1)).toThrow(RangeError)
   })
 })
 
-describe('prerequisitesMet', () => {
-  it('is always met for structures with no prerequisites, even on an all-zero grid', () => {
-    const grid = emptyStructureLevels()
-    for (const id of ['oreMine', 'tradeHub', 'housing', 'hydroponics']) {
-      expect(prerequisitesMet(id as StructureId, grid), `${id}`).toBe(true)
-    }
-  })
-
-  it('barracks: housing 0 -> false, housing exactly 1 -> true', () => {
-    expect(prerequisitesMet('barracks', gridWith({ housing: 0 }))).toBe(false)
-    expect(prerequisitesMet('barracks', gridWith({ housing: 1 }))).toBe(true)
-  })
-
-  it('shipyard: oreMine 2 -> false, oreMine exactly 3 -> true', () => {
-    expect(prerequisitesMet('shipyard', gridWith({ oreMine: 2 }))).toBe(false)
-    expect(prerequisitesMet('shipyard', gridWith({ oreMine: 3 }))).toBe(true)
-  })
-
-  it('defenseTurret: barracks 0 -> false, barracks exactly 1 -> true', () => {
-    expect(prerequisitesMet('defenseTurret', gridWith({ barracks: 0 }))).toBe(false)
-    expect(prerequisitesMet('defenseTurret', gridWith({ barracks: 1 }))).toBe(true)
-  })
-})
-
-describe('canBuild ladder', () => {
+describe('canBuild ladder (no prerequisite rung — DESIGN locks no numeric prerequisites)', () => {
   it('unknown structure wins the ladder even with a full grid and rich wallet', () => {
     expect(canBuild('nukePlant' as StructureId, fullGrid(), wallet(1e9, 1e9))).toEqual({
       ok: false,
       reason: 'unknown-structure',
     })
-  })
-
-  it('prerequisites gate before funds', () => {
-    expect(
-      canBuild('shipyard', gridWith({ oreMine: 2 }), wallet(1e9, 1e9)),
-    ).toEqual({ ok: false, reason: 'prerequisites' })
   })
 
   it('credits are checked before alloys', () => {
@@ -201,22 +127,67 @@ describe('canBuild ladder', () => {
       ok: true,
     })
   })
-})
 
-describe('maxLevelFor', () => {
-  it('returns 100 for every structure (DESIGN is silent on a numeric cap)', () => {
+  it('formerly prereq-gated structures build from level 0 with funds only (no prereq gate)', () => {
+    expect(canBuild('shipyard', emptyStructureLevels(), wallet(5_000, 0))).toEqual({
+      ok: true,
+    })
+    expect(canBuild('defenseTurret', emptyStructureLevels(), wallet(2_000, 1_000))).toEqual({
+      ok: true,
+    })
+    expect(
+      canBuild('shipyard', emptyStructureLevels(), wallet(4_999, 0)),
+    ).toEqual({ ok: false, reason: 'insufficient-credits' })
+  })
+
+  it('the failure ladder contains exactly unknown-structure / insufficient-credits / insufficient-alloys', () => {
+    const seen = new Set<string>()
     for (const id of STRUCTURE_IDS) {
-      expect(maxLevelFor(id), `${id}`).toBe(MAX_LEVEL)
-      expect(maxLevelFor(id), `${id}`).toBe(100)
+      const rich = canBuild(id, emptyStructureLevels(), wallet(1e9, 1e9))
+      expect(rich.ok).toBe(true)
+      const poorCredits = canBuild(id, emptyStructureLevels(), wallet(0, 1e9))
+      if (!poorCredits.ok) seen.add(poorCredits.reason)
+      const poorAlloys = canBuild(id, emptyStructureLevels(), wallet(1e9, 0))
+      if (!poorAlloys.ok) seen.add(poorAlloys.reason)
+    }
+    expect(canBuild('nukePlant' as StructureId, emptyStructureLevels(), wallet(1e9, 1e9))).toEqual(
+      { ok: false, reason: 'unknown-structure' },
+    )
+    expect(seen).toEqual(new Set(['insufficient-credits', 'insufficient-alloys']))
+  })
+
+  it('builds at arbitrarily high levels are eligible whenever funds suffice (no max level)', () => {
+    const highGrid = gridWith({ housing: 1_000, oreMine: 1_000 })
+    const costAt1000 = buildCost('housing', 1_000)
+    expect(costAt1000).toBeCloseTo(300 * 1.15 ** 1_000, 8)
+    expect(canBuild('housing', highGrid, wallet(costAt1000, 0))).toEqual({ ok: true })
+    expect(canBuild('housing', highGrid, wallet(0, 0))).toEqual({
+      ok: false,
+      reason: 'insufficient-credits',
+    })
+  })
+
+  it('every structure is buildable on an empty grid with sufficient funds (no prereq gates)', () => {
+    for (const id of STRUCTURE_IDS) {
+      const result = canBuild(id, emptyStructureLevels(), wallet(1e9, 1e9))
+      expect(result, id).toEqual({ ok: true })
     }
   })
 
-  it('throws RangeError for an unknown id', () => {
-    expect(() => maxLevelFor('nukePlant' as StructureId)).toThrow(RangeError)
+  it('the alloy rung applies only to structures that carry an alloyCost', () => {
+    expect(canBuild('oreMine', emptyStructureLevels(), wallet(1e9, 0))).toEqual({ ok: true })
+    expect(canBuild('tradeHub', emptyStructureLevels(), wallet(1e9, 0))).toEqual({ ok: true })
+    expect(canBuild('defenseTurret', emptyStructureLevels(), wallet(1e9, 0))).toEqual({
+      ok: false,
+      reason: 'insufficient-alloys',
+    })
+    expect(
+      canBuild('defenseTurret', emptyStructureLevels(), wallet(1e9, 1_000)),
+    ).toEqual({ ok: true })
   })
 })
 
-describe('validateGrid', () => {
+describe('validateGrid (levels are finite non-negative integers — NO max level)', () => {
   it('accepts the full all-zero grid', () => {
     expect(validateGrid(emptyStructureLevels())).toEqual({ ok: true, problems: [] })
   })
@@ -225,11 +196,13 @@ describe('validateGrid', () => {
     expect(validateGrid(STARTER_STRUCTURES)).toEqual({ ok: true, problems: [] })
   })
 
-  it('accepts a grid at MAX_LEVEL', () => {
-    expect(validateGrid(gridWith({ housing: MAX_LEVEL }))).toEqual({
-      ok: true,
-      problems: [],
-    })
+  it('accepts arbitrarily high finite levels (levels are UNLIMITED per DESIGN)', () => {
+    for (const level of [100, 1_000, 10_000, 1_000_000]) {
+      expect(validateGrid(gridWith({ housing: level, oreMine: level }))).toEqual({
+        ok: true,
+        problems: [],
+      })
+    }
   })
 
   it('catches each tamper class', () => {
@@ -244,17 +217,27 @@ describe('validateGrid', () => {
       },
       { name: 'negative level', grid: gridWith({ housing: -1 }) },
       { name: 'non-integer level', grid: gridWith({ housing: 1.5 }) },
+      { name: 'NaN level', grid: gridWith({ housing: Number.NaN }) },
+      { name: 'Infinity level', grid: gridWith({ housing: Number.POSITIVE_INFINITY }) },
       {
         name: 'unknown key',
         grid: { ...emptyStructureLevels(), nukePlant: 1 } as StructureGrid,
       },
-      { name: 'over max', grid: gridWith({ housing: MAX_LEVEL + 1 }) },
     ]
     for (const t of tampered) {
       const result = validateGrid(t.grid)
       expect(result.ok, t.name).toBe(false)
       expect(result.problems.length, t.name).toBeGreaterThan(0)
     }
+  })
+
+  it('rejects only non-finite or non-integer levels — large finite integers pass', () => {
+    expect(validateGrid(gridWith({ housing: Number.MAX_SAFE_INTEGER })).ok).toBe(true)
+    expect(validateGrid(gridWith({ housing: 0 })).ok).toBe(true)
+    expect(validateGrid(gridWith({ housing: 1.5 })).ok).toBe(false)
+    expect(validateGrid(gridWith({ housing: Number.NaN })).ok).toBe(false)
+    expect(validateGrid(gridWith({ housing: Number.POSITIVE_INFINITY })).ok).toBe(false)
+    expect(validateGrid(gridWith({ housing: -1 })).ok).toBe(false)
   })
 
   it('collects all problems together', () => {
@@ -269,36 +252,60 @@ describe('validateGrid', () => {
     expect(result.problems.join(' | ')).toContain('unknown structure key: nukePlant')
   })
 
-  it('flags only levels strictly above MAX_LEVEL', () => {
-    expect(validateGrid(gridWith({ oreMine: MAX_LEVEL })).ok).toBe(true)
-    expect(validateGrid(gridWith({ oreMine: MAX_LEVEL + 1 })).ok).toBe(false)
+  it('accepts distinct valid integer levels on every structure', () => {
+    const grid = gridWith({
+      oreMine: 1,
+      tradeHub: 2,
+      housing: 3,
+      hydroponics: 4,
+      barracks: 5,
+      shipyard: 6,
+      defenseTurret: 7,
+    })
+    expect(validateGrid(grid)).toEqual({ ok: true, problems: [] })
   })
 })
 
 describe('structureSummary', () => {
-  it('returns the exact shape for oreMine', () => {
+  it('returns the exact shape for oreMine (no prerequisites field)', () => {
     expect(structureSummary('oreMine')).toEqual({
       id: 'oreMine',
       name: 'Ore Mine',
       category: 'Economy',
       baseCost: 500,
       buildTimeSeconds: 30,
-      prerequisites: [],
     })
   })
 
-  it('matches STRUCTURES data and PREREQUISITES for all 7 ids', () => {
+  it('exposes exactly the five documented fields (no prerequisites anywhere)', () => {
+    for (const id of STRUCTURE_IDS) {
+      expect(Object.keys(structureSummary(id)).sort()).toEqual([
+        'baseCost',
+        'buildTimeSeconds',
+        'category',
+        'id',
+        'name',
+      ])
+    }
+  })
+
+  it('matches STRUCTURES data for all 7 ids', () => {
     for (const id of STRUCTURE_IDS) {
       const summary = structureSummary(id)
       expect(summary.name).toBe(STRUCTURES[id].name)
       expect(summary.category).toBe(STRUCTURES[id].category)
       expect(summary.baseCost).toBe(STRUCTURES[id].baseCost)
       expect(summary.buildTimeSeconds).toBe(STRUCTURES[id].buildTimeSec)
-      expect(summary.prerequisites).toBe(PREREQUISITES[id])
     }
   })
 
   it('throws RangeError for an unknown id', () => {
     expect(() => structureSummary('nukePlant' as StructureId)).toThrow(RangeError)
+  })
+
+  it('is deterministic: identical input yields deep-equal summaries', () => {
+    for (const id of STRUCTURE_IDS) {
+      expect(structureSummary(id)).toEqual(structureSummary(id))
+    }
   })
 })

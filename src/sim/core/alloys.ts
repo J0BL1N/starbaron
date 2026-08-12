@@ -18,6 +18,9 @@
  */
 import type { WalletState } from '../player/types'
 import { fnv1a } from '../planets/hash'
+import { walletInvariants } from './ledger'
+
+export { walletInvariants }
 
 export type AlloyKind = 'mine' | 'spend' | 'transfer' | 'adjustment'
 

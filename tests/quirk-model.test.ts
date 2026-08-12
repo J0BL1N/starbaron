@@ -9,6 +9,8 @@ import { fnv1a } from '../src/sim/planets/hash'
 import type { QuirkId } from '../src/sim/planets/types'
 import {
   deterministicQuirks,
+  PRODUCTION_TARGET,
+  QUIRK_CATEGORY,
   quirkCategories,
   quirkEffectOn,
   quirkSummary,
@@ -245,6 +247,13 @@ describe('quirkEffectOn — combined structure multiplier product', () => {
     expect(quirkEffectOn('oreMine', quirks)).toBeCloseTo(1.2, 10)
     expect(quirkEffectOn('defenseTurret', quirks)).toBeCloseTo(1.1, 10)
   })
+
+  it('is commutative across quirk order', () => {
+    const a = [quirkById('coldStar'), quirkById('hotStar')]
+    const b = [quirkById('hotStar'), quirkById('coldStar')]
+    expect(quirkEffectOn('hydroponics', a)).toBe(quirkEffectOn('hydroponics', b))
+    expect(quirkEffectOn('hydroponics', a)).toBeCloseTo(0.9 * 1.1, 10)
+  })
 })
 
 describe('quirkCategories — counts per category', () => {
@@ -288,9 +297,80 @@ describe('quirkCategories — counts per category', () => {
       mass: 0,
     })
   })
+
+  it('is deterministic across repeated calls', () => {
+    const all = QUIRK_TABLE.map((definition) => quirkById(definition.id))
+    expect(quirkCategories(all)).toEqual(quirkCategories(all))
+  })
 })
 
 describe('module purity — no nondeterministic API anywhere', () => {
+  it('freezes both module-level lookup tables (Object.isFrozen)', () => {
+    expect(Object.isFrozen(QUIRK_CATEGORY)).toBe(true)
+    expect(Object.isFrozen(PRODUCTION_TARGET)).toBe(true)
+  })
+
+  it('rejects mutation of both lookup tables at runtime', () => {
+    expect(() => {
+      ;(QUIRK_CATEGORY as Record<QuirkId, QuirkCategory>).highGravity = 'star'
+    }).toThrow(TypeError)
+    expect(() => {
+      ;(PRODUCTION_TARGET as Record<QuirkId, ProductionTarget | null>).binarySystem =
+        'ore-mine-alloys'
+    }).toThrow(TypeError)
+  })
+
+  it('both tables cover exactly the 7 locked QuirkIds and no others', () => {
+    const lockedIds = QUIRK_TABLE.map((definition) => definition.id)
+    expect(Object.keys(QUIRK_CATEGORY).sort()).toEqual([...lockedIds].sort())
+    expect(Object.keys(PRODUCTION_TARGET).sort()).toEqual([...lockedIds].sort())
+    expect(lockedIds).toHaveLength(7)
+  })
+
+  it('holds only primitive values, so the shallow freeze makes them fully immutable', () => {
+    for (const id of Object.keys(QUIRK_CATEGORY) as QuirkId[]) {
+      expect(typeof QUIRK_CATEGORY[id]).toBe('string')
+    }
+    for (const id of Object.keys(PRODUCTION_TARGET) as QuirkId[]) {
+      const target = PRODUCTION_TARGET[id]
+      expect(target === null || typeof target === 'string').toBe(true)
+    }
+  })
+
+  it('quirkSummary projects the frozen tables directly (single source of truth)', () => {
+    for (const definition of QUIRK_TABLE) {
+      const summary = quirkSummary(quirkById(definition.id))
+      expect(summary.category).toBe(QUIRK_CATEGORY[definition.id])
+      expect(summary.productionModifier?.target ?? null).toBe(
+        PRODUCTION_TARGET[definition.id],
+      )
+    }
+  })
+
+  it('every category value is a valid QuirkCategory and every target is null or a production target', () => {
+    const categories = new Set<QuirkCategory>([
+      'atmosphere',
+      'gravity',
+      'environment',
+      'star',
+      'density',
+      'mass',
+    ])
+    for (const id of Object.keys(QUIRK_CATEGORY) as QuirkId[]) {
+      expect(categories.has(QUIRK_CATEGORY[id]), `category for ${id}`).toBe(true)
+    }
+    const targets = new Set<ProductionTarget>([
+      'trade-hub-credits',
+      'ore-mine-alloys',
+      'population',
+      'none',
+    ])
+    for (const id of Object.keys(PRODUCTION_TARGET) as QuirkId[]) {
+      const target = PRODUCTION_TARGET[id]
+      expect(target === null || targets.has(target), `target for ${id}`).toBe(true)
+    }
+  })
+
   it('source contains no Math.random / Date.now / performance.now', () => {
     expect(SOURCE).not.toMatch(/Math\s*\.\s*random/)
     expect(SOURCE).not.toMatch(/Date\s*\.\s*now/)

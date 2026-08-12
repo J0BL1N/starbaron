@@ -51,6 +51,15 @@ describe('housingCapBonus', () => {
     expect(housingCapBonus(100)).toBe(100_000)
   })
 
+  it('delegates at arbitrarily high finite levels (no cap)', () => {
+    for (const level of [1_000, 10_000]) {
+      expect(housingCapBonus(level), `level ${level}`).toBe(
+        populationCap(level) - BASE_POPULATION_CAP,
+      )
+      expect(housingCapBonus(level), `level ${level}`).toBe(1_000 * level)
+    }
+  })
+
   it('throws RangeError for a negative level', () => {
     expect(() => housingCapBonus(-1)).toThrow(RangeError)
   })
@@ -69,12 +78,30 @@ describe('housingGrowthBonus', () => {
     expect(housingGrowthBonus(100)).toBe(200)
   })
 
-  it('matches the locked populationGrowthPerSec housing term exactly', () => {
+  it('delegates to the LOCKED populationGrowthPerSec(level, 0) - BASE_GROWTH_PER_SEC exactly', () => {
     for (const level of SWEEP_LEVELS) {
+      expect(housingGrowthBonus(level), `level ${level}`).toBe(
+        populationGrowthPerSec(level, 0) - BASE_GROWTH_PER_SEC,
+      )
       expect(housingGrowthBonus(level), `level ${level}`).toBe(
         populationGrowthPerSec(level) - BASE_GROWTH_PER_SEC,
       )
     }
+  })
+
+  it('delegates at arbitrarily high finite levels (no cap)', () => {
+    for (const level of [1_000, 10_000]) {
+      expect(housingGrowthBonus(level), `level ${level}`).toBe(
+        populationGrowthPerSec(level, 0) - BASE_GROWTH_PER_SEC,
+      )
+      expect(housingGrowthBonus(level), `level ${level}`).toBe(2 * level)
+    }
+  })
+
+  it('is deterministic and rejects Infinity levels', () => {
+    expect(housingGrowthBonus(7)).toBe(housingGrowthBonus(7))
+    expect(() => housingGrowthBonus(Number.POSITIVE_INFINITY)).toThrow(RangeError)
+    expect(() => housingGrowthBonus(Number.NEGATIVE_INFINITY)).toThrow(RangeError)
   })
 
   it('throws RangeError for a negative level', () => {
@@ -139,6 +166,13 @@ describe('housingUpgradeCost', () => {
     expect(() => housingUpgradeCost(-1)).toThrow(RangeError)
     expect(() => housingUpgradeCost(1.5)).toThrow(RangeError)
   })
+
+  it('stays deterministic and finite at high levels', () => {
+    for (const level of [0, 1, 10, 100, 1_000]) {
+      expect(housingUpgradeCost(level)).toBe(housingUpgradeCost(level))
+      expect(Number.isFinite(housingUpgradeCost(level))).toBe(true)
+    }
+  })
 })
 
 describe('housingSnapshot', () => {
@@ -174,6 +208,10 @@ describe('housingSnapshot', () => {
     expect(() => housingSnapshot(0, 1, -5)).toThrow(RangeError)
     expect(() => housingSnapshot(0, 1, Number.NaN)).toThrow(RangeError)
     expect(() => housingSnapshot(0, 1, Number.POSITIVE_INFINITY)).toThrow(RangeError)
+  })
+
+  it('is deterministic at a high level', () => {
+    expect(housingSnapshot(500, 1.4, 5_000)).toEqual(housingSnapshot(500, 1.4, 5_000))
   })
 
   it('throws RangeError for an invalid multiplier or level', () => {
@@ -234,6 +272,11 @@ describe('housingUiState', () => {
     expect(housingUiState(0, 1).display).toBe('+0 pop cap · +0/s')
     expect(housingUiState(100, 1).display).toBe('+100,000 pop cap · +200/s')
     expect(housingUiState(3, 1.4).display).toBe(housingUiState(3, 1.4).display)
+  })
+
+  it('renders high-level states deterministically', () => {
+    expect(housingUiState(1_000, 1).display).toBe('+1,000,000 pop cap · +2,000/s')
+    expect(housingUiState(1_000, 1)).toEqual(housingUiState(1_000, 1))
   })
 
   it('throws RangeError for an invalid level or multiplier', () => {

@@ -9,7 +9,9 @@ import {
   alloyYield,
   applyAlloyTransaction,
   defensiveAlloyDemand,
+  walletInvariants,
 } from '../src/sim/core/alloys'
+import { walletInvariants as creditWalletInvariants } from '../src/sim/core/transactions'
 import type { AlloyTransaction, AlloyTransactionInput } from '../src/sim/core/alloys'
 
 const AT = 1_700_000_000_000
@@ -355,5 +357,131 @@ describe('miscellaneous invariants', () => {
     expect(t.id).toBe('id')
     expect(t.balanceAfter).toBe(0)
     expect(t.at).toBe(AT)
+  })
+})
+
+describe('walletInvariants — parity with the credit ledger (transactions.ts)', () => {
+  it('reports ok for a valid wallet', () => {
+    expect(walletInvariants(baseWallet())).toEqual({ ok: true, problems: [] })
+    expect(walletInvariants({ credits: 0, alloys: 0 })).toEqual({
+      ok: true,
+      problems: [],
+    })
+  })
+
+  it('flags negative credits, NaN alloys and Infinity credits', () => {
+    expect(walletInvariants({ credits: -1, alloys: 0 }).ok).toBe(false)
+    expect(walletInvariants({ credits: 0, alloys: Number.NaN }).ok).toBe(false)
+    expect(
+      walletInvariants({ credits: Number.POSITIVE_INFINITY, alloys: 0 }).ok,
+    ).toBe(false)
+    expect(walletInvariants({ credits: 0, alloys: Number.NEGATIVE_INFINITY }).ok).toBe(
+      false,
+    )
+    const negative = walletInvariants({ credits: -1, alloys: 0 })
+    expect(negative.problems.some((p) => p.includes('credits'))).toBe(true)
+    const nan = walletInvariants({ credits: 0, alloys: Number.NaN })
+    expect(nan.problems.some((p) => p.includes('alloys'))).toBe(true)
+  })
+
+  it('flags each tamper class on its own and leaves a valid wallet untouched', () => {
+    const tampered: Array<{ name: string; wallet: WalletState }> = [
+      { name: 'negative credits', wallet: { credits: -5, alloys: 10 } },
+      { name: 'negative alloys', wallet: { credits: 5, alloys: -1 } },
+      { name: 'NaN credits', wallet: { credits: Number.NaN, alloys: 10 } },
+      { name: 'NaN alloys', wallet: { credits: 5, alloys: Number.NaN } },
+      { name: 'Infinity credits', wallet: { credits: Number.POSITIVE_INFINITY, alloys: 0 } },
+      { name: 'Infinity alloys', wallet: { credits: 0, alloys: Number.POSITIVE_INFINITY } },
+    ]
+    for (const t of tampered) {
+      const result = walletInvariants(t.wallet)
+      expect(result.ok, t.name).toBe(false)
+      expect(result.problems.length, t.name).toBeGreaterThan(0)
+    }
+    const valid = walletInvariants({ credits: 10, alloys: 5 })
+    expect(valid.ok).toBe(true)
+    expect(valid.problems).toEqual([])
+  })
+
+  it('is byte-for-byte identical to the credit ledger walletInvariants for every tamper class', () => {
+    const samples: WalletState[] = [
+      { credits: 0, alloys: 0 },
+      { credits: 1_000, alloys: 500 },
+      { credits: -1, alloys: 0 },
+      { credits: 0, alloys: -1 },
+      { credits: -1, alloys: -1 },
+      { credits: Number.NaN, alloys: 500 },
+      { credits: 1_000, alloys: Number.NaN },
+      { credits: Number.POSITIVE_INFINITY, alloys: 500 },
+      { credits: 1_000, alloys: Number.NEGATIVE_INFINITY },
+      { credits: Number.MAX_VALUE, alloys: Number.MAX_VALUE },
+    ]
+    for (const sample of samples) {
+      expect(walletInvariants(sample)).toEqual(creditWalletInvariants(sample))
+    }
+  })
+
+  it('reports the offending field name for each tamper class', () => {
+    expect(walletInvariants({ credits: -1, alloys: 0 }).problems.join(' | ')).toContain(
+      'credits',
+    )
+    expect(walletInvariants({ credits: 0, alloys: -1 }).problems.join(' | ')).toContain(
+      'alloys',
+    )
+    expect(walletInvariants({ credits: Number.NaN, alloys: 0 }).problems.join(' | ')).toContain(
+      'credits must be finite',
+    )
+    expect(walletInvariants({ credits: 0, alloys: Number.NaN }).problems.join(' | ')).toContain(
+      'alloys must be finite',
+    )
+  })
+
+  it('is deterministic and never mutates the input wallet', () => {
+    const wallet = { credits: 1_234, alloys: 567 }
+    const before = { ...wallet }
+    const a = walletInvariants(wallet)
+    const b = walletInvariants(wallet)
+    expect(a).toEqual(b)
+    expect(a.problems).toEqual(b.problems)
+    expect(wallet).toEqual(before)
+  })
+
+  it('reports every violated check when both balances are broken', () => {
+    const result = walletInvariants({ credits: -1, alloys: Number.NaN })
+    expect(result.ok).toBe(false)
+    expect(result.problems.length).toBe(2)
+    expect(result.problems.join(' | ')).toContain('credits must be >= 0')
+    expect(result.problems.join(' | ')).toContain('alloys must be finite')
+  })
+
+  it('holds on every wallet produced by applyAlloyTransaction', () => {
+    let wallet: WalletState = { credits: 1_000, alloys: 0 }
+    wallet = applyAlloyTransaction(wallet, tx('mine', 250), AT, 1).wallet
+    expect(walletInvariants(wallet).ok).toBe(true)
+    wallet = applyAlloyTransaction(wallet, tx('spend', 100), AT, 2).wallet
+    expect(walletInvariants(wallet).ok).toBe(true)
+    wallet = applyAlloyTransaction(wallet, tx('adjustment', 5.5), AT, 3).wallet
+    expect(walletInvariants(wallet).ok).toBe(true)
+    expect(wallet.alloys).toBeCloseTo(155.5, 10)
+  })
+
+  it('accepts fractional and zero balances', () => {
+    expect(walletInvariants({ credits: 0.1, alloys: 0.01 }).ok).toBe(true)
+    expect(walletInvariants({ credits: 0, alloys: 0 }).ok).toBe(true)
+    expect(walletInvariants({ credits: 0, alloys: Number.MAX_VALUE }).ok).toBe(true)
+  })
+
+  it('rejects only non-finite or negative balances across a wide sample', () => {
+    const samples = [-1000, -1, -0.5, 0, 0.5, 1, 1000, 1e300]
+    for (const credits of samples) {
+      for (const alloys of samples) {
+        const expectedOk =
+          credits >= 0 && Number.isFinite(credits) && alloys >= 0 && Number.isFinite(alloys)
+        expect(
+          walletInvariants({ credits, alloys }).ok,
+          `credits=${credits} alloys=${alloys}`,
+        ).toBe(expectedOk)
+      }
+    }
   })
 })
