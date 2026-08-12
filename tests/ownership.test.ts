@@ -110,6 +110,36 @@ describe('P2-T04 ownershipFor — input validation', () => {
     ).toThrow(/unconquerable/)
   })
 
+  it('rejects isHome without unconquerable (exact parity — a home is always protected)', () => {
+    expect(() =>
+      ownershipFor(HOME_BODY, OWNER_A, null, NOW, 'home-assignment', true, false),
+    ).toThrow(/isHome requires unconquerable/)
+  })
+
+  it('rejects both parity violations, so a declassified record is impossible by construction', () => {
+    const cases: Array<{
+      method: AcquisitionMethod
+      isHome: boolean
+      unconquerable: boolean
+    }> = [
+      { method: 'home-assignment', isHome: true, unconquerable: false },
+      { method: 'conquest', isHome: false, unconquerable: true },
+    ]
+    for (const test of cases) {
+      expect(() =>
+        ownershipFor(
+          COLONY_BODY,
+          OWNER_A,
+          null,
+          NOW,
+          test.method,
+          test.isHome,
+          test.unconquerable,
+        ),
+      ).toThrow(RangeError)
+    }
+  })
+
   it('rejects a malformed body id', () => {
     for (const bad of ['', 'gal:alpha', 'sys:alpha|42', 'body:alpha|42|planet|abc']) {
       expect(() =>
@@ -214,6 +244,14 @@ describe('P2-T04 transferOwnership — transfers and audit events', () => {
     expect(() =>
       transferOwnership(homeRecord(), OWNER_B, LATER, 'conquest'),
     ).toThrow(/unconquerable/)
+  })
+
+  it('a declassified home cannot be constructed, so transfer can never bypass protection', () => {
+    expect(() =>
+      ownershipFor(HOME_BODY, OWNER_A, null, NOW, 'home-assignment', true, false),
+    ).toThrow(RangeError)
+    const { updated } = transferOwnership(colonyRecord(), OWNER_B, LATER, 'conquest')
+    expect(updated.isHome).toBe(updated.unconquerable)
   })
 
   it('throws on a self-transfer to the current owner', () => {

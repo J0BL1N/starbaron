@@ -10,6 +10,12 @@
  * assignment (selectHomeWorld, P2-T02) → starter resources (wallet + grid
  * constants) → initial camera destination → onboarding/tutorial state.
  *
+ * STARTER GRID INVARIANT (phase-2 audit): the entry flow ALWAYS grants a
+ * { housing: 1 } starter grid — there is no level input, so an empty starter
+ * grid is impossible. Legacy save/claim paths (v1/v2 migrations, the claim
+ * RPCs) adopt the same starter grid during Phase 4 UI integration (tracked
+ * residual).
+ *
  * ENTRY SHAPE DECISION: the flow never emits a home-less bundle. When
  * assignment fails the whole entry is rejected (EntryResult.ok === false) and
  * the caller gates admission. Both assignment failure reasons are carried on
@@ -113,7 +119,6 @@ export interface EntryFlowInput {
    * way to trigger 'invalid-eligible-set'.
    */
   eligible: readonly BodyId[]
-  initialStructureLevel?: number
 }
 
 export type EntryResult =
@@ -145,14 +150,14 @@ function assertPlayerId(value: unknown): string {
 }
 
 /**
- * Starter structure grid for a new player. Kept deliberately simple: one
- * Housing at level 1 or higher, otherwise an empty grid (level defaults to 1).
+ * Starter structure grid for a new player: ALWAYS one Housing at level 1.
+ * The phase-2 audit removed the level input, so an empty starter grid is
+ * impossible (the invariant is { housing: 1 }, nothing to validate). Legacy
+ * save/claim paths adopt the same starter grid during Phase 4 UI integration
+ * (tracked residual).
  */
-export function initialStructuresFor(level = 1): Record<StructureId, number> {
-  if (level >= 1) {
-    return { housing: 1 } as Record<StructureId, number>
-  }
-  return {} as Record<StructureId, number>
+export function initialStructuresFor(): Record<StructureId, number> {
+  return { housing: 1 } as Record<StructureId, number>
 }
 
 /**
@@ -262,7 +267,7 @@ export function entryFlow(input: EntryFlowInput): EntryResult {
     home,
     initialWallet: { credits: STARTER_CREDITS, alloys: STARTER_ALLOYS },
     initialPopulation: STARTER_POPULATION,
-    initialStructures: initialStructuresFor(input.initialStructureLevel ?? 1),
+    initialStructures: initialStructuresFor(),
     camera: initialCameraFor(input.universe, home),
     onboarding: beginOnboarding(input.playerId, input.joinedAt),
   }

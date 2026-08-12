@@ -155,19 +155,12 @@ describe('P2-T07 conquestTransfer — success record/event', () => {
     expect(result.record.bodyId).toBe(TARGET)
   })
 
-  it('carries isHome/unconquerable through a permitted conquest unchanged', () => {
-    const conquerableHome = ownershipFor(
-      TARGET,
-      OWNER_A,
-      null,
-      CLAIMED_AT,
-      'home-assignment',
-      true,
-      false,
-    )
-    const result = outcome(conquestTransfer(makeInput({ record: conquerableHome })))
-    expect(result.record.isHome).toBe(true)
+  it('carries isHome/unconquerable through a permitted conquest unchanged (parity preserved)', () => {
+    const conquerable = colonyRecord()
+    const result = outcome(conquestTransfer(makeInput({ record: conquerable })))
+    expect(result.record.isHome).toBe(false)
     expect(result.record.unconquerable).toBe(false)
+    expect(result.record.isHome).toBe(result.record.unconquerable)
   })
 
   it('emits the audit event mirroring the transfer', () => {

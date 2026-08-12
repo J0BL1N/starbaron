@@ -25,6 +25,16 @@
  *     free body; Phase A can only miss a free body when its offsets skip it.
  * Total attempts never exceed phase A (2n) + phase B (n) = 3 × eligible.length,
  * and exhaustion is only reported after both phases when every id is taken.
+ *
+ * SELECTOR vs RESERVATION (phase-2 audit): selectHomeWorld is the pure
+ * SELECTOR — it derives WHICH home a player is assigned from its snapshot
+ * inputs (eligible + taken) and can never reserve. Two callers can observe
+ * the same free body and both pick it; the race closes in the write stack.
+ * The DATABASE is the RESERVATION: the claim RPCs persist the chosen body's
+ * canonical id (owned_planets.body_id, migration 0016) under a partial
+ * unique index, so a second concurrent claim of the same body fails with a
+ * unique_violation. This module keeps the pure selection contract; the
+ * reservation lives in the migration.
  */
 
 import { fnv1a } from '../planets/hash'

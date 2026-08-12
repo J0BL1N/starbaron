@@ -14,13 +14,17 @@ import { parseCanonicalId } from '../world/identity'
  * src/sim/player/protection.ts):
  *   - a home world is acquired ONLY by 'home-assignment' (isHome implies
  *     method 'home-assignment') — the home IS the first world;
- *   - an unconquerable world MUST be a home (unconquerable implies isHome);
+ *   - the two flags ALWAYS AGREE: ownershipFor enforces isHome ===
+ *     unconquerable (exact parity, mirroring the 0016 DB CHECK
+ *     is_home = unconquerable). A home is always unconquerable and only a
+ *     home is, so a "declassified" isHome=true/unconquerable=false record
+ *     cannot be constructed — protection cannot be bypassed at transfer time;
  *   - an unconquerable world can never change hands — transferOwnership
- *     throws, mirroring the 0014 DB guard that aborts the same transfer in
- *     SQL. transferOwnership keys ONLY on unconquerable, exactly like the
- *     DB guard and deriveProtection (protected iff isHome AND unconquerable):
- *     a non-canonical isHome=true/unconquerable=false row is conquerable and
- *     transfers with its flags carried through unchanged.
+ *     throws, mirroring the 0014 DB guard (now irreversible: 0016 also blocks
+ *     is_home/unconquerable flag flips on a protected row) that aborts the
+ *     same transfer in SQL. transferOwnership keys ONLY on unconquerable,
+ *     exactly like the DB guard and deriveProtection (protected iff isHome
+ *     AND unconquerable).
  *
  * The audit event (OwnershipEvent) is the persistence contract for
  * supabase/migrations/0015_ownership_audit.sql: bodyId, from/to owners,
@@ -94,7 +98,9 @@ function assertBodyId(value: unknown, field: string): BodyId {
  * producing a fresh record: acquiredAt must be a finite number > 0; ownerId
  * must be non-empty; previousOwnerId, when present, must differ from ownerId;
  * method must be in the AcquisitionMethod union; isHome REQUIRES the method
- * 'home-assignment'; unconquerable REQUIRES isHome.
+ * 'home-assignment'; unconquerable REQUIRES isHome; and isHome REQUIRES
+ * unconquerable — exact parity (isHome === unconquerable, mirroring the 0016
+ * DB CHECK is_home = unconquerable), so a home can never be declassified.
  */
 export function ownershipFor(
   bodyId: BodyId,
@@ -125,6 +131,9 @@ export function ownershipFor(
   }
   if (unconquerable && !isHome) {
     throw new RangeError('unconquerable requires isHome')
+  }
+  if (isHome && !unconquerable) {
+    throw new RangeError('isHome requires unconquerable: a home is always protected')
   }
   return {
     bodyId: validBody,

@@ -5,13 +5,12 @@ import { emptyStructureLevels } from './grid'
 import { startWallet } from './wallet'
 import type { OwnedPlanet, PlayerState } from './types'
 
-export function generatePlayerId(): string {
-  const cryptoObj = globalThis.crypto
-  if (cryptoObj != null && typeof cryptoObj.randomUUID === 'function') {
-    return cryptoObj.randomUUID()
-  }
-  return `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-}
+/**
+ * Re-export of the boundary id utility (src/sim/player/id.ts) to keep the
+ * public API. generatePlayerId is NOT part of the pure sim layer — the sim
+ * never calls it, the UI boundary does. The boundary marker is the contract.
+ */
+export { generatePlayerId } from './id'
 
 export function createPlayer(playerId: string, now: number): PlayerState {
   const homePlanet = claimHomePlanet(playerId, now)

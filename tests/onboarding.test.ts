@@ -58,24 +58,18 @@ function deepFreeze<T>(value: T): T {
 }
 
 describe('initialStructuresFor (P2-T08)', () => {
-  it('returns { housing: 1 } at the default level', () => {
+  it('always returns the { housing: 1 } starter grid (level input removed)', () => {
     expect(initialStructuresFor()).toEqual({ housing: 1 })
   })
 
-  it('returns { housing: 1 } for any level >= 1', () => {
-    for (const level of [1, 3, 8]) {
-      expect(initialStructuresFor(level)).toEqual({ housing: 1 })
-    }
-  })
-
-  it('returns an empty grid at level 0 and negative levels', () => {
-    for (const level of [0, -1, -100]) {
-      expect(initialStructuresFor(level)).toEqual({})
-    }
+  it('never yields an empty grid: the starter grid is exactly one housing', () => {
+    const grid = initialStructuresFor()
+    expect(Object.keys(grid)).toEqual(['housing'])
+    expect(grid.housing).toBe(1)
   })
 
   it('is deterministic: deep-equal across calls', () => {
-    expect(initialStructuresFor(2)).toEqual(initialStructuresFor(2))
+    expect(initialStructuresFor()).toEqual(initialStructuresFor())
   })
 })
 
@@ -286,16 +280,12 @@ describe('entryFlow (P2-T08)', () => {
     }
   })
 
-  it('respects a custom initialStructureLevel', () => {
-    const low = entryFlow(baseEntryInput({ initialStructureLevel: 0 }))
-    expect(low.ok).toBe(true)
-    if (low.ok) {
-      expect(low.bundle.initialStructures).toEqual({})
-    }
-    const high = entryFlow(baseEntryInput({ initialStructureLevel: 4 }))
-    expect(high.ok).toBe(true)
-    if (high.ok) {
-      expect(high.bundle.initialStructures).toEqual({ housing: 1 })
+  it('always grants the { housing: 1 } starter grid — an empty starter grid is impossible', () => {
+    const result = entryFlow(baseEntryInput())
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.bundle.initialStructures).toEqual({ housing: 1 })
+      expect(Object.keys(result.bundle.initialStructures)).toEqual(['housing'])
     }
   })
 

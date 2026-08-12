@@ -46,10 +46,7 @@ function buildOwnedPlanet(
   }
 }
 
-export function claimHomePlanet(
-  playerId: string,
-  now: number = Date.now(),
-): OwnedPlanet {
+export function claimHomePlanet(playerId: string, now: number): OwnedPlanet {
   return buildOwnedPlanet(PLANETS[claimIndexForPlayer(playerId)], now, true)
 }
 

@@ -1,4 +1,8 @@
+/// <reference types="node" />
 import { describe, expect, it } from 'vitest'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { PLANETS } from '../src/sim/data/planets'
 import { baselinePassiveIncome } from '../src/sim/core/economy'
 import { populationCapMultiplier } from '../src/sim/planets'
@@ -191,5 +195,72 @@ describe('P2-T03-B wallet operations', () => {
     expect(() => walletSpend(player.wallet, 2_000, 0)).toThrow(RangeError)
     expect(() => walletSpend(player.wallet, 0, 5)).toThrow(/insufficient funds/)
     expect(() => walletSpend(player.wallet, -1, 0)).toThrow(RangeError)
+  })
+})
+
+const SIM_DIR = fileURLToPath(new URL('../src/sim', import.meta.url))
+
+function listSimTsFiles(dir: string): string[] {
+  const files: string[] = []
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    if (statSync(full).isDirectory()) {
+      files.push(...listSimTsFiles(full))
+    } else if (entry.endsWith('.ts')) {
+      files.push(full)
+    }
+  }
+  return files.sort()
+}
+
+function normalizeSlashes(value: string): string {
+  return value.replaceAll('\\', '/')
+}
+
+function importSpecifiers(source: string): string[] {
+  return source
+    .split('\n')
+    .map((line) => line.match(/^\s*(?:import|export)\s+[^'"]*\s+from\s+['"]([^'"]+)['"]/))
+    .filter((match): match is RegExpMatchArray => match !== null)
+    .map((match) => match[1])
+}
+
+describe('P2 phase audit — id boundary module (finding 5)', () => {
+  it('id.ts exports generatePlayerId and player.ts re-exports the same function', async () => {
+    const idModule = await import('../src/sim/player/id')
+    const playerModule = await import('../src/sim/player/player')
+    expect(typeof idModule.generatePlayerId).toBe('function')
+    expect(playerModule.generatePlayerId).toBe(idModule.generatePlayerId)
+    const sample = idModule.generatePlayerId()
+    expect(typeof sample).toBe('string')
+    expect(sample.length).toBeGreaterThan(0)
+  })
+
+  it('no sim module other than player.ts imports id.ts', () => {
+    const offenders: string[] = []
+    for (const file of listSimTsFiles(SIM_DIR)) {
+      const normalized = normalizeSlashes(file)
+      if (normalized.endsWith('player/id.ts') || normalized.endsWith('player/player.ts')) {
+        continue
+      }
+      const imports = importSpecifiers(readFileSync(file, 'utf8'))
+      if (imports.some((spec) => spec === './id' || spec.includes('player/id'))) {
+        offenders.push(file)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('the platform-RNG code tokens appear in no sim module except id.ts', () => {
+    const offenders: string[] = []
+    for (const file of listSimTsFiles(SIM_DIR)) {
+      if (normalizeSlashes(file).endsWith('player/id.ts')) {
+        continue
+      }
+      if (/\b(randomUUID|Math\.random|Date\.now)\b/.test(readFileSync(file, 'utf8'))) {
+        offenders.push(file)
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })
