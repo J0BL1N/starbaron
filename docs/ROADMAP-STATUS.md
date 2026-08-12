@@ -40,7 +40,7 @@
 
 | Task | Status | Verdict / evidence |
 |---|---|---|
-| T01 Credits | ⬜ | (src/sim/core/economy.ts exists) |
+| T01 Credits | ✅ | Codex PASS (round 4) — `src/sim/core/transactions.ts` + `tests/transactions.test.ts` (37 tests): validated credit ledger, injective deterministic ids, balance invariants |
 | T02 Alloys / Ore | ⬜ | |
 | T03 Population | ⬜ | (src/sim/core/population.ts exists) |
 | T04 Structure Framework | ⬜ | (src/sim/structures exists) |
