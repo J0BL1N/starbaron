@@ -9,7 +9,7 @@ READ LIST:
 - src/sim/player/accrual.ts       (empireRates — the live-path agreement check)
 - src/sim/player/types.ts         (PlayerState)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 1549d7acc38c1cc90eae21eca06d7e0c3793b98c (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 1b4fd16e0c9a0b82a00ac78e77a4c94773c25425 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p3-t08-brief.md + master roadmap P3-T08):
 1. OfflineResult { walletDelta, populationByPlanet, completedJobs, bankedSeconds, elapsedSeconds, capped }.
