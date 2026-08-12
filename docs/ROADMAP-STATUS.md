@@ -34,6 +34,7 @@
 | T06 Colonisation | ✅ | Codex PASS (round 2) — `src/sim/player/colonisation.ts` + `tests/colonisation.test.ts` (32 tests): eligibility ladder, seeded cost 0.9-1.1x, external fleet/travel flags, duplicate prevention |
 | T07 Ownership Transfer | ✅ | Codex PASS (round 2) — `src/sim/player/transfer.ts` + `tests/transfer.test.ts` (31 tests): conquest transfer, survival rules, structure survival, notification hooks |
 | T08 New-Player Entry Flow | ✅ | Codex PASS (round 3) — `src/sim/player/onboarding.ts` + `tests/onboarding.test.ts` (38 tests): profile+home+starter bundle, camera destination, onboarding state machine, caller-supplied eligibility |
+| **Phase 2 whole-phase audit** | ⛔ BLOCKER (infra) | Rounds 1-5 findings FIXED + committed (protection irreversibility, canonical body ids, parity gate, boundary id module, legacy wrapper, starter contract + regression alignment — 246+ tests). Re-audit BLOCKED: Codex CLI unresponsive (provider outage, 4+ consecutive hangs even on trivial prompts). → blocker revisit pass |
 
 ## Phase 3 — Planet Economy & Structures
 

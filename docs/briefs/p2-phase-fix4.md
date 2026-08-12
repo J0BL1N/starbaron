@@ -1,0 +1,20 @@
+TASK (StarBaron PHASE 2 whole-phase audit FAIL round 4 — FIX ALL 3 FINDINGS, no broadening; this closes Phase 2):
+
+ALLOWED FILES (ONLY): src/sim/player/claim.ts, tests/claim.test.ts, src/sim/player/colonisation.ts (ONLY if a tiny internal helper is needed — prefer claim.ts-side delegation), supabase/migrations/0016_ownership_canonical.sql (append round-4 sections), supabase/tests/10_home_claim_atomicity.sql. src/ui/PlanetView.tsx + src/ui/useGameState.ts + any other compile-required callers of claim.ts signatures ONLY for import/signature-compat fixes. Do NOT touch anything else.
+
+RESTRICTIONS: purity preserved (no nondeterministic APIs, no module-level MUTABLE state — a frozen readonly lookup map is acceptable if documented); no `any`; strict TS; no banned comment tokens; SQL write-only + idempotent; claim.ts PUBLIC SIGNATURES MUST NOT CHANGE (the legacy UI compiles against them) — only internals may change.
+
+FINDINGS (fix exactly these):
+
+1. [T02/T06/T08 — claim.ts legacy path] claim.ts imports the catalogue directly, maintains a module-level mutable Map (NAME_TO_ENTRY), and its local `colonise` is a SECOND colonisation implementation (single-PlayerState check, planet-name uniqueness) that cannot enforce global canonical-body uniqueness. Fix:
+   - NAME_TO_ENTRY: make it a READONLY frozen lookup (Object.freeze or a readonly Map) built once — documented as an immutable lookup table, not mutable state.
+   - `claimColony`/legacy `colonise`: REFACTOR to delegate to the canonical flow — map the entry to its canonical body id (bodyId(systemId('catalogue', entry.hostname), 'planet', ordinalWithinHost) — reuse the derivation pattern from assignment.ts eligibleHomeBodies; export a tiny helper from claim.ts if needed), then call colonisation.ts `colonise()` with: requirements { hasFleet: true, hasTravel: true } (legacy path assumes met), wallet from the player, existingOwners = all owned body ids of the player's planets (home + colonies — map each OwnedPlanet.name to its canonical body id the same way), protection undefined (legacy path predates protection — document), at = now. On ok → build the OwnedPlanet as before; on failure → throw the same descriptive errors the legacy tests expect (map reasons: 'already-owned' → throw new Error('already owned') — CHECK existing claim.test.ts expectations and keep them passing).
+   - Keep `claimIndexForPlayer` + `claimHomePlanet` signatures; claimHomePlanet internals may stay deterministic-pick (it's the legacy UI path) but document it as legacy (JSDoc @legacy — canonical entry flow is onboarding.ts).
+
+2. [T02/T04/T06/T08 — body_id NOT NULL] 0016 leaves owned_planets.body_id nullable; a Postgres unique index allows multiple NULLs; the audit table is NOT NULL. Fix in 0016 (append): after the RPC changes — ALTER TABLE public.owned_planets ALTER COLUMN body_id SET NOT NULL (with a guarded backfill comment: write-only stack has no rows; any applied stack must backfill canonical body ids first — document in the header); keep the full unique index. Add a 10-test note (SET NOT NULL is verified at apply; static contract).
+
+3. [T03/T06/T08 — single ownership model] Two public colonisation/claim models with different dup-prevention semantics. Fix: claim.ts becomes a documented LEGACY COMPATIBILITY WRAPPER over the canonical ownership flow (finding 1's delegation achieves this); its JSDoc header states: "legacy UI compatibility layer — canonical ownership lives in colonisation.ts/assignment.ts/onboarding.ts; new callers must use those"; remove nothing from exports (UI compat), but colonise logic now delegates (single canonical implementation). Add a claim.test.ts assertion that claimColony's duplicate rejection now comes from the canonical path (same body id twice → throws 'already owned'-style error).
+
+VERIFY (focused per-file runs only): `npx tsc -b` exit 0; `npx vitest run tests/claim.test.ts tests/colonisation.test.ts tests/onboarding.test.ts tests/assignment.test.ts` all pass (per-file counts); SQL static read-back only. DO NOT run the full suite.
+
+REPORT: per-finding changed lines + which test covers which finding + any signature-compat notes.
