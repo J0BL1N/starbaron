@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { STRUCTURE_IDS, STRUCTURES } from '../src/sim/structures/data'
+import { STRUCTURE_IDS } from '../src/sim/structures/data'
 import { productionSummaryFor } from '../src/sim/structures/production'
 import { populationCapFor } from '../src/sim/core/population-model'
 import { populationCapMultiplier } from '../src/sim/planets/levels'
@@ -68,18 +68,17 @@ describe('runEconomySimulation', () => {
     expect(run.summary.totalUpgrades).toBeGreaterThan(0)
   })
 
-  it('times the first upgrade, which matches the cheapest build (housing), within a sane window', () => {
+  it('times the first upgrade as the first point with levels exceeding 0, which is the cheapest build (housing), within a sane window', () => {
     const run = runEconomySimulation(STANDARD)
-    expect(run.summary.timeToFirstUpgradeSeconds).toBe(
-      DEFAULT_TICK_SECONDS + STRUCTURES.housing.buildTimeSec,
-    )
-    expect(run.summary.timeToFirstUpgradeSeconds).toBeLessThanOrEqual(
-      3 * DEFAULT_TICK_SECONDS,
-    )
     const firstBuild = run.points.find((p) =>
       STRUCTURE_IDS.some((id) => p.structureLevels[id] > 0),
     )
-    expect(firstBuild?.structureLevels.housing).toBeGreaterThanOrEqual(1)
+    expect(firstBuild).toBeDefined()
+    expect(run.summary.timeToFirstUpgradeSeconds).toBe(firstBuild!.atSeconds)
+    expect(run.summary.timeToFirstUpgradeSeconds).toBeLessThanOrEqual(
+      3 * DEFAULT_TICK_SECONDS,
+    )
+    expect(firstBuild!.structureLevels.housing).toBeGreaterThanOrEqual(1)
   })
 
   it('keeps credits and alloys non-negative at every point', () => {
@@ -249,6 +248,15 @@ describe('harnessInvariants', () => {
     const result = harnessInvariants(run2)
     expect(result.ok).toBe(false)
     expect(result.problems.join('\n')).toMatch(/totalUpgrades/)
+  })
+
+  it('catches a tampered timeToFirstUpgradeSeconds on a run with upgrades', () => {
+    const run = runEconomySimulation(STANDARD)
+    expect(run.summary.totalUpgrades).toBeGreaterThan(0)
+    run.summary.timeToFirstUpgradeSeconds = run.summary.timeToFirstUpgradeSeconds + 60
+    const result = harnessInvariants(run)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toMatch(/timeToFirstUpgradeSeconds/)
   })
 })
 

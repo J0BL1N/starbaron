@@ -5,7 +5,7 @@
  * curves, time-to-upgrade and early/mid/late progression. It is a pure module
  * — no nondeterministic APIs, no module-level mutable state, no wall clock
  * (the sim clock is derived entirely from `tickSeconds`/`horizonSeconds`;
- * queue timestamps are `atSeconds * 1000`). Strictly typed, no `any`.
+ * queue timestamps are `atSeconds * 1000`). Strict typing throughout.
  *
  * The harness never re-derives a locked formula — it SIMULATES using the
  * locked modules:
@@ -30,9 +30,11 @@
  *     window.
  *   - Initial population is the harness constant INITIAL_POPULATION (a fresh
  *     planet's population is not an economy input).
- *   - timeToFirstUpgradeSeconds is the exact completion time (seconds) of the
- *     first completed job; if no upgrade completes within the horizon it is
- *     the horizon (documented sentinel keeping summary numbers finite).
+ *   - timeToFirstUpgradeSeconds is the atSeconds of the FIRST point whose
+ *     cumulative structureLevels (summed across STRUCTURE_IDS) exceed 0 — the
+ *     point where totalUpgrades first increments (each upgrade adds exactly one
+ *     level, nothing is demolished). If no upgrade completes within the horizon
+ *     it is the horizon (documented sentinel keeping summary numbers finite).
  *   - timeToBand[band] is the first observed point time in that band; a band
  *     never reached within the horizon reports its NOMINAL threshold (0 for
  *     early, BAND_EARLY_SECONDS for mid, BAND_MID_SECONDS for late).
@@ -271,6 +273,26 @@ function computeTimeToBand(
 }
 
 /**
+ * Expected first upgrade completion: the atSeconds of the first point whose
+ * cumulative structureLevels (the sum across STRUCTURE_IDS) exceed 0 — the
+ * point where totalUpgrades first increments. The derivation uses the points'
+ * structureLevels field (each upgrade adds exactly one level, nothing is
+ * demolished). Returns null when no point has completed an upgrade.
+ */
+function expectedFirstUpgradeTime(points: readonly HarnessPoint[]): number | null {
+  for (const point of points) {
+    const cumulativeLevels = STRUCTURE_IDS.reduce(
+      (sum, id) => sum + point.structureLevels[id],
+      0,
+    )
+    if (cumulativeLevels > 0) {
+      return point.atSeconds
+    }
+  }
+  return null
+}
+
+/**
  * DETERMINISTIC economy simulation: fresh home planet (tier from config), empty
  * grid, empty queue, wallet from config. Each tick (default 60s): accrue income
  * (productionSummaryFor x elapsed), complete due queue jobs, then enqueue the
@@ -318,7 +340,7 @@ export function runEconomySimulation(config: EconomySimulationConfig): HarnessRu
       grid[job.structure] = job.toLevel
       totalUpgrades += 1
       if (timeToFirstUpgradeSeconds === null) {
-        timeToFirstUpgradeSeconds = job.finishesAt / 1000
+        timeToFirstUpgradeSeconds = nextSeconds
       }
     }
 
@@ -490,6 +512,18 @@ export function harnessInvariants(run: HarnessRun): {
     if (summary.timeToFirstUpgradeSeconds !== config.horizonSeconds) {
       problems.push(
         'with zero upgrades, timeToFirstUpgradeSeconds must equal horizonSeconds',
+      )
+    }
+  } else {
+    const expectedFirstUpgrade = expectedFirstUpgradeTime(points)
+    if (expectedFirstUpgrade === null) {
+      problems.push(
+        'with upgrades, at least one point must show cumulative levels exceeding 0',
+      )
+    } else if (summary.timeToFirstUpgradeSeconds !== expectedFirstUpgrade) {
+      problems.push(
+        `timeToFirstUpgradeSeconds must equal the first point's atSeconds with ` +
+          `cumulative levels exceeding 0 (${expectedFirstUpgrade})`,
       )
     }
   }
