@@ -1,4 +1,14 @@
+/**
+ * Credit-accounting primitives for the simulation.
+ *
+ * Dependency contract (documented after Codex audit round 1):
+ * - Type-only imports from '../player/types' are authorised (WalletState's
+ *   type definition lives there; wallet.ts re-exports it).
+ * - fnv1a is imported from '../planets/hash' (shared implementation) rather
+ *   than reimplemented locally.
+ */
 import type { WalletState } from '../player/types'
+import { fnv1a } from '../planets/hash'
 
 export type CreditKind = 'income' | 'spend' | 'transfer' | 'adjustment'
 
@@ -42,15 +52,6 @@ function assertFinitePositive(value: number, field: string): void {
   if (!Number.isFinite(value) || value <= 0) {
     throw new RangeError(`${field} must be a finite number > 0, got ${value}`)
   }
-}
-
-function fnv1a(input: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
 }
 
 /**
