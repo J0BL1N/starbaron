@@ -1,0 +1,260 @@
+/**
+ * Fleet render-state contract (P5-T06) — the DRAW DATA derived from fleet
+ * state (composition, position, phase) that the renderer consumes once per
+ * frame. This module is PURE: it never touches a scene graph, never imports
+ * rendering code (no Three.js — the renderer CONSUMES this data; the contract
+ * never builds the scene), never reads the wall clock (every timestamp is an
+ * INPUT), and has no module-level mutable state.
+ *
+ * CONTRACT:
+ * - `fleetRenderState` is the per-frame entry point. It takes a
+ *   `PositionedFleet` (P5-T05 positionAt — the validated phase + interpolated
+ *   position), the fleet's `FleetComposition` (P5-T03), an optional owner
+ *   name, and the `at` timestamp. `at` is validated via `assertPositiveAt`
+ *   for contract-consistency with positionAt but does NOT influence the
+ *   output (documented; deterministic — same state → same render state at any
+ *   timestamp).
+ * - `label` is the deterministic display label:
+ *   `ownerName? + ' ' + 'Fleet ' + fleetId.slice(0, 8)` — ownerName is
+ *   included via the spec ternary (`ownerName ? ownerName + ' ' : ''`), so an
+ *   empty/undefined owner name yields no prefix. `fleetLabel` is exported
+ *   separately for tests/UI reuse and guarantees the same string.
+ * - `position` is a validated PASSTHROUGH (coordinates finite, phase in the
+ *   union, progress in [0,1]) returned as a FRESH object — never aliased.
+ *
+ * LOD (level-of-detail) draw counts — documented decisions:
+ * - Full counts always stay in the MODEL (`draw.perClass[].count`); the LOD
+ *   cap only affects the RENDERED count (`drawCount`). The visual LOD is a
+ *   DETERMINISTIC CAPPED APPORTIONMENT (largest-remainder method):
+ *     (a) floor each class's share = floor(count × ratio), ratio = 1 when
+ *         totalShips <= MAX_RENDERED_SHIPS (60), cap/total otherwise;
+ *     (b) distribute the remaining slots (cap − sum of floors) to classes in
+ *         DESCENDING fractional-remainder order, ties broken by class id
+ *         ascending (documented fixed tie-breaker);
+ *     (c) the sum of drawCounts equals `min(cap, totalShips)` EXACTLY (the
+ *         naive `round(count × ratio)` can overflow the cap — see the
+ *         5-class regression in the tests).
+ * - Tiny fleets (total <= cap) draw ALL ships; 0-count classes are ABSENT
+ *   from `perClass`.
+ * - NO minimum of 1 drawn ship per non-empty class: a class that is a tiny
+ *   fraction of an oversized fleet can floor to drawCount 0 (pure
+ *   proportional math — documented and tested).
+ *
+ * Hints (both DRAFT):
+ * - `scaleHint` — deterministic size cue `1 + log10(totalShips)/10` clamped
+ *   to [1.0, 2.0]. 1 ship → 1.0; the 2.0 ceiling is reached at 10^10 ships
+ *   (log10 = 10); 1,000,000 ships → 1.6 per the formula. P12 art refines real
+ *   ship scaling.
+ * - `statusHint` — currently the movement PHASE verbatim (the only status
+ *   signal available to this render contract). P12/HUD refines.
+ *
+ * Pure module — deterministic, no wall clock, no nondeterministic APIs, no
+ * module-level mutable state, no `any`, strictly typed throughout.
+ */
+
+import { SHIP_CLASSES, SHIP_CLASS_IDS } from './ships'
+import type { ShipClassId } from './ships'
+import { fleetCompositionSize } from './fleet'
+import type { Fleet, FleetComposition } from './fleet'
+import type { PositionedFleet, FleetPosition } from './positioning'
+import { assertPositiveAt } from '../ui/validate'
+
+/** The total number of ships the renderer draws per fleet (LOD cap). */
+export const MAX_RENDERED_SHIPS = 60
+
+const PHASES: readonly FleetPosition['phase'][] = [
+  'at-origin',
+  'traveling',
+  'at-destination',
+]
+
+/** One class's render entry: model count + LOD draw count. */
+export interface DrawClassEntry {
+  id: ShipClassId
+  name: string
+  count: number
+  drawCount: number
+}
+
+/** The draw data block of the render state: total model ships + per-class. */
+export interface FleetDraw {
+  totalShips: number
+  perClass: DrawClassEntry[]
+}
+
+/** The pure render-state contract the renderer consumes per frame. */
+export interface FleetRenderState {
+  fleetId: string
+  label: string
+  position: FleetPosition
+  draw: FleetDraw
+  scaleHint: number
+  statusHint: string
+}
+
+export interface FleetRenderStateInput {
+  positioned: PositionedFleet
+  composition: FleetComposition
+  ownerName?: string
+  at: number
+}
+
+function assertNonEmpty(value: string, field: string): void {
+  if (value.length === 0) {
+    throw new RangeError(
+      `${field} must be a non-empty string, got ${JSON.stringify(value)}`,
+    )
+  }
+}
+
+function assertFinite(value: number, field: string): void {
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${field} must be finite, got ${value}`)
+  }
+}
+
+function assertValidPosition(position: FleetPosition): void {
+  assertFinite(position.x, 'position.x')
+  assertFinite(position.y, 'position.y')
+  assertFinite(position.z, 'position.z')
+  if (!(PHASES as readonly string[]).includes(position.phase)) {
+    throw new RangeError(
+      `position.phase must be 'at-origin'|'traveling'|'at-destination', ` +
+        `got ${String(position.phase)}`,
+    )
+  }
+  if (
+    !Number.isFinite(position.progress) ||
+    position.progress < 0 ||
+    position.progress > 1
+  ) {
+    throw new RangeError(
+      `position.progress must be a finite number in [0, 1], got ${position.progress}`,
+    )
+  }
+}
+
+/** The LOD ratio applied to each per-class count: 1 when under the cap. */
+function lodRatio(totalShips: number): number {
+  if (totalShips <= MAX_RENDERED_SHIPS) {
+    return 1
+  }
+  return MAX_RENDERED_SHIPS / totalShips
+}
+
+/**
+ * Deterministic capped apportionment (largest-remainder method): sets each
+ * entry's `drawCount` so the sum EXACTLY equals `min(MAX_RENDERED_SHIPS,
+ * totalShips)`. Floors each class's proportional share (`count × ratio`),
+ * then hands the remaining slots to classes in DESCENDING fractional-remainder
+ * order, ties broken by class id ascending (documented fixed tie-breaker).
+ * A sub-integer epsilon guards the floor against float noise at exact
+ * integers; fractions are normalized to 9 decimals before the tie-break so
+ * comparison is deterministic.
+ */
+function apportionDrawCounts(
+  entries: DrawClassEntry[],
+  totalShips: number,
+  ratio: number,
+): void {
+  const cap = Math.min(MAX_RENDERED_SHIPS, totalShips)
+  const shares = entries.map((entry) => entry.count * ratio)
+  const floors = shares.map((share) => Math.floor(share + 1e-9))
+  const fractions = shares.map((share, index) => {
+    const fraction = share - floors[index]
+    return Math.round(fraction * 1e9) / 1e9
+  })
+  let remaining = cap - floors.reduce((sum, value) => sum + value, 0)
+
+  const order = entries.map((entry, index) => ({ index, id: entry.id }))
+  order.sort((a, b) => {
+    const byFraction = fractions[b.index] - fractions[a.index]
+    if (byFraction !== 0) {
+      return byFraction
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
+
+  const drawCounts = floors.slice()
+  for (const { index } of order) {
+    if (remaining <= 0) {
+      break
+    }
+    drawCounts[index] += 1
+    remaining -= 1
+  }
+  entries.forEach((entry, index) => {
+    entry.drawCount = drawCounts[index]
+  })
+}
+
+/** Deterministic size cue `1 + log10(totalShips)/10`, clamped to [1.0, 2.0]. */
+function scaleHintFor(totalShips: number): number {
+  const hint = 1 + Math.log10(totalShips) / 10
+  return Math.max(1, Math.min(2, hint))
+}
+
+/** The deterministic label: `[ownerName ]Fleet <fleetId.slice(0, 8)>`. */
+function renderLabel(fleetId: string, ownerName?: string): string {
+  return `${ownerName ? `${ownerName} ` : ''}Fleet ${fleetId.slice(0, 8)}`
+}
+
+/**
+ * The deterministic display label for a fleet: `[ownerName ]Fleet
+ * <fleetId.slice(0, 8)>`. `ownerName` follows the spec ternary — an
+ * empty/undefined owner yields no prefix. `fleet.id` must be a non-empty
+ * string (RangeError otherwise).
+ */
+export function fleetLabel(fleet: Fleet, ownerName?: string): string {
+  assertNonEmpty(fleet.id, 'fleet.id')
+  return renderLabel(fleet.id, ownerName)
+}
+
+/**
+ * Builds the per-frame render state for a fleet. Validates (RangeError):
+ * `at` positive finite (assertPositiveAt), `fleetId` non-empty, `position`
+ * (finite coords, phase in the union, progress in [0,1]), and the composition
+ * (non-negative integer counts, via fleetCompositionSize). The leg is NOT part
+ * of this contract (position already encodes phase/progress; it was validated
+ * upstream by positionAt).
+ *
+ * Output: label (deterministic), position (fresh copy — passthrough, never
+ * aliased), draw (totalShips + per-class counts with LOD drawCounts — see the
+ * module docstring), scaleHint (draft size cue), statusHint (phase verbatim,
+ * draft). `at` is validated but does not influence the output. Inputs are
+ * never mutated.
+ */
+export function fleetRenderState(input: FleetRenderStateInput): FleetRenderState {
+  const { positioned, composition, ownerName, at } = input
+
+  assertPositiveAt(at)
+  assertNonEmpty(positioned.fleetId, 'fleetId')
+  assertValidPosition(positioned.position)
+
+  const totalShips = fleetCompositionSize(composition)
+  const ratio = lodRatio(totalShips)
+
+  const perClass: DrawClassEntry[] = []
+  for (const id of SHIP_CLASS_IDS) {
+    const count = composition[id]
+    if (count === 0) {
+      continue
+    }
+    perClass.push({
+      id,
+      name: SHIP_CLASSES[id].name,
+      count,
+      drawCount: 0,
+    })
+  }
+  apportionDrawCounts(perClass, totalShips, ratio)
+
+  return {
+    fleetId: positioned.fleetId,
+    label: renderLabel(positioned.fleetId, ownerName),
+    position: { ...positioned.position },
+    draw: { totalShips, perClass },
+    scaleHint: scaleHintFor(totalShips),
+    statusHint: positioned.position.phase,
+  }
+}
