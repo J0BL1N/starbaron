@@ -13,7 +13,7 @@ READ LIST (all Phase 3 deliverables):
 - src/sim/balance/harness.ts + tests/harness.test.ts              (T10 balancing harness)
 - Locked sources: src/sim/core/economy.ts, population.ts, offline.ts, src/sim/player/accrual.ts, src/sim/structures/effects.ts, data.ts, types.ts, src/sim/planets/quirks.ts, hash.ts
 
-AUDIT TARGET: the whole Phase 3 feature set on staging (through the P3-T10 PASS state). Docs commits OUT OF SCOPE.
+AUDIT TARGET: the whole Phase 3 feature set on staging (through the P3-T10 PASS state, INCLUDING the phase-fix commit 5937b62 which addresses all 8 prior findings). Docs commits OUT OF SCOPE.
 
 CHECK — CROSS-TASK COHERENCE:
 A. LOCKED-FORMULA DISCIPLINE: every Phase 3 module WRAPS the locked formulas (economy.ts/population.ts/offline.ts/effects.ts/accrual.ts) — no module re-derives a cost/income/growth formula independently (spot-check transactions, production, housing, queues, offline-model, harness against their locked sources).
