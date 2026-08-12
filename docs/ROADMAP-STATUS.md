@@ -15,7 +15,7 @@
 | T01 Canonical Object Identity | ✅ | Codex PASS ×3 rounds — `src/sim/world/identity.ts` + `tests/identity.test.ts` (39 tests): branded GalaxyId/SystemId/BodyId, parent chains, round-trip validation, idSeed=fnv1a. Commits 0410b5d, 4a46bf2 |
 | T02 Galaxy Data Model | ✅ | Codex PASS (round 3, pinned commit 7efa0eb) — `src/sim/world/galaxy.ts` + `tests/galaxy-model.test.ts` (29 tests): GalaxyRecord, seeded class/name/universe position (1800-6000 shell), immutable system registry |
 | T03 Solar-System Data Model | ✅ | Codex PASS (commit f86ace7) — `src/sim/world/system.ts` + `tests/system-model.test.ts` (30 tests): SystemRecord, star metadata, spiral-arm galaxy-local positions, immutable body registry |
-| T04 Celestial-Body Data Model | ⬜ | |
+| T04 Celestial-Body Data Model | ✅ | Codex PASS (commit b5d2850) — `src/sim/world/body.ts` + `tests/body-model.test.ts` (42 tests): BodyRecord + typed orbit elements, per-type defaults, star zero-orbit rule, seeded names |
 | T05 Real Astronomy Integration | ⬜ | (catalogue snapshot + drift gate exist — verify canonical mapping) |
 | T06 Persistence Schema | ⬜ | (migration apply = Jay authorisation only) |
 | T07 Deterministic Universe Reconstruction | ⬜ | |
