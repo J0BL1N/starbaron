@@ -41,7 +41,7 @@
 | Task | Status | Verdict / evidence |
 |---|---|---|
 | T01 Credits | ✅ | Codex PASS (round 4) — `src/sim/core/transactions.ts` + `tests/transactions.test.ts` (37 tests): validated credit ledger, injective deterministic ids, balance invariants |
-| T02 Alloys / Ore | ⬜ | |
+| T02 Alloys / Ore | ✅ | Codex PASS (first round) — `src/sim/core/alloys.ts` + `tests/alloys.test.ts` (29 tests): alloy ledger, scarcity curve, defensive demand per DESIGN |
 | T03 Population | ⬜ | (src/sim/core/population.ts exists) |
 | T04 Structure Framework | ⬜ | (src/sim/structures exists) |
 | T05 Housing | ⬜ | |
