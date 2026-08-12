@@ -5,7 +5,7 @@ READ LIST:
 - tests/notifications.test.ts   (NEW — test suite)
 - src/sim/planets/hash.ts       (fnv1a — canonical hash)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT aa08f6b45f2a9f639fc3e5cd0c11598155e5e980 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT ad39698d77c0d392d78d24f135b2e9a0ae161643 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p4-t07-brief.md + master roadmap P4-T07):
 1. Notification { id = fnv1a(title|message|at) — the DEDUP key, type (info|warning|danger|success), title, message, at, read, reactions }; NotificationsState { items, unreadCount }.
