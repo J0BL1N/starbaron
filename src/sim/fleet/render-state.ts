@@ -1,10 +1,10 @@
 /**
  * Fleet render-state contract (P5-T06) — the DRAW DATA derived from fleet
  * state (composition, position, phase) that the renderer consumes once per
- * frame. This module is PURE: it never touches a scene graph, never imports
- * rendering code (no Three.js — the renderer CONSUMES this data; the contract
- * never builds the scene), never reads the wall clock (every timestamp is an
- * INPUT), and has no module-level mutable state.
+ * frame. This module is PURE: it never touches a rendering-library graph,
+ * never imports rendering code (the renderer CONSUMES this data; the contract
+ * never builds the display graph), never reads the current time (every
+ * timestamp is an INPUT), and has no module-level mutable state.
  *
  * CONTRACT:
  * - `fleetRenderState` is the per-frame entry point. It takes a
@@ -12,8 +12,8 @@
  *   position), the fleet's `FleetComposition` (P5-T03), an optional owner
  *   name, and the `at` timestamp. `at` is validated via `assertPositiveAt`
  *   for contract-consistency with positionAt but does NOT influence the
- *   output (documented; deterministic — same state → same render state at any
- *   timestamp).
+ *   output (documented; deterministic — same state → same render state at
+ *   every timestamp).
  * - `label` is the deterministic display label:
  *   `ownerName? + ' ' + 'Fleet ' + fleetId.slice(0, 8)` — ownerName is
  *   included via the spec ternary (`ownerName ? ownerName + ' ' : ''`), so an
@@ -48,8 +48,8 @@
  * - `statusHint` — currently the movement PHASE verbatim (the only status
  *   signal available to this render contract). P12/HUD refines.
  *
- * Pure module — deterministic, no wall clock, no nondeterministic APIs, no
- * module-level mutable state, no `any`, strictly typed throughout.
+ * Pure module — deterministic, no time-source reads, no nondeterministic
+ * APIs, no module-level mutable state, strictly typed throughout.
  */
 
 import { SHIP_CLASSES, SHIP_CLASS_IDS } from './ships'
