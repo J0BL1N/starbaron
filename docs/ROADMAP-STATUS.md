@@ -31,7 +31,7 @@
 | T03 Home-World Protection | ✅ | Codex PASS (round 2) — `src/sim/player/protection.ts` (20 tests) + `supabase/migrations/0014_home_world_protection.sql` + `supabase/tests/08` (write-only): transfer/delete trigger, UI protection state, attempted-conquest detection |
 | T04 Planet Ownership | ✅ | Codex PASS (first round) — `src/sim/player/ownership.ts` (26 tests) + `supabase/migrations/0015_ownership_audit.sql` + `supabase/tests/09` (write-only): ownership records, transfer events, audit trigger |
 | T05 Empire Territory | ✅ | Codex PASS (round 2) — `src/sim/player/territory.ts` + `tests/territory.test.ts` (25 tests): owned bodies, controlled systems, totals, ownership-independent render payloads + separate overlay |
-| T06 Colonisation | ⬜ | |
+| T06 Colonisation | ✅ | Codex PASS (round 2) — `src/sim/player/colonisation.ts` + `tests/colonisation.test.ts` (32 tests): eligibility ladder, seeded cost 0.9-1.1x, external fleet/travel flags, duplicate prevention |
 | T07 Ownership Transfer | ⬜ | |
 | T08 New-Player Entry Flow | ⬜ | |
 
