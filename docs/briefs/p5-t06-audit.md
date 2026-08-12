@@ -7,7 +7,7 @@ READ LIST:
 - src/sim/fleet/positioning.ts    (P5-T05: PositionedFleet)
 - src/sim/fleet/ships.ts          (P5-T01: SHIP_CLASSES names)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT fe920895ce7d185aa2de8bbad3b2ede20405fef8 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 873d9c598a125d02255d7c409917df026fca09d5 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p5-t06-brief.md + master roadmap P5-T06):
 1. FleetRenderState { fleetId, label (ownerName-prefixed deterministic), position (fresh copy, validated), draw { totalShips, perClass [{id, name, count, drawCount}] }, scaleHint (1 + log10(total)/10 clamped [1,2]; NOTE: 1M ships → 1.6, 2.0 at 10^10 — the FORMULA is authoritative, the brief's 1M→2.0 example was an error), statusHint }.
