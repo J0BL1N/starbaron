@@ -43,7 +43,7 @@
 | T01 Credits | ✅ | Codex PASS (round 4) — `src/sim/core/transactions.ts` + `tests/transactions.test.ts` (37 tests): validated credit ledger, injective deterministic ids, balance invariants |
 | T02 Alloys / Ore | ✅ | Codex PASS (first round) — `src/sim/core/alloys.ts` + `tests/alloys.test.ts` (29 tests): alloy ledger, scarcity curve, defensive demand per DESIGN |
 | T03 Population | ✅ | Codex PASS (first round) — `src/sim/core/population-model.ts` + `tests/population-model.test.ts` (38 tests): timestamp recovery, cap/growth wrappers on locked formulas, war-loss hook |
-| T04 Structure Framework | ⬜ | (src/sim/structures exists) |
+| T04 Structure Framework | ✅ | Codex PASS (round 3) — `src/sim/structures/framework.ts` + `tests/framework.test.ts` (33 tests): prereq table (draft, T10 input), locked cost wrappers, canBuild ladder, deep-frozen immutability |
 | T05 Housing | ⬜ | |
 | T06 Production Structures | ⬜ | |
 | T07 Construction Queues | ⬜ | |
