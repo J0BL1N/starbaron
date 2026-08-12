@@ -79,7 +79,7 @@
 | T06 Fleet Rendering | ✅ | Codex PASS (round 3) — `src/sim/fleet/render-state.ts` + `tests/render-state.test.ts` (34 tests): LOD apportionment (largest-remainder), scale hints, deterministic labels (mesh art → P12/Kimi K3) |
 | T07 Fleet Orders | ✅ | Codex PASS (first round) — `src/sim/fleet/orders.ts` + `tests/orders.test.ts` (34 tests): order queue, one-active semantics, lifecycle, invariants |
 | T08 Fleet UI | ✅ | Codex PASS (first round) — `src/sim/ui/fleet-panel.ts` + `tests/fleet-panel.test.ts` (29 tests): list/detail/panel state contracts, deterministic locations |
-| T09 Travel Routes | ⬜ | |
+| T09 Travel Routes | ✅ | Codex PASS (first round) — `src/sim/fleet/routes.ts` + `tests/routes.test.ts` (39 tests): multi-leg planning, ETA, leg indexing |
 | T10 Fleet Persistence | ⬜ | |
 
 ## Phase 6 — Scouting, Sensors & Intelligence
