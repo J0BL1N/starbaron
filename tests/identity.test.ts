@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { fnv1a } from '../src/sim/planets/hash'
 import {
   bodyId,
+  canonicalBodyOrder,
+  canonicalSystemOrder,
   galaxyId,
   idSeed,
   parentOf,
@@ -284,6 +286,46 @@ describe('P1-T01 determinism', () => {
       expect(idSeed(id)).toBe(fnv1a(id))
       expect(idSeed(id)).toBe(idSeed(id))
     }
+  })
+})
+
+describe('P1-T01 canonical registry order helpers', () => {
+  it('canonicalSystemOrder sorts by id string (lexicographic)', () => {
+    const input = ['sys:b|z', 'sys:a|y', 'sys:a|x', 'sys:b|a']
+    expect(canonicalSystemOrder(input)).toEqual([
+      'sys:a|x',
+      'sys:a|y',
+      'sys:b|a',
+      'sys:b|z',
+    ])
+  })
+
+  it('canonicalSystemOrder is idempotent and stable', () => {
+    const input = ['sys:b|z', 'sys:a|y', 'sys:a|y', 'sys:b|a']
+    const once = canonicalSystemOrder(input)
+    expect(canonicalSystemOrder(once)).toEqual(once)
+  })
+
+  it('canonicalBodyOrder sorts by (ordinal, then id string)', () => {
+    const sys = systemId('g', 's')
+    const input = [
+      bodyId(sys, 'moon', 2),
+      bodyId(sys, 'star', 0),
+      bodyId(sys, 'planet', 0),
+      bodyId(sys, 'planet', 1),
+    ]
+    expect(canonicalBodyOrder(input)).toEqual([
+      bodyId(sys, 'planet', 0),
+      bodyId(sys, 'star', 0),
+      bodyId(sys, 'planet', 1),
+      bodyId(sys, 'moon', 2),
+    ])
+  })
+
+  it('canonicalBodyOrder sorts ids that do not parse as bodies last by id string', () => {
+    expect(
+      canonicalBodyOrder(['sys:a|b', 'body:g|s|planet|0', 'sys:z|y']),
+    ).toEqual(['body:g|s|planet|0', 'sys:a|b', 'sys:z|y'])
   })
 })
 

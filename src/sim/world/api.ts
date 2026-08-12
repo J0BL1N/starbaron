@@ -14,18 +14,24 @@
  * callers gate access to these results separately.
  *
  * PARENT-CHAIN CONTRACT: lookups never trust declared fields or registries
- * blindly. A system/body is returned only when its id parses, its declared
- * parent equals the canonical parent parsed from its id, and the id is present
- * in the owning registry. Contradictions yield null for single-id lookups
+ * blindly. A system is returned only when its id parses, its declared galaxy
+ * equals BOTH the canonical parent parsed from its id AND the state galaxy's
+ * id, and the id is present in the state galaxy's registry. A body is returned
+ * only when its declared system is the canonical parent of its id, it is
+ * registered in that system's bodyIds, and that system resolves within the
+ * state galaxy. Contradictions yield null for single-id lookups
  * (querySystem/queryBody) and are skipped by list queries
- * (querySystemsByGalaxy/queryBodiesBySystem).
+ * (querySystemsByGalaxy/queryBodiesBySystem). List results are derived in
+ * canonical registry order (identity.ts 'Canonical registry order' — systems
+ * by id, bodies by ordinal then id) and deduplicated by id, so a malformed
+ * duplicated registry entry can never emit duplicate records.
  */
 
 import type { UniverseState } from './reconstruct'
 import type { GalaxyClass, GalaxyRecord } from './galaxy'
 import type { SystemRecord } from './system'
 import type { BodyOrbit, BodyRecord } from './body'
-import { parseCanonicalId, parentOf } from './identity'
+import { canonicalSystemOrder, parseCanonicalId, parentOf } from './identity'
 import type { BodyId, BodyType, GalaxyId, SystemId } from './identity'
 
 /** Resolve a galaxy record by id, or null when the state holds no such galaxy. */
@@ -35,8 +41,10 @@ export function queryGalaxy(state: UniverseState, id: GalaxyId): GalaxyRecord | 
 
 /**
  * Canonical system resolution: the id must parse as a system, its declared
- * galaxy must equal the canonical parent of the id, and the id must be
- * registered in the galaxy's systemIds. Any contradiction yields null.
+ * galaxy must equal BOTH the canonical parent of the id AND the state galaxy's
+ * id (a self-consistent sys:<other>|seed registered in the state galaxy is a
+ * foreign record, not found here), and the id must be registered in the state
+ * galaxy's systemIds. Any contradiction yields null.
  */
 function resolveSystem(state: UniverseState, id: SystemId): SystemRecord | null {
   const parsed = parseCanonicalId(id)
@@ -47,7 +55,11 @@ function resolveSystem(state: UniverseState, id: SystemId): SystemRecord | null 
   if (record === undefined) {
     return null
   }
-  if (record.galaxy !== parentOf(id) || !state.galaxy.systemIds.includes(id)) {
+  if (
+    record.galaxy !== parentOf(id) ||
+    record.galaxy !== state.galaxy.id ||
+    !state.galaxy.systemIds.includes(id)
+  ) {
     return null
   }
   return record
@@ -55,8 +67,10 @@ function resolveSystem(state: UniverseState, id: SystemId): SystemRecord | null 
 
 /**
  * Canonical body resolution: the id must parse as a body, its declared system
- * must equal the canonical parent of the id, and the id must be registered in
- * that system's bodyIds. Any contradiction yields null.
+ * must equal the canonical parent of the id, the id must be registered in that
+ * system's bodyIds, AND the owning system must resolve within the state galaxy
+ * (a body whose system is a foreign, self-consistent record is not found).
+ * Any contradiction yields null.
  */
 function resolveBody(state: UniverseState, id: BodyId): BodyRecord | null {
   const parsed = parseCanonicalId(id)
@@ -102,10 +116,14 @@ export function queryBody(state: UniverseState, id: BodyId): BodyRecord | null {
 }
 
 /**
- * All systems belonging to a galaxy, in the galaxy's registry order (stable
- * and deterministic). Systems whose declared parent disagrees with the
- * canonical parent of their id are skipped. Returns [] when the galaxy id is
- * not the state galaxy or the galaxy has no systems.
+ * All systems belonging to a galaxy, in CANONICAL order (systems sorted by id
+ * string — identity.ts 'Canonical registry order'), never trusting the stored
+ * registry's array order. Each system passes through resolveSystem first, so a
+ * registered system whose id does not parse, whose declared galaxy disagrees
+ * with the canonical parent of its id OR with the state galaxy, or which is
+ * absent from the registry is skipped. Results are deduplicated by id (a
+ * duplicated registry entry can never emit two distinct records). Returns []
+ * when the galaxy id is not the state galaxy or the galaxy has no systems.
  */
 export function querySystemsByGalaxy(
   state: UniverseState,
@@ -114,10 +132,17 @@ export function querySystemsByGalaxy(
   if (state.galaxy.id !== galaxyId) {
     return []
   }
-  const result: SystemRecord[] = []
+  const resolved = new Map<SystemId, SystemRecord>()
   for (const id of state.galaxy.systemIds) {
     const system = resolveSystem(state, id)
     if (system !== null) {
+      resolved.set(system.id, system)
+    }
+  }
+  const result: SystemRecord[] = []
+  for (const id of canonicalSystemOrder([...resolved.keys()])) {
+    const system = resolved.get(id)
+    if (system !== undefined) {
       result.push(system)
     }
   }
@@ -125,11 +150,11 @@ export function querySystemsByGalaxy(
 }
 
 /**
- * All bodies attached to a system, sorted by ordinal (ascending) with an id
- * tie-break so the order is fully deterministic. Bodies whose canonical parent
- * disagrees with their declared system are excluded even when registered.
- * Returns [] when the system id is not in the state or the system has no
- * bodies.
+ * All bodies attached to a system, in CANONICAL order (bodies by ordinal, then
+ * id string — identity.ts 'Canonical registry order'), never trusting the
+ * stored registry's array order. Bodies whose canonical parent disagrees with
+ * their declared system are excluded even when registered. Returns [] when the
+ * system id is not in the state or the system has no bodies.
  */
 export function queryBodiesBySystem(
   state: UniverseState,
@@ -177,10 +202,10 @@ function squaredDistance(
  * is within the radius.
  *
  * Canonical gating: every candidate system passes through resolveSystem before
- * being emitted, so a registered system whose id does not parse or whose
- * parent chain is invalid (declared galaxy != canonical parent, or id absent
- * from the galaxy registry) is excluded from the region results — the same
- * semantics as querySystemsByGalaxy.
+ * being emitted, so a registered system whose id does not parse, whose parent
+ * chain is invalid (declared galaxy != canonical parent or != the state
+ * galaxy, or id absent from the galaxy registry) is excluded from the region
+ * results — the same semantics as querySystemsByGalaxy.
  *
  * Throws a descriptive Error when radius is negative or not finite.
  * Results are deterministic: both arrays are sorted by id.

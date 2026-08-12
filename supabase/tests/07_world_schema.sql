@@ -40,9 +40,10 @@
 --                 (check_violation); world_systems.id rejects an embedded
 --                 seed segment that disagrees with the seed column
 --                 (check_violation); world_bodies.id rejects a non-numeric
---                 ordinal, an id ordinal/type that disagrees with the
---                 ordinal/type columns, and an extra '|' segment (all
---                 check_violation).
+--                 ordinal, a leading-zero ordinal ('01', identity.ts
+--                 ORDINAL_PATTERN parity), an id ordinal/type that disagrees
+--                 with the ordinal/type columns, and an extra '|' segment
+--                 (all check_violation).
 --               * REAL-DATA flag/provenance consistency at rest: a real
 --                 galaxy/system/body with provenance
 --                 'nasa-exoplanet-archive-...' round-trips; real_data = true
@@ -414,11 +415,23 @@ begin
   end;
 
   -- full canonical grammar: a non-numeric ordinal segment breaks
-  -- '[0-9]+' in the id regex.
+  -- '(0|[1-9][0-9]*)' in the id regex.
   begin
     insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
     values ('body:test-alpha|alpha-seed|planet|X', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body id with a non-numeric ordinal must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
+  -- full canonical grammar: a leading-zero ordinal segment ('01') is rejected
+  -- by the no-leading-zeros grammar — identity.ts ORDINAL_PATTERN parity
+  -- ('01' would otherwise be a distinct id string with the same numeric value
+  -- as the factory output '...|1').
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|01', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 1, 1.0, 9.5, 250);
+    raise exception '8653 ASSERTION FAILED: body id with a leading-zero ordinal must raise';
   exception
     when check_violation then null; -- expected
   end;

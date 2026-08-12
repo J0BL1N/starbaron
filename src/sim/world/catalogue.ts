@@ -27,11 +27,19 @@
  * That is out of scope here — the enforcement net for materialized rows is the
  * SQL CHECK set (supabase/migrations/0013_world_schema.sql) and
  * validateCatalogue below.
+ *
+ * REGISTRY ORDER (P1-T05/T07/T08 contract — identity.ts 'Canonical registry
+ * order'): the mapping's galaxy.systemIds is emitted in canonical order
+ * (systems sorted by id string) because hosts iterate in sorted hostname order
+ * under a single galaxy slug prefix; each system.bodyIds is emitted in
+ * canonical order (bodies by ordinal, then id) because ordinals are the
+ * per-host index, already ascending and unique. validateCatalogue enforces
+ * this derived order exactly (no duplicates, missing, extra, or wrong order).
  */
 
 import { PLANET_SNAPSHOT } from '../data/planets'
 import type { PlanetCatalogueEntry } from '../data/planets'
-import { parseCanonicalId, parentOf } from './identity'
+import { canonicalBodyOrder, canonicalSystemOrder, parseCanonicalId, parentOf } from './identity'
 import type { BodyId, SystemId } from './identity'
 import { buildGalaxyRecord, registerSystem } from './galaxy'
 import type { GalaxyRecord } from './galaxy'
@@ -361,6 +369,7 @@ export function validateCatalogue(
   }
 
   const registeredSystemIds = new Set<string>(mapping.galaxy.systemIds)
+  const canonicalSystemIds = canonicalSystemOrder([...systemIds])
   if (registeredSystemIds.size !== systemIds.size) {
     problems.push(
       `galaxy systemIds registry count ${registeredSystemIds.size} does not match systems ${systemIds.size}`,
@@ -377,6 +386,14 @@ export function validateCatalogue(
         `system ${mappedSystemId} is missing from the galaxy systemIds registry`,
       )
     }
+  }
+  const sameSystemOrder =
+    mapping.galaxy.systemIds.length === canonicalSystemIds.length &&
+    mapping.galaxy.systemIds.every((id, index) => id === canonicalSystemIds[index])
+  if (!sameSystemOrder) {
+    problems.push(
+      'galaxy systemIds registry is not the canonical order (systems sorted by id; no duplicates, missing, or extra entries)',
+    )
   }
 
   const bodyIds = new Set<string>()
@@ -429,7 +446,7 @@ export function validateCatalogue(
 
   for (const system of mapping.systems) {
     const childBodies = bodiesBySystem.get(system.id) ?? []
-    const expectedIds = childBodies.map((body) => body.id)
+    const expectedIds = canonicalBodyOrder(childBodies.map((body) => body.id))
     const expectedSet = new Set(expectedIds)
     if (system.bodyIds.length !== expectedIds.length) {
       problems.push(
@@ -460,7 +477,7 @@ export function validateCatalogue(
       system.bodyIds.every((id, index) => id === expectedIds[index])
     if (!sameOrder) {
       problems.push(
-        `system ${system.id} bodyIds registry order does not match the mapped bodies order`,
+        `system ${system.id} bodyIds registry order does not match the canonical order (bodies by ordinal, then id; no duplicates, missing, or extra entries)`,
       )
     }
   }

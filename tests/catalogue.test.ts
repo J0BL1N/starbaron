@@ -457,6 +457,51 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
     expect(validation.problems.join('\n')).toContain('references unknown system')
   })
 
+  it('flags a galaxy systemIds registry that repeats one entry ([id,id])', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const fixture1 = mapping.systems.find((system) => system.name === 'Fixture-1')!.id
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      galaxy: {
+        ...mapping.galaxy,
+        systemIds: [fixture1, fixture1],
+      },
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('canonical order')
+  })
+
+  it('flags a galaxy systemIds registry whose order is reversed versus the canonical id-sorted order', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      galaxy: {
+        ...mapping.galaxy,
+        systemIds: [...mapping.galaxy.systemIds].reverse(),
+      },
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('canonical order')
+  })
+
+  it('flags a system bodyIds registry that repeats its single entry ([id,id])', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const fixture2 = mapping.systems.find((system) => system.name === 'Fixture-2')!
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.id === fixture2.id
+          ? { ...system, bodyIds: [system.bodyIds[0], system.bodyIds[0]] }
+          : system,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('contains a duplicate')
+  })
+
   it('flags a system bodyIds registry missing an attached body', () => {
     const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
     const fixture1 = mapping.systems.find((system) => system.name === 'Fixture-1')!
@@ -523,7 +568,7 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
     const validation = validateCatalogue(mutated, FIXTURE_META)
     expect(validation.ok).toBe(false)
     expect(validation.problems.join('\n')).toContain(
-      `bodyIds registry order does not match the mapped bodies order`,
+      `bodyIds registry order does not match the canonical order`,
     )
   })
 

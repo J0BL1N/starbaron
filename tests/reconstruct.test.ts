@@ -258,6 +258,93 @@ describe('P1-T07 exact system-to-body registry ownership', () => {
   })
 })
 
+describe('P1-T07 exact galaxy registry (duplicates + canonical order)', () => {
+  function withGalaxyRegistry(ids: string[]): UniverseState {
+    const state = buildUniverseState({ seed: SEED })
+    return {
+      ...state,
+      galaxy: {
+        ...state.galaxy,
+        systemIds: ids as UniverseState['galaxy']['systemIds'],
+      },
+    }
+  }
+
+  it('deserializeUniverse rejects a galaxy registry that repeats one entry ([id,id]) while omitting another', () => {
+    const systems = buildUniverseState({ seed: SEED })
+    const a = systems.galaxy.systemIds[0]
+    const b = systems.galaxy.systemIds[1]
+    const mutated = withGalaxyRegistry([a, a])
+    expect(mutated.galaxy.systemIds).not.toContain(b)
+    expect(() => deserializeUniverse(serializeUniverse(mutated))).toThrow(
+      /canonical order/,
+    )
+  })
+
+  it('reconstructConsistency reports a duplicated galaxy registry entry ([id,id])', () => {
+    const systems = buildUniverseState({ seed: SEED })
+    const a = systems.galaxy.systemIds[0]
+    const mutated = withGalaxyRegistry([a, a])
+    const result = reconstructConsistency(mutated)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('canonical order')
+  })
+
+  it('deserializeUniverse rejects a galaxy registry in reversed canonical order', () => {
+    const systems = buildUniverseState({ seed: SEED })
+    const mutated = withGalaxyRegistry([...systems.galaxy.systemIds].reverse())
+    expect(() => deserializeUniverse(serializeUniverse(mutated))).toThrow(
+      /canonical order/,
+    )
+  })
+
+  it('reconstructConsistency reports a reversed galaxy registry order', () => {
+    const systems = buildUniverseState({ seed: SEED })
+    const mutated = withGalaxyRegistry([...systems.galaxy.systemIds].reverse())
+    const result = reconstructConsistency(mutated)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('canonical order')
+  })
+
+  it('deserializeUniverse rejects a system bodyIds registry that repeats an entry ([id,id])', () => {
+    const state = buildUniverseState({ seed: SEED })
+    const target = state.systems[0]
+    const repeated = target.bodyIds[0] ?? ''
+    const mutated: UniverseState = {
+      ...state,
+      systems: state.systems.map((system) =>
+        system.id === target.id
+          ? { ...system, bodyIds: [repeated, repeated] }
+          : system,
+      ),
+    }
+    expect(() => deserializeUniverse(serializeUniverse(mutated))).toThrow(
+      /contains a duplicate/,
+    )
+  })
+
+  it('deserializeUniverse rejects a system bodyIds registry in reversed canonical order', () => {
+    const state = buildUniverseState({ seed: SEED })
+    const target = state.systems.find((system) => system.bodyIds.length > 1)
+    if (target === undefined) {
+      throw new Error('fixture needs at least one multi-body system')
+    }
+    const reversed = [...target.bodyIds].reverse()
+    if (reversed.join() === target.bodyIds.join()) {
+      throw new Error('fixture needs a non-palindromic bodyIds registry')
+    }
+    const mutated: UniverseState = {
+      ...state,
+      systems: state.systems.map((system) =>
+        system.id === target.id ? { ...system, bodyIds: reversed } : system,
+      ),
+    }
+    expect(() => deserializeUniverse(serializeUniverse(mutated))).toThrow(
+      /canonical body order/,
+    )
+  })
+})
+
 describe('P1-T07 reconstructConsistency', () => {
   it('reports ok with no problems for a valid catalogue state', () => {
     const state = buildUniverseState({ seed: SEED })

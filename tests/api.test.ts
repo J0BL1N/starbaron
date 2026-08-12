@@ -275,6 +275,43 @@ describe('P1-T08 list queries and ordering', () => {
     expect(queryBodiesBySystem(state, systemId(SLUG, 'ghost'))).toEqual([])
   })
 
+  it('querySystemsByGalaxy never emits duplicates for a duplicated registry entry ([id,id])', () => {
+    const state = buildFixture()
+    const inconsistent = {
+      ...state,
+      galaxy: { ...state.galaxy, systemIds: [ALPHA_ID, ALPHA_ID] },
+    }
+    expect(
+      querySystemsByGalaxy(inconsistent, state.galaxy.id).map((s) => s.id),
+    ).toEqual([ALPHA_ID])
+  })
+
+  it('querySystemsByGalaxy returns canonical id order even when the registry is reversed', () => {
+    const state = buildFixture()
+    const inconsistent = {
+      ...state,
+      galaxy: { ...state.galaxy, systemIds: [BETA_ID, ALPHA_ID] },
+    }
+    expect(
+      querySystemsByGalaxy(inconsistent, state.galaxy.id).map((s) => s.id),
+    ).toEqual([ALPHA_ID, BETA_ID])
+  })
+
+  it('queryBodiesBySystem never emits duplicates for a duplicated registry entry ([id,id])', () => {
+    const state = buildFixture()
+    const inconsistent = {
+      ...state,
+      systems: state.systems.map((system) =>
+        system.id === ALPHA_ID
+          ? { ...system, bodyIds: [ALPHA_PLANET_0, ALPHA_PLANET_0] }
+          : system,
+      ),
+    }
+    expect(
+      queryBodiesBySystem(inconsistent, ALPHA_ID).map((b) => b.id),
+    ).toEqual([ALPHA_PLANET_0])
+  })
+
   it('queryBodiesBySystem returns [] for an orphan body whose system id is absent', () => {
     const ghost = systemId(SLUG, 'ghost')
     const orphan = buildBodyRecord({
@@ -286,6 +323,67 @@ describe('P1-T08 list queries and ordering', () => {
     const state = buildFixture()
     const inconsistent = { ...state, bodies: [...state.bodies, orphan] }
     expect(queryBodiesBySystem(inconsistent, ghost)).toEqual([])
+  })
+})
+
+describe('P1-T08 foreign self-consistent system exclusion', () => {
+  const FOREIGN_ID = systemId('other-galaxy', 'seed')
+  const FOREIGN_BODY = bodyId(FOREIGN_ID, 'planet', 0)
+
+  function foreignSystemState(): UniverseState {
+    const state = buildFixture()
+    const foreign = buildSystemRecord({
+      galaxy: galaxyId('other-galaxy'),
+      slug: 'seed',
+      name: 'Foreign',
+      position: { x: 0, y: 0, z: 0 },
+    })
+    const foreignBody = buildBodyRecord({
+      system: foreign.id,
+      type: 'planet',
+      ordinal: 0,
+      name: 'Foreign World',
+    })
+    return {
+      ...state,
+      galaxy: {
+        ...state.galaxy,
+        systemIds: [...state.galaxy.systemIds, foreign.id],
+      },
+      systems: [...state.systems, foreign],
+      bodies: [...state.bodies, foreignBody],
+    }
+  }
+
+  it('querySystem treats a self-consistent foreign system registered in the state galaxy as not found', () => {
+    const state = foreignSystemState()
+    expect(querySystem(state, FOREIGN_ID)).toBeNull()
+  })
+
+  it('queryBody returns null for a body whose owning system is foreign to the state galaxy', () => {
+    const state = foreignSystemState()
+    expect(queryBody(state, FOREIGN_BODY)).toBeNull()
+  })
+
+  it('querySystemsByGalaxy excludes the foreign system from galaxy listings', () => {
+    const state = foreignSystemState()
+    const ids = querySystemsByGalaxy(state, state.galaxy.id).map((s) => s.id)
+    expect(ids).not.toContain(FOREIGN_ID)
+    expect(ids).toEqual([ALPHA_ID, BETA_ID])
+  })
+
+  it('regionQuery excludes the foreign system even when it sits at the query center', () => {
+    const state = foreignSystemState()
+    const result = regionQuery(state, ORIGIN, 100)
+    expect(result.systems.map((s) => s.id)).toEqual([ALPHA_ID, BETA_ID])
+    expect(result.systems.some((s) => s.id === FOREIGN_ID)).toBe(false)
+    expect(result.bodies.some((b) => b.id === FOREIGN_BODY)).toBe(false)
+  })
+
+  it('rendererPayload excludes the foreign system from the galaxy bundle', () => {
+    const state = foreignSystemState()
+    const payload = rendererPayload(state, { galaxyId: state.galaxy.id })
+    expect(payload.systems.map((s) => s.id)).toEqual([ALPHA_ID, BETA_ID])
   })
 })
 

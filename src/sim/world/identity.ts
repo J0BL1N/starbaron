@@ -201,3 +201,52 @@ export function parentOf(id: CanonicalId): GalaxyId | SystemId | null {
 export function idSeed(id: CanonicalId): number {
   return fnv1a(id)
 }
+
+/**
+ * Canonical registry order contract (P1-T05/T07/T08).
+ *
+ * Registries are DERIVED + ordered, never persisted verbatim: the SQL layer
+ * (0013_world_schema.sql) stores child rows via FKs only and derives
+ * registries at query time with `ORDER BY id` (systems) /
+ * `ORDER BY ordinal, id` (bodies). The canonical order is therefore:
+ *   - systems: sorted by id string (lexicographic),
+ *   - bodies:   sorted by (ordinal, then id string).
+ * Every producer (catalogue mapping, universe builder) emits registries in
+ * this order, every validator (validateCatalogue, collectUniverseProblems)
+ * enforces it, and the query layer (./api) derives results from it rather
+ * than trusting stored array order — an exact deterministic round trip.
+ * The helpers below are the single implementation of that order, referenced
+ * by every module that builds, validates, or projects registries.
+ */
+
+/** Sort system ids into canonical registry order (by id string). */
+export function canonicalSystemOrder<T extends string>(ids: readonly T[]): T[] {
+  return [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
+/** The parsed ordinal of a body id, or null when the id is not a valid body. */
+function parsedBodyOrdinal(id: string): number | null {
+  const parsed = parseCanonicalId(id)
+  if (parsed.ok && parsed.kind === 'body') {
+    return parsed.ordinal
+  }
+  return null
+}
+
+/**
+ * Sort body ids into canonical registry order: by parsed ordinal ascending,
+ * then by id string. Ids that do not parse as bodies sort last, by id string
+ * (a malformed id can never be a valid registry member anyway).
+ */
+export function canonicalBodyOrder<T extends string>(ids: readonly T[]): T[] {
+  return [...ids].sort((a, b) => {
+    const aOrdinal = parsedBodyOrdinal(a)
+    const bOrdinal = parsedBodyOrdinal(b)
+    if (aOrdinal !== bOrdinal) {
+      if (aOrdinal === null) return 1
+      if (bOrdinal === null) return -1
+      return aOrdinal - bOrdinal
+    }
+    return a < b ? -1 : a > b ? 1 : 0
+  })
+}

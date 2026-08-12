@@ -18,10 +18,25 @@
  *
  * Procedural systems beyond the catalogue are OUT OF SCOPE for this task — a
  * later task adds seeded procedural expansion to the home galaxy.
+ *
+ * REGISTRY ORDER (P1-T05/T07/T08 contract — identity.ts 'Canonical registry
+ * order'): registries are derived + ordered, never persisted verbatim. The
+ * home galaxy's systemIds is emitted in canonical order (systems sorted by id
+ * string) because the catalogue mapping registers systems in sorted hostname
+ * order under one galaxy slug prefix; every system.bodyIds is emitted in
+ * canonical order (bodies by ordinal, then id) by the catalogue mapping.
+ * collectUniverseProblems enforces this derived order exactly for BOTH
+ * registries — a duplicated or reordered entry is rejected, not silently
+ * deduplicated.
  */
 
 import { PLANETS, PLANET_SNAPSHOT } from '../data/planets'
-import { parseCanonicalId, parentOf } from './identity'
+import {
+  canonicalBodyOrder,
+  canonicalSystemOrder,
+  parseCanonicalId,
+  parentOf,
+} from './identity'
 import type { BodyId, SystemId } from './identity'
 import { buildGalaxyRecord, registerSystem, universePositionFor } from './galaxy'
 import type { GalaxyRecord } from './galaxy'
@@ -272,6 +287,7 @@ function collectUniverseProblems(value: unknown): string[] {
   }
 
   if (isStringArray(galaxy.systemIds)) {
+    const canonicalSystemIds = canonicalSystemOrder([...systemIds])
     if (galaxy.systemIds.length !== systemIds.size) {
       problems.push(
         `galaxy systemIds registry count ${galaxy.systemIds.length} does not match systems ${systemIds.size}`,
@@ -281,6 +297,21 @@ function collectUniverseProblems(value: unknown): string[] {
       if (!systemIds.has(registeredId)) {
         problems.push(`galaxy systemIds references unknown system: ${registeredId}`)
       }
+    }
+    for (const mappedSystemId of systemIds) {
+      if (!galaxy.systemIds.includes(mappedSystemId)) {
+        problems.push(
+          `system ${mappedSystemId} is missing from the galaxy systemIds registry`,
+        )
+      }
+    }
+    const sameSystemOrder =
+      galaxy.systemIds.length === canonicalSystemIds.length &&
+      galaxy.systemIds.every((id, index) => id === canonicalSystemIds[index])
+    if (!sameSystemOrder) {
+      problems.push(
+        'galaxy systemIds registry is not the canonical order (systems sorted by id; no duplicates, missing, or extra entries)',
+      )
     }
   } else {
     problems.push('galaxy.systemIds is missing or not a string array')
@@ -294,7 +325,7 @@ function collectUniverseProblems(value: unknown): string[] {
     if (!isStringArray(entry.bodyIds)) {
       continue
     }
-    const expectedBodyIds: string[] = []
+    const ownedBodyIds: string[] = []
     for (const body of bodies) {
       if (
         isRecord(body) &&
@@ -303,9 +334,10 @@ function collectUniverseProblems(value: unknown): string[] {
         body.system === entry.id &&
         parentOf(body.id as BodyId) === entry.id
       ) {
-        expectedBodyIds.push(body.id)
+        ownedBodyIds.push(body.id)
       }
     }
+    const expectedBodyIds = canonicalBodyOrder(ownedBodyIds)
     const expectedSet = new Set(expectedBodyIds)
     const seen = new Set<string>()
     for (const registeredId of entry.bodyIds) {

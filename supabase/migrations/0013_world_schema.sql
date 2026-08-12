@@ -29,8 +29,9 @@
 --       galaxy its id does not encode, and its embedded seed can never drift
 --       from its seed column.
 --     * world_bodies.id must match
---       '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|[0-9]+$' (exactly
---       four segments, numeric ordinal, no extra segments) AND the embedded
+--       '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|(0|[1-9][0-9]*)$'
+--       (exactly four segments, canonical ordinal — '0' or no leading zeros,
+--       no extra segments) AND the embedded
 --       type segment (split_part(id, '|', 3)) must equal the type column AND
 --       the embedded ordinal (split_part(id, '|', 4)::bigint) must equal the
 --       ordinal column AND the id must start with
@@ -57,19 +58,31 @@
 --   world_bodies.ordinal CHECK mirrors the model-side bound ORDINAL_MAX
 --   (src/sim/world/identity.ts, 2^31 - 1 = PostgreSQL int4 max) — the
 --   column type is INTEGER and the CHECK adds the parity guard explicitly.
---   Ordinal text normalization is model-side: bodyId/parseCanonicalId reject
---   leading zeros ('01') and values above ORDINAL_MAX, so a leading-zero id
---   never reaches the DB as a distinct identity — the ordinal column is
---   INTEGER, and split_part(id, '|', 4)::bigint normalizes the id's text
---   before comparing to the ordinal column, so '01' would collide with the
---   factory id under UNIQUE (system_id, type, ordinal). Model-side
---   normalization is the primary gate; the SQL bound CHECK is the
---   belt-and-braces parity. The id-grammar regexp '[0-9]+' stays.
+--   Ordinal text grammar mirrors the model: '0' alone, or a non-empty digit
+--   string with no leading zeros — the id-grammar regexp
+--   '(0|[1-9][0-9]*)' rejects '01' outright, exactly like identity.ts
+--   ORDINAL_PATTERN, so a leading-zero id can never persist as a distinct
+--   identity. The ordinal column is INTEGER and split_part(id, '|', 4)::bigint
+--   normalizes the id's text before comparing to it; both gates agree.
+--   Model-side normalization (parseCanonicalId/bodyId, identity.ts) remains
+--   the primary gate; the SQL grammar CHECK is the belt-and-braces parity,
+--   now matching the model's no-leading-zero rule.
 -- Persistence-only metadata (NOT part of the canonical record contract in
 --   src/sim/world/{galaxy,system,body}.ts): the created_at columns are
 --   DB-filled (default now()) for operational tracing only and are excluded
 --   from GalaxyRecord/SystemRecord/BodyRecord — the deterministic models carry
 --   no timestamps.
+-- Registry ordering (P1-T05/T07/T08 contract — see identity.ts 'Canonical
+--   registry order'): registries are DERIVED + ordered, never stored. There
+--   are NO registry columns — the child FKs preserve membership only, not
+--   order. At query time the world API derives GalaxyRecord.systemIds as
+--     select id from world_systems where galaxy_id = :galaxy order by id;
+--   and SystemRecord.bodyIds as
+--     select id from world_bodies where system_id = :system
+--     order by ordinal, id;
+--   That derived order is the canonical order the TS validators enforce
+--   (catalogue.ts validateCatalogue, reconstruct.ts collectUniverseProblems)
+--   and the TS producers emit — an exact deterministic round trip.
 -- Migration strategy: append-only, forward-only. 0001-0012 are applied and
 --   never rewritten; 0013 only ADDS new objects. Generation-version bump
 --   policy: generation_version defaults to 1 and must stay > 0. Bump it (in
@@ -212,15 +225,14 @@ create table if not exists public.world_bodies (
       and mean_anomaly = 0
     )
   ),
-  -- Full canonical id grammar (four segments, numeric ordinal, no extra
-  -- segments) + embedded type/ordinal columns + embedded parent system. The
-  -- ordinal regexp '[0-9]+' accepts leading zeros ('01'), but the ordinal
-  -- column is INTEGER and split_part(id,'|',4)::bigint normalizes the text
-  -- before comparing to it, so '01' can never persist as a distinct identity
-  -- — the model-side normalization (parseCanonicalId/bodyId, identity.ts
-  -- ORDINAL_MAX) is the primary gate, documented in the header above.
+  -- Full canonical id grammar (four segments, canonical ordinal — '0' alone or
+  -- no leading zeros — no extra segments) + embedded type/ordinal columns +
+  -- embedded parent system. The ordinal regexp '(0|[1-9][0-9]*)' rejects a
+  -- leading-zero ordinal ('01') outright, mirroring identity.ts
+  -- ORDINAL_PATTERN; split_part(id,'|',4)::bigint still ties the id's ordinal
+  -- to the ordinal column as the belt-and-braces parity gate.
   check (
-    id ~ '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|[0-9]+$'
+    id ~ '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|(0|[1-9][0-9]*)$'
     and split_part(id, '|', 3) = type
     and split_part(id, '|', 4)::bigint = ordinal
   ),
