@@ -1,21 +1,30 @@
 -- =====================================================================
--- 10_home_claim_atomicity (P2 phase-2 audit — finding 4)
+-- 10_home_claim_atomicity (P2 phase-2 audit — finding 4, round-3
+-- completion of findings 1/2/3)
 -- Purpose   : Contract tests for 0016_ownership_canonical's atomic
 --             reservation against the applied 0001-0016 migration set.
 --             The sim's selectHomeWorld is the pure SELECTOR (it derives
 --             which home a player is assigned from a snapshot); the DATABASE
 --             is the RESERVATION: the claim RPCs persist the canonical body
---             id (owned_planets.body_id) under a partial UNIQUE index, so a
+--             id (owned_planets.body_id) under a FULL UNIQUE index, so a
 --             second claim of the SAME canonical body fails with
 --             unique_violation no matter which name reached the claim.
---             Proves:
+--             Round-3 additions prove the completed findings:
 --               * two claims of the same body_id -> the second raises
 --                 unique_violation (23505) — the atomic reservation;
 --               * claims of DIFFERENT body_ids succeed side by side;
---               * the audit rows record the canonical body_id (COALESCE of
---                 body_id over the legacy planet_name) and the acquisition
+--               * the audit rows record the canonical body_id (body_id
+--                 ONLY — no planet_name fallback) and the acquisition
 --                 method parity: home claim -> 'home-assignment', colony
---                 claim -> 'colonisation' (findings 2 + 3).
+--                 claim -> 'colonisation' (findings 2 + 3);
+--               * p_body_id is REQUIRED: a NULL body_id raises a
+--                 descriptive exception on both claim RPCs (finding 1);
+--               * the starter-grid contract: the home claim row carries
+--                 housing 1 (the FULL STARTER_STRUCTURES shape), the
+--                 colony row carries housing 0 (finding 2);
+--               * a fortification-resolution conquest tags the conquered
+--                 row acquisition_method = 'conquest' and the audit row
+--                 records method 'conquest' (finding 3).
 -- Run      : executed via the project's linked database test workflow
 --             (see ROADMAP).
 -- Exit     : 0 = pass. Failures RAISE ('8653 ASSERTION FAILED: ...') ->
@@ -50,8 +59,8 @@ insert into auth.users (id, email, created_at, updated_at) values
 --    'body:catalogue|alpha|planet|0'. B's snapshot still showed that body
 --    free, so B claims a DIFFERENT planet name ('beta-10') with the SAME
 --    body id — the planet-name check passes, the INSERT then violates the
---    partial unique index and RAISES unique_violation: the DB is the
---    reservation.
+--    FULL unique index on body_id and RAISES unique_violation: the DB is
+--    the reservation.
 -- ---------------------------------------------------------------------
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
 do $$
@@ -130,6 +139,137 @@ begin
    where body_id in ('alpha-10', 'colony-10');
   if v_legacy <> 0 then
     raise exception '8653 ASSERTION FAILED: audit must record body_id, not planet_name, found % legacy-keyed rows', v_legacy;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 4. (finding 1) p_body_id is REQUIRED: a NULL body_id raises a descriptive
+--    exception on BOTH claim RPCs. A already owns a home, so the idempotent
+--    already-have-a-home return is a live alternative — the body_id check
+--    must fire BEFORE it. Each call must raise (never silently return).
+-- ---------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
+do $$
+begin
+  begin
+    perform public.claim_home_planet('home-null', 2::smallint, null, false, false, null);
+    raise exception '8653 ASSERTION FAILED: claim_home_planet with NULL body_id must raise';
+  exception
+    when others then
+      if sqlerrm !~ 'body_id' then raise; end if;
+  end;
+  begin
+    perform public.claim_colony('colony-null', 1::smallint, null, false, false, null);
+    raise exception '8653 ASSERTION FAILED: claim_colony with NULL body_id must raise';
+  exception
+    when others then
+      if sqlerrm !~ 'body_id' then raise; end if;
+  end;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 5. (finding 2) Starter-grid parity: the HOME claim row carries housing 1
+--    (the FULL STARTER_STRUCTURES shape of src/sim/player/grid.ts — every
+--    structure key present, housing 1, all others 0); the COLONY row
+--    carries housing 0 (colonies start with no starter structures).
+-- ---------------------------------------------------------------------
+set local role postgres;
+do $$
+declare
+  v_home_grid   jsonb;
+  v_home_housing int;
+  v_colony_housing int;
+begin
+  select structure_levels into v_home_grid
+    from public.owned_planets where planet_name = 'alpha-10';
+  v_home_housing := coalesce((v_home_grid->>'housing')::int, -1);
+  if v_home_housing <> 1 then
+    raise exception '8653 ASSERTION FAILED: home claim housing %, expected 1 (STARTER_STRUCTURES)', v_home_housing;
+  end if;
+  if coalesce((v_home_grid->>'oreMine')::int, -1) <> 0
+     or coalesce((v_home_grid->>'tradeHub')::int, -1) <> 0
+     or coalesce((v_home_grid->>'hydroponics')::int, -1) <> 0
+     or coalesce((v_home_grid->>'barracks')::int, -1) <> 0
+     or coalesce((v_home_grid->>'shipyard')::int, -1) <> 0
+     or coalesce((v_home_grid->>'defenseTurret')::int, -1) <> 0 then
+    raise exception '8653 ASSERTION FAILED: home claim grid must be full STARTER_STRUCTURES (housing 1, all else 0): %', v_home_grid;
+  end if;
+
+  select coalesce((structure_levels->>'housing')::int, -1) into v_colony_housing
+    from public.owned_planets where planet_name = 'colony-10';
+  if v_colony_housing <> 0 then
+    raise exception '8653 ASSERTION FAILED: colony claim housing %, expected 0 (no starter structures)', v_colony_housing;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 6. (finding 3) Fortification resolution tags conquest: B launches on A's
+--    conquerable colony 'colony-10' (shipyard 1 + garrison on B's home
+--    'gamma-10', A's player shield backdated), the attack resolves
+--    decisive (DP 0, AP > 0 → ratio 9999), and the resolver's conquest
+--    transfer must set acquisition_method = 'conquest' on the row AND the
+--    audit trigger must record method 'conquest' for the change of hands.
+-- ---------------------------------------------------------------------
+set local role postgres;
+update public.players set created_at = now() - interval '10 days'
+ where id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+update public.owned_planets
+   set structure_levels = structure_levels || '{"shipyard":1}'::jsonb,
+       garrison = 1000
+ where planet_name = 'gamma-10';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
+do $$ begin
+  if (select public.launch_attack('colony-10', 100, 'gamma-10'))->>'status' <> 'inbound' then
+    raise exception '8653 ASSERTION FAILED: B launch on colony-10 must be inbound';
+  end if;
+end $$;
+
+set local role postgres;
+update public.attacks set launched_at = launched_at - interval '2 days'
+ where target_planet_name = 'colony-10' and status = 'inbound';
+update public.attacks set resolves_at = now() - interval '1 second'
+ where target_planet_name = 'colony-10' and status = 'inbound';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}';
+do $$
+declare v_res jsonb;
+begin
+  v_res := public.resolve_due_attacks();
+  if (v_res->0->>'outcome') <> 'decisive' then
+    raise exception '8653 ASSERTION FAILED: colony-10 expected decisive, got %', v_res->0->>'outcome';
+  end if;
+  if (v_res->0->>'planet_taken') <> 'true' then
+    raise exception '8653 ASSERTION FAILED: colony-10 must be taken';
+  end if;
+end $$;
+
+set local role postgres;
+do $$
+declare
+  v_owner    uuid;
+  v_method   text;
+  v_from     uuid;
+  v_to       uuid;
+begin
+  select owner_id, acquisition_method into v_owner, v_method
+    from public.owned_planets where planet_name = 'colony-10';
+  if v_owner is distinct from 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' then
+    raise exception '8653 ASSERTION FAILED: colony-10 owner must be the conqueror (B)';
+  end if;
+  if v_method is distinct from 'conquest' then
+    raise exception '8653 ASSERTION FAILED: conquered row acquisition_method %, expected conquest', v_method;
+  end if;
+
+  select from_owner_id, to_owner_id into v_from, v_to
+    from public.ownership_audit
+   where body_id = 'body:catalogue|alpha|planet|1'
+     and method = 'conquest';
+  if v_from is distinct from 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+     or v_to is distinct from 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' then
+    raise exception '8653 ASSERTION FAILED: conquest audit from/to wrong: %, %', v_from, v_to;
   end if;
 end $$;
 
