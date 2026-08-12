@@ -62,7 +62,7 @@
 | T04 Planet Management Panel | ✅ | Codex PASS (round 2) — `src/sim/ui/planet-panel.ts` + `tests/planet-panel.test.ts` (32 tests): structures/population/production/queues/defenses/ownership/activity via locked modules |
 | T05 System Overview | ✅ | Codex PASS (round 2) — `src/sim/ui/system-overview.ts` + `tests/system-overview.test.ts` (36 tests): star summary, body cards (tier/ownership/colonisable), selection |
 | T06 Empire Overview | ✅ | Codex PASS (first round) — `src/sim/ui/empire-overview.ts` + `tests/empire-overview.test.ts` (30 tests): planet rows, locked totals, distinct systems, sort/filter |
-| T07 Notifications Framework | ⬜ | |
+| T07 Notifications Framework | ✅ | Codex PASS (round 3) — `src/sim/ui/notifications.ts` + `tests/notifications.test.ts` (36 tests): dedup, read/reaction state, expiry, validation |
 | T08 Responsive / Touch UI | ⬜ | |
 | T09 UI Mock/Real Data Boundary | ⬜ | |
 
