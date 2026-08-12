@@ -26,7 +26,7 @@
 
 | Task | Status | Verdict / evidence |
 |---|---|---|
-| T01 Player Profile | ⬜ | |
+| T01 Player Profile | ✅ | Codex PASS (first round) — `src/sim/player/profile.ts` + `tests/profile.test.ts` (27 tests): canonical profile, name/level validation, immutable home-world link |
 | T02 Home-World Assignment | ⬜ | (claim.ts exists, audited — verify against new spec) |
 | T03 Home-World Protection | ⬜ | |
 | T04 Planet Ownership | ⬜ | |
