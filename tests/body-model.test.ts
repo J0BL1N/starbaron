@@ -130,6 +130,26 @@ describe('P1-T04 factory defaults', () => {
     expect(planet.provenance).toBe('nasa-exoplanet-archive-2026-08-10')
   })
 
+  it('rejects realData true without a catalogue provenance', () => {
+    expect(() =>
+      body('planet', 0, { realData: true, provenance: 'procedural' }),
+    ).toThrow(/catalogue provenance/)
+  })
+
+  it('rejects realData true when provenance defaults to procedural', () => {
+    expect(() => body('planet', 0, { realData: true })).toThrow(
+      /catalogue provenance/,
+    )
+  })
+
+  it('accepts realData true only with a catalogue provenance prefix', () => {
+    const planet = body('planet', 0, {
+      realData: true,
+      provenance: 'nasa-exoplanet-archive-2026-08-10',
+    })
+    expect(planet.realData).toBe(true)
+  })
+
   it('mass is omitted from the record when not supplied', () => {
     expect(body('planet').mass).toBeUndefined()
     expect('mass' in body('planet')).toBe(false)

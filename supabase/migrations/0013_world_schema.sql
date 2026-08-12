@@ -16,14 +16,29 @@
 --     system : 'sys:<galaxySlug>|<systemSeed>'       -> world_systems.id
 --     body   : 'body:<galaxySlug>|<systemSeed>|<bodyType>|<ordinal>'
 --              (bodyType in star|planet|moon|asteroid) -> world_bodies.id
---   The parent's slug/seed are EMBEDDED in the child id. The FK columns
---   (world_systems.galaxy_id, world_bodies.system_id) hold the parent's
---   canonical id, and the composite UNIQUEs ((galaxy_id, id) /
---   (system_id, id)) are belt-and-braces so a child id can never be
---   reparented to a parent its embedded slug/seed disagrees with.
+--   The parent's slug/seed are EMBEDDED in the child id, and the DB ENFORCES
+--   that the embedded slug/seed match the parent columns via CHECK
+--   constraints (deterministic, no PL/pgSQL):
+--     * world_systems.id must start with 'sys:' || (galaxy slug inside
+--       galaxy_id, i.e. galaxy_id minus the 'gal:' prefix) || '|' — a system
+--       can never live under a galaxy its id does not encode.
+--     * world_bodies.id must start with 'body:' || (galaxySlug|systemSeed
+--       inside system_id, i.e. system_id minus the 'sys:' prefix) || '|' — a
+--       body can never attach to a system its id does not encode.
+--     * world_bodies: the body id's type segment (split_part(id,'|',3), the
+--       segment between the 2nd and 3rd '|') must equal the type column.
+--   The FK columns (world_systems.galaxy_id, world_bodies.system_id) hold the
+--   parent's canonical id, and the composite UNIQUEs ((galaxy_id, id) /
+--   (system_id, id)) are KEPT as documented belt-and-braces (id is already the
+--   PK, so they can never fire — the CHECKs are the real reparent guard).
 --   world_bodies.ordinal duplicates the id's ordinal segment as a real
 --   column; UNIQUE (system_id, ordinal) is the "one body per ordinal per
 --   system" promise (BodyRecord.ordinal, body.ts:41).
+-- Persistence-only metadata (NOT part of the canonical record contract in
+--   src/sim/world/{galaxy,system,body}.ts): the created_at columns are
+--   DB-filled (default now()) for operational tracing only and are excluded
+--   from GalaxyRecord/SystemRecord/BodyRecord — the deterministic models carry
+--   no timestamps.
 -- Migration strategy: append-only, forward-only. 0001-0012 are applied and
 --   never rewritten; 0013 only ADDS new objects. Generation-version bump
 --   policy: generation_version defaults to 1 and must stay > 0. Bump it (in
@@ -60,6 +75,7 @@ create table if not exists public.world_galaxies (
   generation_version integer not null default 1 check (generation_version > 0),
   real_data          boolean not null default false,
   provenance         text not null default 'procedural',
+  -- DB-filled persistence metadata, excluded from the canonical record contract.
   created_at         timestamptz not null default now()
 );
 
@@ -67,7 +83,9 @@ create table if not exists public.world_galaxies (
 -- 2. world_systems — canonical solar-system records (SystemRecord).
 --    star_name/star_type/star_color mirror StarMetadata (system.ts:40-44);
 --    star_type is nullable (starType: string | undefined). galaxy_id FK
---    cascades. UNIQUE (galaxy_id, id) belt-and-braces (see header); the
+--    cascades. CHECK ties id to galaxy_id: a system id must encode the same
+--    galaxy slug as galaxy_id (id like 'sys:' || substr(galaxy_id, 5) || '|%').
+--    UNIQUE (galaxy_id, id) is kept as belt-and-braces (see header); the
 --    plain galaxy_id index serves "list systems by galaxy".
 -- ---------------------------------------------------------------------
 create table if not exists public.world_systems (
@@ -84,8 +102,10 @@ create table if not exists public.world_systems (
   generation_version integer not null default 1 check (generation_version > 0),
   real_data          boolean not null default false,
   provenance         text not null default 'procedural',
+  -- DB-filled persistence metadata, excluded from the canonical record contract.
   created_at         timestamptz not null default now(),
-  unique (galaxy_id, id)
+  unique (galaxy_id, id),
+  check (id like 'sys:' || substr(galaxy_id, 5) || '|%')
 );
 create index if not exists world_systems_galaxy_id_idx on public.world_systems (galaxy_id);
 
@@ -95,10 +115,13 @@ create index if not exists world_systems_galaxy_id_idx on public.world_systems (
 --    (BodyRecord.mass?, body.ts:43); radius > 0 (body generators always
 --    emit positive radii); ordinal >= 0 (identity.ts assertOrdinal);
 --    eccentricity in [0,1) (body.ts:234); period >= 0 (stars keep ZERO
---    orbit, body.ts:184-187). system_id FK cascades. UNIQUEs: (system_id,
---    id) belt-and-braces reparent guard, (system_id, ordinal) the one-body-
---    per-ordinal promise. Plain indexes serve system listing + type
---    filtering.
+--    orbit, body.ts:184-187). system_id FK cascades. CHECKs tie id to
+--    system_id: a body id must encode the same galaxySlug|systemSeed as
+--    system_id (id like 'body:' || substr(system_id, 5) || '|%'), and the
+--    id's type segment (split_part(id,'|',3)) must equal the type column.
+--    UNIQUEs: (system_id, id) belt-and-braces reparent guard (see header),
+--    (system_id, ordinal) the one-body-per-ordinal promise. Plain indexes
+--    serve system listing + type filtering.
 -- ---------------------------------------------------------------------
 create table if not exists public.world_bodies (
   id                           text primary key,   -- 'body:<galaxySlug>|<systemSeed>|<type>|<ordinal>'
@@ -119,9 +142,12 @@ create table if not exists public.world_bodies (
   generation_version           integer not null default 1 check (generation_version > 0),
   real_data                    boolean not null default false,
   provenance                   text not null default 'procedural',
+  -- DB-filled persistence metadata, excluded from the canonical record contract.
   created_at                   timestamptz not null default now(),
   unique (system_id, id),
-  unique (system_id, ordinal)
+  unique (system_id, ordinal),
+  check (id like 'body:' || substr(system_id, 5) || '|%'),
+  check (type = split_part(id, '|', 3))
 );
 create index if not exists world_bodies_system_id_idx on public.world_bodies (system_id);
 create index if not exists world_bodies_type_idx     on public.world_bodies (type);

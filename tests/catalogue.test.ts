@@ -15,7 +15,7 @@ import type {
   CatalogueMappingResult,
   CatalogueSnapshotMeta,
 } from '../src/sim/world/catalogue'
-import { parseCanonicalId, parentOf, systemId } from '../src/sim/world/identity'
+import { galaxyId, parseCanonicalId, parentOf, systemId } from '../src/sim/world/identity'
 import type { GalaxyId, SystemId } from '../src/sim/world/identity'
 import { buildSystemRecord } from '../src/sim/world/system'
 
@@ -399,6 +399,64 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
     const validation = validateCatalogue(swapped, FIXTURE_META)
     expect(validation.ok).toBe(false)
     expect(validation.problems.join('\n')).toContain('canonical parent')
+  })
+
+  it('flags a system whose declared galaxy disagrees with the mapping galaxy', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const otherGalaxy = galaxyId('wrong-galaxy')
+    const swapped: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.name === 'Fixture-1' ? { ...system, galaxy: otherGalaxy } : system,
+      ),
+    }
+    const validation = validateCatalogue(swapped, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('declares galaxy')
+  })
+
+  it('flags a system whose declared galaxy is not its canonical parent', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const swapped: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system, index) =>
+        index === 0 ? { ...system, galaxy: galaxyId('wrong-galaxy') } : system,
+      ),
+    }
+    const validation = validateCatalogue(swapped, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('canonical parent')
+  })
+
+  it('flags a system dropped from the galaxy registry', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      galaxy: {
+        ...mapping.galaxy,
+        systemIds: mapping.galaxy.systemIds.slice(0, 1),
+      },
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain(
+      'missing from the galaxy systemIds registry',
+    )
+  })
+
+  it('flags a galaxy registry entry that no system matches', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const ghost = systemId('catalogue', 'Ghost-Host')
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      galaxy: {
+        ...mapping.galaxy,
+        systemIds: [...mapping.galaxy.systemIds, ghost],
+      },
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('references unknown system')
   })
 })
 

@@ -92,6 +92,35 @@ describe('P1-T03 factory defaults', () => {
   })
 })
 
+describe('P1-T03 real-data provenance contract', () => {
+  it('rejects realData true without a catalogue provenance', () => {
+    expect(() =>
+      buildSystemRecord({
+        galaxy: GALAXY,
+        slug: 'Alpha-Cyg',
+        realData: true,
+        provenance: 'procedural',
+      }),
+    ).toThrow(/catalogue provenance/)
+  })
+
+  it('rejects realData true when provenance defaults to procedural', () => {
+    expect(() =>
+      buildSystemRecord({ galaxy: GALAXY, slug: 'Alpha-Cyg', realData: true }),
+    ).toThrow(/catalogue provenance/)
+  })
+
+  it('accepts realData true only with a catalogue provenance prefix', () => {
+    const sys = buildSystemRecord({
+      galaxy: GALAXY,
+      slug: 'Alpha-Cyg',
+      realData: true,
+      provenance: 'nasa-exoplanet-archive-2026-08-10',
+    })
+    expect(sys.realData).toBe(true)
+  })
+})
+
 describe('P1-T03 star metadata', () => {
   it('star color is a deterministic pick from the spectral class neighbourhood', () => {
     const a = starColorFor('G2 V', 'seed-1')
@@ -136,7 +165,7 @@ describe('P1-T03 determinism', () => {
       name: 'Aurora',
       starType: 'G2 V',
       realData: true,
-      provenance: 'catalogue',
+      provenance: 'nasa-exoplanet-archive-2026-08-10',
     }
     expect(buildSystemRecord(input)).toEqual(buildSystemRecord(input))
   })

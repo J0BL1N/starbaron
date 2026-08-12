@@ -10,7 +10,9 @@
 --               * world_systems FK enforcement (an orphan insert with no
 --                 parent galaxy row raises foreign_key_violation), the
 --                 generation_version > 0 CHECK, and ON DELETE CASCADE from
---                 the galaxy (deleting a galaxy removes its systems).
+--                 the galaxy (deleting a galaxy removes its systems). The
+--                 id/galaxy_id CHECK rejects a system id whose embedded
+--                 galaxy slug disagrees with galaxy_id (check_violation).
 --               * world_bodies: the type CHECK rejects anything outside
 --                 star|planet|moon|asteroid; the ordinal >= 0 CHECK rejects
 --                 negatives; the eccentricity < 1 CHECK rejects a parabola
@@ -20,8 +22,15 @@
 --                 insert with no parent system row raises
 --                 foreign_key_violation; the UNIQUE (system_id, ordinal)
 --                 constraint rejects a second body with the same ordinal in
---                 the same system; the galaxy -> system -> body cascade
+--                 the same system; the id/system_id CHECK rejects a body id
+--                 whose embedded system prefix disagrees with system_id and
+--                 the type-segment CHECK rejects a body whose id type
+--                 segment disagrees with the type column (both
+--                 check_violation); the galaxy -> system -> body cascade
 --                 removes bodies with their system.
+--               * created_at is DB-filled persistence metadata EXCLUDED from
+--                 the canonical record contract (0013 header) — no model
+--                 round-trip asserts it; it is purely operational.
 --               * anon has NO privileges on the three tables (deny by
 --                 default, 01_claim_rls.sql style) — SELECT and INSERT both
 --                 raise insufficient_privilege, never return 0 rows; a
@@ -162,7 +171,7 @@ declare v_n bigint;
 begin
   begin
     insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color)
-    values ('sys:ghost|g', 'gal:no-such', 'g', 'Ghost', 'Ghost Prime', '#ffd27a');
+    values ('sys:no-such|g', 'gal:no-such', 'g', 'Ghost', 'Ghost Prime', '#ffd27a');
     raise exception '8653 ASSERTION FAILED: orphan system insert must raise FK violation';
   exception
     when foreign_key_violation then null; -- expected
@@ -179,7 +188,7 @@ declare v_n bigint;
 begin
   begin
     insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color, generation_version)
-    values ('sys:bad-gen|g', 'gal:test-alpha', 'g', 'Bad', 'Bad Prime', '#fff4e8', 0);
+    values ('sys:test-alpha|bad-gen', 'gal:test-alpha', 'g', 'Bad', 'Bad Prime', '#fff4e8', 0);
     raise exception '8653 ASSERTION FAILED: system generation_version 0 must raise';
   exception
     when check_violation then null; -- expected
@@ -187,6 +196,24 @@ begin
   select count(*) into v_n from public.world_systems;
   if v_n <> 1 then
     raise exception '8653 ASSERTION FAILED: rejected system generation_version must not persist, saw % rows', v_n;
+  end if;
+end $$;
+
+-- system id whose embedded galaxy slug disagrees with galaxy_id -> the
+-- id/galaxy_id CHECK (canonical parent mismatch) must raise; no row persists.
+do $$
+declare v_n bigint;
+begin
+  begin
+    insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color)
+    values ('sys:other|x', 'gal:test-alpha', 'x', 'Other', 'Other Prime', '#fff4e8');
+    raise exception '8653 ASSERTION FAILED: system id with a foreign galaxy slug must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+  select count(*) into v_n from public.world_systems;
+  if v_n <> 1 then
+    raise exception '8653 ASSERTION FAILED: foreign-slug system must not persist, saw % rows', v_n;
   end if;
 end $$;
 
@@ -306,7 +333,7 @@ declare v_n bigint;
 begin
   begin
     insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:ghost|g|planet|9', 'sys:no-such', 'planet', 'Ghost', 'g', 9, 1.0);
+    values ('body:no-such|g|planet|9', 'sys:no-such', 'planet', 'Ghost', 'g', 9, 1.0);
     raise exception '8653 ASSERTION FAILED: orphan body insert must raise FK violation';
   exception
     when foreign_key_violation then null; -- expected
@@ -314,6 +341,42 @@ begin
   select count(*) into v_n from public.world_bodies;
   if v_n <> 3 then
     raise exception '8653 ASSERTION FAILED: orphan body must not persist, saw % rows', v_n;
+  end if;
+end $$;
+
+-- body id whose embedded system prefix disagrees with system_id -> the
+-- id/system_id CHECK (canonical parent mismatch) must raise; no row persists.
+do $$
+declare v_n bigint;
+begin
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
+    values ('body:test-alpha|wrong-seed|planet|9', 'sys:test-alpha|alpha-seed', 'planet', 'Liar', 'b', 9, 1.0);
+    raise exception '8653 ASSERTION FAILED: body id with a foreign system prefix must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+  select count(*) into v_n from public.world_bodies;
+  if v_n <> 3 then
+    raise exception '8653 ASSERTION FAILED: foreign-prefix body must not persist, saw % rows', v_n;
+  end if;
+end $$;
+
+-- body id whose type segment (between the 2nd and 3rd '|') disagrees with the
+-- type column -> the type-segment CHECK must raise; no row persists.
+do $$
+declare v_n bigint;
+begin
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
+    values ('body:test-alpha|alpha-seed|comet|9', 'sys:test-alpha|alpha-seed', 'planet', 'Liar', 'b', 9, 1.0);
+    raise exception '8653 ASSERTION FAILED: body id type segment disagreeing with the type column must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+  select count(*) into v_n from public.world_bodies;
+  if v_n <> 3 then
+    raise exception '8653 ASSERTION FAILED: type-mismatched body must not persist, saw % rows', v_n;
   end if;
 end $$;
 

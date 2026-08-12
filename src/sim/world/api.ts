@@ -12,12 +12,20 @@
  * ownership) are implemented at the backend in later phases (P6/P10). Every
  * function here reads a fully-resolved, in-memory state with no auth context;
  * callers gate access to these results separately.
+ *
+ * PARENT-CHAIN CONTRACT: lookups never trust declared fields or registries
+ * blindly. A system/body is returned only when its id parses, its declared
+ * parent equals the canonical parent parsed from its id, and the id is present
+ * in the owning registry. Contradictions yield null for single-id lookups
+ * (querySystem/queryBody) and are skipped by list queries
+ * (querySystemsByGalaxy/queryBodiesBySystem).
  */
 
 import type { UniverseState } from './reconstruct'
 import type { GalaxyClass, GalaxyRecord } from './galaxy'
 import type { SystemRecord } from './system'
 import type { BodyOrbit, BodyRecord } from './body'
+import { parseCanonicalId, parentOf } from './identity'
 import type { BodyId, BodyType, GalaxyId, SystemId } from './identity'
 
 /** Resolve a galaxy record by id, or null when the state holds no such galaxy. */
@@ -25,20 +33,76 @@ export function queryGalaxy(state: UniverseState, id: GalaxyId): GalaxyRecord | 
   return state.galaxy.id === id ? state.galaxy : null
 }
 
+/**
+ * Canonical system resolution: the id must parse as a system, its declared
+ * galaxy must equal the canonical parent of the id, and the id must be
+ * registered in the galaxy's systemIds. Any contradiction yields null.
+ */
+function resolveSystem(state: UniverseState, id: SystemId): SystemRecord | null {
+  const parsed = parseCanonicalId(id)
+  if (!parsed.ok || parsed.kind !== 'system') {
+    return null
+  }
+  const record = state.systems.find((system) => system.id === id)
+  if (record === undefined) {
+    return null
+  }
+  if (record.galaxy !== parentOf(id) || !state.galaxy.systemIds.includes(id)) {
+    return null
+  }
+  return record
+}
+
+/**
+ * Canonical body resolution: the id must parse as a body, its declared system
+ * must equal the canonical parent of the id, and the id must be registered in
+ * that system's bodyIds. Any contradiction yields null.
+ */
+function resolveBody(state: UniverseState, id: BodyId): BodyRecord | null {
+  const parsed = parseCanonicalId(id)
+  if (!parsed.ok || parsed.kind !== 'body') {
+    return null
+  }
+  const record = state.bodies.find((body) => body.id === id)
+  if (record === undefined) {
+    return null
+  }
+  if (record.system !== parentOf(id)) {
+    return null
+  }
+  const system = resolveSystem(state, record.system)
+  if (system === null || !system.bodyIds.includes(id)) {
+    return null
+  }
+  return record
+}
+
+/**
+ * Canonical-parent membership of a body under a system: a body belongs to a
+ * system exactly when its id embeds the same galaxy slug + system seed. This
+ * string-prefix test is equivalent to `parentOf(body.id) === systemId` and is
+ * used on the per-body hot path of queryBodiesBySystem to avoid re-parsing
+ * every body id.
+ */
+function bodyBelongsTo(body: BodyRecord, systemId: SystemId): boolean {
+  return body.id.startsWith(`body:${systemId.slice(4)}|`)
+}
+
 /** Resolve a system record by id, or null when not present in the state. */
 export function querySystem(state: UniverseState, id: SystemId): SystemRecord | null {
-  return state.systems.find((system) => system.id === id) ?? null
+  return resolveSystem(state, id)
 }
 
 /** Resolve a body record by id, or null when not present in the state. */
 export function queryBody(state: UniverseState, id: BodyId): BodyRecord | null {
-  return state.bodies.find((body) => body.id === id) ?? null
+  return resolveBody(state, id)
 }
 
 /**
  * All systems belonging to a galaxy, in the galaxy's registry order (stable
- * and deterministic). Returns [] when the galaxy id is not the state galaxy
- * or the galaxy has no systems.
+ * and deterministic). Systems whose declared parent disagrees with the
+ * canonical parent of their id are skipped. Returns [] when the galaxy id is
+ * not the state galaxy or the galaxy has no systems.
  */
 export function querySystemsByGalaxy(
   state: UniverseState,
@@ -47,11 +111,10 @@ export function querySystemsByGalaxy(
   if (state.galaxy.id !== galaxyId) {
     return []
   }
-  const byId = new Map(state.systems.map((system) => [system.id, system]))
   const result: SystemRecord[] = []
   for (const id of state.galaxy.systemIds) {
-    const system = byId.get(id)
-    if (system !== undefined) {
+    const system = resolveSystem(state, id)
+    if (system !== null) {
       result.push(system)
     }
   }
@@ -60,18 +123,27 @@ export function querySystemsByGalaxy(
 
 /**
  * All bodies attached to a system, sorted by ordinal (ascending) with an id
- * tie-break so the order is fully deterministic. Returns [] when the system
- * id is not in the state or the system has no bodies.
+ * tie-break so the order is fully deterministic. Bodies whose canonical parent
+ * disagrees with their declared system are excluded even when registered.
+ * Returns [] when the system id is not in the state or the system has no
+ * bodies.
  */
 export function queryBodiesBySystem(
   state: UniverseState,
   systemId: SystemId,
 ): BodyRecord[] {
-  if (!state.systems.some((system) => system.id === systemId)) {
+  const system = resolveSystem(state, systemId)
+  if (system === null) {
     return []
   }
+  const registeredIds = new Set(system.bodyIds)
   return state.bodies
-    .filter((body) => body.system === systemId)
+    .filter(
+      (body) =>
+        body.system === systemId &&
+        registeredIds.has(body.id) &&
+        bodyBelongsTo(body, systemId),
+    )
     .sort(
       (a, b) =>
         a.ordinal - b.ordinal || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),

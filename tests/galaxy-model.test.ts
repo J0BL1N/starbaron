@@ -81,6 +81,29 @@ describe('P1-T02 factory defaults', () => {
   })
 })
 
+describe('P1-T02 real-data provenance contract', () => {
+  it('rejects realData true without a catalogue provenance', () => {
+    expect(() =>
+      buildGalaxyRecord({ slug: 'HD-564', realData: true, provenance: 'procedural' }),
+    ).toThrow(/catalogue provenance/)
+  })
+
+  it('rejects realData true when provenance defaults to procedural', () => {
+    expect(() => buildGalaxyRecord({ slug: 'HD-564', realData: true })).toThrow(
+      /catalogue provenance/,
+    )
+  })
+
+  it('accepts realData true only with a catalogue provenance prefix', () => {
+    const record = buildGalaxyRecord({
+      slug: 'HD-564',
+      realData: true,
+      provenance: 'nasa-exoplanet-archive-2026-08-10',
+    })
+    expect(record.realData).toBe(true)
+  })
+})
+
 describe('P1-T02 determinism', () => {
   it('same input produces deep-equal records', () => {
     const a = buildGalaxyRecord({ slug: 'HD-564', seed: 's1' })

@@ -164,6 +164,64 @@ describe('P1-T08 id lookups', () => {
   })
 })
 
+describe('P1-T08 parent-chain contradiction rejection', () => {
+  it('querySystem returns null for a system whose id encodes a different galaxy than its declared galaxy', () => {
+    const state = buildFixture()
+    const fake: UniverseState['systems'][number] = {
+      ...buildSystemRecord({ galaxy: state.galaxy.id, slug: 'fake', name: 'Fake' }),
+      id: systemId('other-galaxy', 'fake'),
+    }
+    const inconsistent = { ...state, systems: [...state.systems, fake] }
+    expect(querySystem(inconsistent, fake.id)).toBeNull()
+  })
+
+  it('querySystemsByGalaxy skips a registered system whose canonical parent disagrees with its declared galaxy', () => {
+    const state = buildFixture()
+    const fake: UniverseState['systems'][number] = {
+      ...buildSystemRecord({ galaxy: state.galaxy.id, slug: 'fake', name: 'Fake' }),
+      id: systemId('other-galaxy', 'fake'),
+    }
+    const inconsistent = {
+      ...state,
+      galaxy: { ...state.galaxy, systemIds: [...state.galaxy.systemIds, fake.id] },
+      systems: [...state.systems, fake],
+    }
+    const ids = querySystemsByGalaxy(inconsistent, state.galaxy.id).map((s) => s.id)
+    expect(ids).not.toContain(fake.id)
+    expect(ids).toEqual([ALPHA_ID, BETA_ID])
+  })
+
+  it('queryBody returns null for a body whose id encodes a different system than its declared system', () => {
+    const state = buildFixture()
+    const other = systemId('other-galaxy', 'seed')
+    const lying: UniverseState['bodies'][number] = {
+      ...buildBodyRecord({ system: other, type: 'planet', ordinal: 9, name: 'Liar' }),
+      system: ALPHA_ID,
+    }
+    const inconsistent = { ...state, bodies: [...state.bodies, lying] }
+    expect(queryBody(inconsistent, lying.id)).toBeNull()
+  })
+
+  it('queryBodiesBySystem excludes a contradictory body even when registered in the system', () => {
+    const state = buildFixture()
+    const other = systemId('other-galaxy', 'seed')
+    const lying: UniverseState['bodies'][number] = {
+      ...buildBodyRecord({ system: other, type: 'planet', ordinal: 9, name: 'Liar' }),
+      system: ALPHA_ID,
+    }
+    const alpha = state.systems.find((s) => s.id === ALPHA_ID)!
+    const patched = registerBody(alpha, lying.id)
+    const inconsistent = {
+      ...state,
+      systems: state.systems.map((s) => (s.id === ALPHA_ID ? patched : s)),
+      bodies: [...state.bodies, lying],
+    }
+    const ids = queryBodiesBySystem(inconsistent, ALPHA_ID).map((b) => b.id)
+    expect(ids).not.toContain(lying.id)
+    expect(ids).toEqual([ALPHA_PLANET_0, ALPHA_PLANET_1, ALPHA_MOON])
+  })
+})
+
 describe('P1-T08 list queries and ordering', () => {
   it('querySystemsByGalaxy returns systems in stable registry order, not storage order', () => {
     // storage order is BETA,ALPHA; registry order is ALPHA,BETA — only a

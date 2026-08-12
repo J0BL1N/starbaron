@@ -6,6 +6,11 @@
  * the source of
  * truth for galaxy records — render-side modules may import FROM here, never
  * the reverse.
+ *
+ * Canonical record contract: GalaxyRecord excludes persistence-only metadata.
+ * A DB-filled created_at-style column is filled by the persistence layer for
+ * operational tracing and is NOT part of this contract (see
+ * supabase/migrations/0013_world_schema.sql).
  */
 
 import { fnv1a } from '../planets/hash'
@@ -73,9 +78,36 @@ function seededUnit(seed: string): number {
 }
 
 /**
+ * Provenance prefix that marks a record as genuinely real catalogue data.
+ * realData: true is only reachable through catalogue/reconstruction internals,
+ * which always carry a provenance starting with this prefix (see
+ * catalogueProvenance in ./catalogue).
+ */
+export const REAL_DATA_PROVENANCE_PREFIX = 'nasa-exoplanet-archive-'
+
+/**
+ * Enforce the real-data provenance contract: a record flagged realData: true
+ * must carry a known catalogue provenance. Any other combination (e.g. a
+ * procedural caller labelling a record real) is rejected, so non-catalogue
+ * construction can never create a record that claims real data.
+ */
+export function assertRealDataProvenance(
+  realData: boolean | undefined,
+  provenance: string,
+): void {
+  if (realData === true && !provenance.startsWith(REAL_DATA_PROVENANCE_PREFIX)) {
+    throw new Error(
+      `realData: true requires a catalogue provenance starting with '${REAL_DATA_PROVENANCE_PREFIX}', got: ${JSON.stringify(provenance)}`,
+    )
+  }
+}
+
+/**
  * Build a canonical galaxy record. The id is always the branded slug id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record.
+ * deep-equal record. When realData is true, provenance must be a catalogue
+ * provenance (see assertRealDataProvenance) — records cannot be labelled real
+ * outside catalogue/reconstruction internals.
  */
 export function buildGalaxyRecord(input: {
   slug: string
@@ -87,6 +119,9 @@ export function buildGalaxyRecord(input: {
   realData?: boolean
   provenance?: string
 }): GalaxyRecord {
+  const realData = input.realData ?? false
+  const provenance = input.provenance ?? 'procedural'
+  assertRealDataProvenance(realData, provenance)
   return {
     id: galaxyId(input.slug),
     seed: input.seed ?? input.slug,
@@ -96,8 +131,8 @@ export function buildGalaxyRecord(input: {
     radius: input.radius ?? DEFAULT_GALAXY_RADIUS,
     systemIds: [],
     generationVersion: GALAXY_GENERATION_VERSION,
-    realData: input.realData ?? false,
-    provenance: input.provenance ?? 'procedural',
+    realData,
+    provenance,
   }
 }
 

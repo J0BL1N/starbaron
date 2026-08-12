@@ -6,12 +6,17 @@
  * self-contained. This is the
  * source of truth for system records — render-side modules may import FROM
  * here, never the reverse.
+ *
+ * Canonical record contract: SystemRecord excludes persistence-only metadata.
+ * A DB-filled created_at-style column is filled by the persistence layer for
+ * operational tracing and is NOT part of this contract (see
+ * supabase/migrations/0013_world_schema.sql).
  */
 
 import { fnv1a } from '../planets/hash'
 import { parseCanonicalId, systemId } from './identity'
 import type { BodyId, GalaxyId, SystemId } from './identity'
-import { DEFAULT_GALAXY_RADIUS } from './galaxy'
+import { assertRealDataProvenance, DEFAULT_GALAXY_RADIUS } from './galaxy'
 
 export const SYSTEM_GENERATION_VERSION = 1
 
@@ -104,7 +109,9 @@ export function starColorFor(
 /**
  * Build a canonical system record. The id is always the branded id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record.
+ * deep-equal record. When realData is true, provenance must be a catalogue
+ * provenance (see assertRealDataProvenance) — records cannot be labelled real
+ * outside catalogue/reconstruction internals.
  */
 export function buildSystemRecord(input: {
   galaxy: GalaxyId
@@ -119,6 +126,9 @@ export function buildSystemRecord(input: {
   const galaxySlug = galaxySlugOf(input.galaxy)
   const seed = input.seed ?? input.slug
   const starName = input.name ?? input.slug
+  const realData = input.realData ?? false
+  const provenance = input.provenance ?? 'procedural'
+  assertRealDataProvenance(realData, provenance)
   return {
     id: systemId(galaxySlug, seed),
     galaxy: input.galaxy,
@@ -132,8 +142,8 @@ export function buildSystemRecord(input: {
     },
     bodyIds: [],
     generationVersion: SYSTEM_GENERATION_VERSION,
-    realData: input.realData ?? false,
-    provenance: input.provenance ?? 'procedural',
+    realData,
+    provenance,
   }
 }
 

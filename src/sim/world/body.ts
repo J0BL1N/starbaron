@@ -5,11 +5,17 @@
  * fnv1a. No nondeterministic APIs or timestamps; no shared mutable data. This is the
  * source of truth for body records — render-side modules may import FROM here,
  * never the reverse.
+ *
+ * Canonical record contract: BodyRecord excludes persistence-only metadata.
+ * A DB-filled created_at-style column is filled by the persistence layer for
+ * operational tracing and is NOT part of this contract (see
+ * supabase/migrations/0013_world_schema.sql).
  */
 
 import { fnv1a } from '../planets/hash'
 import { bodyId, parseCanonicalId } from './identity'
 import type { BodyId, BodyType, SystemId } from './identity'
+import { assertRealDataProvenance } from './galaxy'
 
 export const BODY_GENERATION_VERSION = 1
 
@@ -255,7 +261,9 @@ function validateOrbit(type: BodyType, orbit: BodyOrbit): void {
 /**
  * Build a canonical body record. The id is always the branded id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record.
+ * deep-equal record. When realData is true, provenance must be a catalogue
+ * provenance (see assertRealDataProvenance) — records cannot be labelled real
+ * outside catalogue/reconstruction internals.
  */
 export function buildBodyRecord(input: {
   system: SystemId
@@ -274,6 +282,9 @@ export function buildBodyRecord(input: {
   const seed = input.seed ?? id
   const orbit = { ...defaultOrbit(input.type, id), ...input.orbit }
   validateOrbit(input.type, orbit)
+  const realData = input.realData ?? false
+  const provenance = input.provenance ?? 'procedural'
+  assertRealDataProvenance(realData, provenance)
   return {
     id,
     system: input.system,
@@ -284,8 +295,8 @@ export function buildBodyRecord(input: {
     radius: input.radius ?? defaultRadius(input.type, id),
     ...(input.mass !== undefined ? { mass: input.mass } : {}),
     orbit,
-    realData: input.realData ?? false,
-    provenance: input.provenance ?? 'procedural',
+    realData,
+    provenance,
     generationVersion: BODY_GENERATION_VERSION,
   }
 }

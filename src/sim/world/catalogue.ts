@@ -249,10 +249,12 @@ export interface CatalogueValidation {
  * Validate a catalogue mapping against the snapshot it claims to map.
  *
  * Checks: bodies count matches snapshot rows; galaxy/system/body ids parse;
- * systems count matches unique hostnames; every body's parent system exists;
- * every body's declared system equals the canonical parent of its id;
- * every body ordinal equals its index within its host; no duplicate ids
- * anywhere in the mapping.
+ * systems count matches unique hostnames; every system's declared galaxy
+ * equals the mapping galaxy AND its canonical parent; galaxy registry
+ * membership is exact in both directions (every system id in galaxy.systemIds
+ * and vice versa); every body's parent system exists; every body's declared
+ * system equals the canonical parent of its id; every body ordinal equals its
+ * index within its host; no duplicate ids anywhere in the mapping.
  */
 export function validateCatalogue(
   mapping: CatalogueMappingResult,
@@ -282,6 +284,36 @@ export function validateCatalogue(
       problems.push(`duplicate system id: ${system.id}`)
     }
     systemIds.add(system.id)
+    if (system.galaxy !== mapping.galaxy.id) {
+      problems.push(
+        `system ${system.id} declares galaxy ${system.galaxy}, expected the mapping galaxy ${mapping.galaxy.id}`,
+      )
+    }
+    const canonicalSystemParent = parentOf(system.id)
+    if (canonicalSystemParent !== system.galaxy) {
+      problems.push(
+        `system ${system.id} declares parent galaxy ${system.galaxy}, but its canonical parent is ${canonicalSystemParent}`,
+      )
+    }
+  }
+
+  const registeredSystemIds = new Set<string>(mapping.galaxy.systemIds)
+  if (registeredSystemIds.size !== systemIds.size) {
+    problems.push(
+      `galaxy systemIds registry count ${registeredSystemIds.size} does not match systems ${systemIds.size}`,
+    )
+  }
+  for (const registeredId of registeredSystemIds) {
+    if (!systemIds.has(registeredId)) {
+      problems.push(`galaxy systemIds references unknown system: ${registeredId}`)
+    }
+  }
+  for (const mappedSystemId of systemIds) {
+    if (!registeredSystemIds.has(mappedSystemId)) {
+      problems.push(
+        `system ${mappedSystemId} is missing from the galaxy systemIds registry`,
+      )
+    }
   }
 
   const bodyIds = new Set<string>()
