@@ -2,7 +2,7 @@ import { formatNumber } from '../../sim/core/format'
 import type { OwnedPlanet } from '../../sim/player'
 import type { PlanetIdentity } from '../../sim/planets/types'
 import { radiusBandOf, resolveRadius } from '../../sim/planets'
-import PlanetCanvas from './PlanetCanvas'
+import PlanetCanvas3D from './PlanetCanvas3D'
 
 interface PlanetDisplayProps {
   planet: OwnedPlanet
@@ -20,7 +20,7 @@ export default function PlanetDisplay({
 
   return (
     <header className="planet-display">
-      <PlanetCanvas
+      <PlanetCanvas3D
         name={planet.name}
         profile={identity.visual}
         tier={planet.tier}

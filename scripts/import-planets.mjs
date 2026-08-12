@@ -30,12 +30,12 @@ const SNAPSHOT_DIR = join(ROOT, 'scripts', 'data')
 const OUT_FILE = join(ROOT, 'src', 'sim', 'data', 'planets.ts')
 
 const SOURCE_URL =
-  'https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=SELECT+pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist+FROM+ps+WHERE+default_flag=1+AND+pl_letter+IS+NOT+NULL&format=csv'
+  'https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=SELECT+pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist,ra,dec+FROM+ps+WHERE+default_flag=1+AND+pl_letter+IS+NOT+NULL&format=csv'
 
 const QUERY =
-  'SELECT pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist FROM ps WHERE default_flag=1 AND pl_letter IS NOT NULL'
+  'SELECT pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist,ra,dec FROM ps WHERE default_flag=1 AND pl_letter IS NOT NULL'
 
-const EXPECTED_HEADER = ['pl_name', 'hostname', 'sy_snum', 'pl_rade', 'pl_bmassj', 'st_spectype', 'sy_dist']
+const EXPECTED_HEADER = ['pl_name', 'hostname', 'sy_snum', 'pl_rade', 'pl_bmassj', 'st_spectype', 'sy_dist', 'ra', 'dec']
 
 // Minimum accepted data rows. The pinned NASA snapshot is ~6336 rows; any
 // header-only or truncated input below this floor is a safety failure and must
@@ -135,6 +135,8 @@ function rowToLiteral(row) {
   if (row.massJup !== null) parts.push(`massJup:${row.massJup}`)
   if (row.starType !== null) parts.push(`starType:${JSON.stringify(row.starType)}`)
   if (row.distancePc !== null) parts.push(`distancePc:${row.distancePc}`)
+  if (row.ra !== null) parts.push(`ra:${row.ra}`)
+  if (row.dec !== null) parts.push(`dec:${row.dec}`)
   parts.push(`tier:${row.tier}`)
   return `  {${parts.join(',')}} as PlanetCatalogueEntry,`
 }
@@ -164,6 +166,8 @@ function processRows(rawCsv, sha) {
   const bmassIdx = header.indexOf('pl_bmassj')
   const spectypeIdx = header.indexOf('st_spectype')
   const distIdx = header.indexOf('sy_dist')
+  const raIdx = header.indexOf('ra')
+  const decIdx = header.indexOf('dec')
 
   const entries = []
   const seen = new Set()
@@ -191,6 +195,8 @@ function processRows(rawCsv, sha) {
     const snum = toNumber(cols[snumIdx], 'sy_snum')
     const spectype = cols[spectypeIdx].trim()
     const dist = toNumber(cols[distIdx], 'sy_dist')
+    const ra = toNumber(cols[raIdx], 'ra')
+    const dec = toNumber(cols[decIdx], 'dec')
 
     entries.push({
       name,
@@ -200,6 +206,8 @@ function processRows(rawCsv, sha) {
       massJup: mass,
       starType: spectype === '' ? null : spectype,
       distancePc: dist,
+      ra,
+      dec,
       tier,
     })
   }
@@ -225,6 +233,8 @@ function renderModule(entries, meta) {
     '  massJup?: number',
     '  starType?: string',
     '  distancePc?: number',
+    '  ra?: number',
+    '  dec?: number',
     '  tier: PlanetTier',
     '}',
     '',

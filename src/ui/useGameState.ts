@@ -90,6 +90,8 @@ export interface UseGameStateReturn {
   planets: OwnedPlanet[]
   homePlanet: OwnedPlanet
   homeIdentity: PlanetIdentity
+  ownedPlanetNames: readonly string[]
+  highlightPlanetName: string
   selectedPlanetName: string
   selectedPlanet: OwnedPlanet
   selectedIdentity: PlanetIdentity
@@ -491,6 +493,11 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     ],
     homePlanet: clonePlanet(ref.current.homePlanet),
     homeIdentity: ownedPlanetIdentity(ref.current.homePlanet),
+    ownedPlanetNames: [
+      ref.current.homePlanet.name,
+      ...ref.current.colonies.map((c) => c.name),
+    ],
+    highlightPlanetName: ref.current.homePlanet.name,
     selectedPlanetName,
     selectedPlanet: clonePlanet(selectedOwned),
     selectedIdentity: ownedPlanetIdentity(selectedOwned),

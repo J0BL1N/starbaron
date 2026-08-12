@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SCRIPT = join(ROOT, 'scripts', 'import-planets.mjs')
 const SNAPSHOT_DIR = join(ROOT, 'scripts', 'data')
-const COMMITTED_CSV_PATH = join(SNAPSHOT_DIR, 'ps-export-2026-08-08.csv')
+const COMMITTED_CSV_PATH = join(SNAPSHOT_DIR, 'ps-export-2026-08-10.csv')
 const TEMP_CSV_PATH = join(SNAPSHOT_DIR, 'ps-export-2999-12-31.csv')
 const COMMITTED_CSV = readFileSync(COMMITTED_CSV_PATH, 'utf8')
 const OUT_FILE = join(ROOT, 'src', 'sim', 'data', 'planets.ts')
@@ -121,7 +121,7 @@ describe('P2-T01-C import drift gate (--check)', () => {
   })
 
   it('drop logic: appended row with neither radius nor mass is dropped, not emitted', async () => {
-    const withNoSignalRow = `${COMMITTED_CSV}\n"Test Drop Planet","TestHost",1,,,"G2 V",1.5`
+    const withNoSignalRow = `${COMMITTED_CSV}\n"Test Drop Planet","TestHost",1,,,"G2 V",1.5,,`
     const result = await runScriptInSandbox(withNoSignalRow)
     expect(result.code).toBe(0)
     expect(result.combined).toContain('rows total: 6337')
@@ -132,7 +132,7 @@ describe('P2-T01-C import drift gate (--check)', () => {
   })
 
   it('control: an appended row WITH a radius does change the emitted output', async () => {
-    const withTierRow = `${COMMITTED_CSV}\n"Test Keep Planet","TestHost",1,1.2,,"G2 V",1.5`
+    const withTierRow = `${COMMITTED_CSV}\n"Test Keep Planet","TestHost",1,1.2,,"G2 V",1.5,,`
     const result = await runScriptInSandbox(withTierRow)
     expect(result.code).toBe(0)
     expect(result.combined).toContain('kept:       6322')
@@ -194,7 +194,7 @@ describe('P2-T01-C import script negative paths', () => {
   })
 
   it('rejects a header-only file via the minimum-row guard (not OK, no crash)', async () => {
-    const headerOnly = 'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist\n'
+    const headerOnly = 'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist,ra,dec\n'
     const result = await runWithTempCsv(headerOnly, ['--check'])
     expect(result.code).toBe(1)
     expect(result.combined).toContain('insufficient data rows')
@@ -203,8 +203,8 @@ describe('P2-T01-C import script negative paths', () => {
 
   it('rejects a drifted header with the schema check', async () => {
     const driftedHeader = COMMITTED_CSV.replace(
-      'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist',
-      'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_zzz',
+      'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist,ra,dec',
+      'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_zzz,ra,dec',
     )
     const result = await runWithTempCsv(driftedHeader, ['--check'])
     expect(result.code).toBe(1)
@@ -232,7 +232,7 @@ describe('P2-T01-C import script negative paths', () => {
 })
 
 describe('P2-T01-C minimum-row guard', () => {
-  const HEADER_ONLY = 'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist\n'
+  const HEADER_ONLY = 'pl_name,hostname,sy_snum,pl_rade,pl_bmassj,st_spectype,sy_dist,ra,dec\n'
   const SENTINEL_OUT = '// pre-existing committed catalogue (must survive a failed import)'
   const truncatedCsv = () =>
     `${HEADER_ONLY}${COMMITTED_CSV.split('\n').slice(1, 5).join('\n')}`
@@ -265,7 +265,7 @@ describe('P2-T01-C repo hygiene after runs', () => {
   it('leaves no temp snapshots behind and planets.ts is byte-identical', async () => {
     expect(existsSync(TEMP_CSV_PATH)).toBe(false)
     const snapshots = readdirSync(SNAPSHOT_DIR).filter((f) => f.startsWith('ps-export-'))
-    expect(snapshots).toEqual(['ps-export-2026-08-08.csv'])
+    expect(snapshots).toEqual(['ps-export-2026-08-10.csv'])
     expect(readFileSync(OUT_FILE, 'utf8')).toBe(OUT_BYTES)
     const final = await runScript(['--check'])
     expect(final.code).toBe(0)

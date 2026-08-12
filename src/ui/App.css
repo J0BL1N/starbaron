@@ -4,6 +4,44 @@
   gap: 16px;
 }
 
+/* Star-first zoom journey toggle */
+.view-mode-bar {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.view-mode-bar button {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.view-mode-bar button:hover {
+  color: var(--text-h);
+  border-color: var(--accent-border);
+}
+
+.view-mode-bar button.active {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.space-map {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
 /* PlanetDisplay */
 .planet-display {
   display: flex;
@@ -20,6 +58,21 @@
   border-radius: 50%;
   filter: drop-shadow(0 0 18px var(--planet));
   flex-shrink: 0;
+}
+
+.planet-canvas-3d {
+  display: block;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 18px var(--planet));
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.solar-system-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 .planet-display h1 {

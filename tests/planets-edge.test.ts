@@ -12,7 +12,7 @@ import {
 } from '../src/sim/data/planets'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const SNAPSHOT_PATH = join(ROOT, 'scripts', 'data', 'ps-export-2026-08-08.csv')
+const SNAPSHOT_PATH = join(ROOT, 'scripts', 'data', 'ps-export-2026-08-10.csv')
 const COMMITTED_CSV = readFileSync(SNAPSHOT_PATH, 'utf8')
 
 function parseTierTable(block: string): Array<{ max: number; tier: number }> {
@@ -47,7 +47,7 @@ describe('P2-T01-C planet dataset integrity', () => {
   })
 
   it('snapshot metadata lines up with the pinned CSV filename', () => {
-    expect(PLANET_SNAPSHOT.fetchedAt).toBe('2026-08-08')
+    expect(PLANET_SNAPSHOT.fetchedAt).toBe('2026-08-10')
     expect(SNAPSHOT_PATH).toContain(PLANET_SNAPSHOT.fetchedAt)
   })
 
@@ -213,6 +213,8 @@ describe('P2-T01-C planet type shape', () => {
     expectTypeOf(PLANETS[0].massJup).toEqualTypeOf<number | undefined>()
     expectTypeOf(PLANETS[0].starType).toEqualTypeOf<string | undefined>()
     expectTypeOf(PLANETS[0].distancePc).toEqualTypeOf<number | undefined>()
+    expectTypeOf(PLANETS[0].ra).toEqualTypeOf<number | undefined>()
+    expectTypeOf(PLANETS[0].dec).toEqualTypeOf<number | undefined>()
     expectTypeOf(PLANETS[0].systemCount).toEqualTypeOf<number>()
   })
 
