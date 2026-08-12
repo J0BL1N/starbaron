@@ -6,7 +6,7 @@ READ LIST:
 - src/sim/core/format.ts      (formatNumber — locked)
 - src/sim/world/api.ts (type reference only if needed)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT ac408c3631d621d4b44e732b0a1b21d0c89c3b18 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = the CURRENT state of src/sim/ui/info.ts + tests/info.test.ts on staging (HEAD; feat commit 7ec52016 adds exactly these two, later amends modify ONLY info.ts). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p4-t03-brief.md + master roadmap P4-T03):
 1. InfoLevel public|owner|alliance|intel; InfoState unknown|estimated|stale|verified; InfoField { key, label, value, level, state, format? }.
