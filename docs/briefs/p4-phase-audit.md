@@ -12,7 +12,7 @@ READ LIST (all Phase 4 deliverables in src/sim/ui/):
 - data-sources.ts + tests/data-sources.test.ts (T09 mock/real boundary)
 - Locked sources they consume: player/accrual.ts, world/api.ts, core/format.ts, structures/* (framework/production/queues/effects/data), core/population-model.ts, planets/hash.ts
 
-AUDIT TARGET: the whole Phase 4 feature set on staging (through the P4-T09 PASS state). Docs commits OUT OF SCOPE.
+AUDIT TARGET: the whole Phase 4 feature set on staging (through the P4-T09 PASS state, INCLUDING the phase-fix commit 7fd1f22 which addresses all 7 prior findings). Docs commits OUT OF SCOPE.
 
 CHECK — CROSS-TASK COHERENCE:
 A. LOCKED-FORMULA DISCIPLINE: every Phase 4 module delegates to the locked sources (accrual/api/format/structures/population-model) — no re-derived economy/population/defense formula anywhere in src/sim/ui/ (spot-check planet-panel population/defense, empire-overview totals, hover stats).
