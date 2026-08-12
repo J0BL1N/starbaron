@@ -59,7 +59,7 @@
 | T01 Main HUD | ✅ | Codex PASS (round 3) — `src/sim/ui/hud.ts` + `tests/hud.test.ts` (32 tests): HUD state contract, derived alerts, locked aggregates, deterministic summary |
 | T02 Contextual Hover Intelligence HUD | ✅ | Codex PASS (round 2) — `src/sim/ui/hover.ts` + `tests/hover.test.ts` (31 tests): per-kind hover info, ownership overlay, smooth-switch contract |
 | T03 Object Information Contracts | ✅ | Codex PASS (round 3) — `src/sim/ui/info.ts` + `tests/info.test.ts` (33 tests): visibility levels, hidden-truth-excluding projection, display schema |
-| T04 Planet Management Panel | ⬜ | |
+| T04 Planet Management Panel | ✅ | Codex PASS (round 2) — `src/sim/ui/planet-panel.ts` + `tests/planet-panel.test.ts` (32 tests): structures/population/production/queues/defenses/ownership/activity via locked modules |
 | T05 System Overview | ⬜ | |
 | T06 Empire Overview | ⬜ | |
 | T07 Notifications Framework | ⬜ | |
