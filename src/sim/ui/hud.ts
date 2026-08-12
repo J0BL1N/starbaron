@@ -17,7 +17,7 @@
  * (queryBody). Nothing is re-derived or invented here.
  *
  * Composition: hudAlertsFor derives alerts from player state;
- * hudStateFor maps any provided alerts (e.g. the hudAlertsFor output) onto
+ * hudStateFor maps provided alerts (e.g. the hudAlertsFor output) onto
  * deterministic ids and sorts them by at then id.
  */
 
