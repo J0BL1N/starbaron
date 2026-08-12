@@ -78,7 +78,7 @@
 | T05 Timestamp-Based Positioning | ✅ | Codex PASS (round 2) — `src/sim/fleet/positioning.ts` + `tests/positioning.test.ts` (30 tests): deterministic interpolation, boundary contract, no-aliasing |
 | T06 Fleet Rendering | ✅ | Codex PASS (round 3) — `src/sim/fleet/render-state.ts` + `tests/render-state.test.ts` (34 tests): LOD apportionment (largest-remainder), scale hints, deterministic labels (mesh art → P12/Kimi K3) |
 | T07 Fleet Orders | ✅ | Codex PASS (first round) — `src/sim/fleet/orders.ts` + `tests/orders.test.ts` (34 tests): order queue, one-active semantics, lifecycle, invariants |
-| T08 Fleet UI | ⬜ | |
+| T08 Fleet UI | ✅ | Codex PASS (first round) — `src/sim/ui/fleet-panel.ts` + `tests/fleet-panel.test.ts` (29 tests): list/detail/panel state contracts, deterministic locations |
 | T09 Travel Routes | ⬜ | |
 | T10 Fleet Persistence | ⬜ | |
 
