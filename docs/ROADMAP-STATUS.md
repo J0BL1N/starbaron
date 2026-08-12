@@ -72,7 +72,7 @@
 | Task | Status | Verdict / evidence |
 |---|---|---|
 | T01 Ship Definitions | ✅ | Codex PASS (first round) — `src/sim/fleet/ships.ts` + `tests/ships.test.ts` (26 tests): 5-class roster, deep-frozen stats, validation |
-| T02 Shipyard | ⬜ | |
+| T02 Shipyard | ✅ | Codex PASS (first round) — `src/sim/fleet/shipyard.ts` + `tests/shipyard.test.ts` (30 tests): locked fleet-cap/income wrappers, build eligibility ladder, cost math |
 | T03 Fleet Creation | ⬜ | |
 | T04 Fleet Movement | ⬜ | |
 | T05 Timestamp-Based Positioning | ⬜ | |
