@@ -29,7 +29,7 @@
 | T01 Player Profile | ✅ | Codex PASS (first round) — `src/sim/player/profile.ts` + `tests/profile.test.ts` (27 tests): canonical profile, name/level validation, immutable home-world link |
 | T02 Home-World Assignment | ✅ | Codex PASS (round 4) — `src/sim/player/assignment.ts` + `tests/assignment.test.ts` (34 tests): 6,321-body eligible set, two-phase probing (coverage + divergence + 3n budget), exhaustion, repeat-login idempotency |
 | T03 Home-World Protection | ✅ | Codex PASS (round 2) — `src/sim/player/protection.ts` (20 tests) + `supabase/migrations/0014_home_world_protection.sql` + `supabase/tests/08` (write-only): transfer/delete trigger, UI protection state, attempted-conquest detection |
-| T04 Planet Ownership | ⬜ | |
+| T04 Planet Ownership | ✅ | Codex PASS (first round) — `src/sim/player/ownership.ts` (26 tests) + `supabase/migrations/0015_ownership_audit.sql` + `supabase/tests/09` (write-only): ownership records, transfer events, audit trigger |
 | T05 Empire Territory | ⬜ | |
 | T06 Colonisation | ⬜ | |
 | T07 Ownership Transfer | ⬜ | |
