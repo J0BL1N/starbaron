@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PLANETS } from '../src/sim/data/planets'
 import { eligibleHomeBodies, selectHomeWorld } from '../src/sim/player/assignment'
+import { STARTER_STRUCTURES } from '../src/sim/player/grid'
 import {
   TUTORIAL_ORDER,
   beginOnboarding,
@@ -58,18 +59,26 @@ function deepFreeze<T>(value: T): T {
 }
 
 describe('initialStructuresFor (P2-T08)', () => {
-  it('always returns the { housing: 1 } starter grid (level input removed)', () => {
-    expect(initialStructuresFor()).toEqual({ housing: 1 })
+  it('always returns the shared STARTER_STRUCTURES starter grid (finding 2 contract)', () => {
+    expect(initialStructuresFor()).toEqual(STARTER_STRUCTURES)
+    expect(initialStructuresFor()).toEqual({ ...STARTER_STRUCTURES })
   })
 
-  it('never yields an empty grid: the starter grid is exactly one housing', () => {
+  it('grants exactly one housing and nothing else raised above zero', () => {
     const grid = initialStructuresFor()
-    expect(Object.keys(grid)).toEqual(['housing'])
     expect(grid.housing).toBe(1)
+    const raised = Object.entries(grid).filter(([, level]) => level > 0)
+    expect(raised).toEqual([['housing', 1]])
   })
 
   it('is deterministic: deep-equal across calls', () => {
     expect(initialStructuresFor()).toEqual(initialStructuresFor())
+  })
+
+  it('never mutates the shared STARTER_STRUCTURES constant', () => {
+    const before = { ...STARTER_STRUCTURES }
+    initialStructuresFor()
+    expect(STARTER_STRUCTURES).toEqual(before)
   })
 })
 
@@ -276,16 +285,25 @@ describe('entryFlow (P2-T08)', () => {
     const result = entryFlow(baseEntryInput())
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.bundle.initialStructures).toEqual({ housing: 1 })
+      expect(result.bundle.initialStructures).toEqual(STARTER_STRUCTURES)
     }
   })
 
-  it('always grants the { housing: 1 } starter grid — an empty starter grid is impossible', () => {
+  it('always grants the shared STARTER_STRUCTURES grid — an empty starter grid is impossible', () => {
     const result = entryFlow(baseEntryInput())
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.bundle.initialStructures).toEqual({ housing: 1 })
-      expect(Object.keys(result.bundle.initialStructures)).toEqual(['housing'])
+      expect(result.bundle.initialStructures).toEqual(STARTER_STRUCTURES)
+      expect(result.bundle.initialStructures.housing).toBe(1)
+    }
+  })
+
+  it('the entry flow, initialStructuresFor and STARTER_STRUCTURES are one contract (finding 2)', () => {
+    const result = entryFlow(baseEntryInput())
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.bundle.initialStructures).toEqual(initialStructuresFor())
+      expect(result.bundle.initialStructures).toEqual(STARTER_STRUCTURES)
     }
   })
 
@@ -369,7 +387,7 @@ describe('entryFlow (P2-T08)', () => {
       expect(result.bundle.home).toBe(result.bundle.profile.homeWorld)
       expect(result.bundle.camera.position).toBeNull()
       expect(result.bundle.camera.systemId).toBe(parentOf(result.bundle.home))
-      expect(result.bundle.initialStructures).toEqual({ housing: 1 })
+      expect(result.bundle.initialStructures).toEqual(STARTER_STRUCTURES)
     }
   })
 

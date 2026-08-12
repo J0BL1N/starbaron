@@ -1,6 +1,6 @@
 import type { StructureId } from '../structures/types'
 import type { OwnershipEvent, OwnershipRecord } from './ownership'
-import { transferOwnership } from './ownership'
+import { assertOwnershipParity, transferOwnership } from './ownership'
 
 type BodyId = OwnershipRecord['bodyId']
 type StructureGrid = Record<StructureId, number>
@@ -21,7 +21,11 @@ type StructureGrid = Record<StructureId, number>
  * zero levels are dropped.
  *
  * TRANSACTION SAFETY / ELIGIBILITY LADDER (first match wins):
- *   protected -> self-transfer -> success.
+ *   parity -> protected -> self-transfer -> success.
+ *   - `parity`: assertOwnershipParity (src/sim/player/ownership.ts, finding 3)
+ *     runs FIRST — an unequal-flag record (isHome ≠ unconquerable) is REJECTED
+ *     with a descriptive throw before any transfer decision, identical to
+ *     deriveProtection and transferOwnership.
  *   - `protected`: transferOwnership's unconquerable guard (P2-T03
  *     integration — a protected home can never change hands). The throw
  *     is converted to { ok:false, reason:'protected' }, NEVER escaped.
@@ -176,6 +180,7 @@ export function structureSurvivors(
 export function conquestTransfer(
   input: ConquestTransferInput,
 ): ConquestTransferResult {
+  assertOwnershipParity(input.record.isHome, input.record.unconquerable)
   if (input.record.unconquerable) {
     return { ok: false, reason: 'protected' }
   }

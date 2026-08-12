@@ -246,6 +246,36 @@ describe('P2-T04 transferOwnership — transfers and audit events', () => {
     ).toThrow(/unconquerable/)
   })
 
+  it('rejects an unequal-flag record before any transfer decision (finding 3 parity gate)', () => {
+    expect(() =>
+      transferOwnership(
+        homeRecord({ unconquerable: false }),
+        OWNER_B,
+        LATER,
+        'conquest',
+      ),
+    ).toThrow(/parity/)
+    expect(() =>
+      transferOwnership(
+        colonyRecord({ isHome: true }),
+        OWNER_B,
+        LATER,
+        'conquest',
+      ),
+    ).toThrow(/parity/)
+  })
+
+  it('uses the identical predicate as deriveProtection: protected iff isHome AND unconquerable', () => {
+    expect(() =>
+      transferOwnership(
+        homeRecord({ isHome: false }),
+        OWNER_B,
+        LATER,
+        'conquest',
+      ),
+    ).toThrow(/parity/)
+  })
+
   it('a declassified home cannot be constructed, so transfer can never bypass protection', () => {
     expect(() =>
       ownershipFor(HOME_BODY, OWNER_A, null, NOW, 'home-assignment', true, false),

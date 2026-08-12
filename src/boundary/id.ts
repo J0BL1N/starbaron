@@ -1,15 +1,14 @@
 /**
- * Player id generation — the single nondeterministic utility in the player
+ * Player id generation — the single nondeterministic utility in the game
  * stack, and the BOUNDARY marker for this codebase.
  *
  * A fresh player needs a collision-resistant id that the deterministic
  * models cannot derive, so this module reads the platform RNG BY DESIGN: it
- * is a boundary utility, NOT part of the pure sim layer. The sim layer never
- * calls it — the UI boundary (the wall clock) consumes it when a new game is
- * created — and player.ts re-exports it unchanged to keep the public API (the
- * boundary marker is the contract). The phase-2 audit pins this in tests: no
- * sim module other than player.ts may import this module, and the RNG tokens
- * appear in no other sim file.
+ * is a boundary utility, NOT part of the pure simulation layer. The sim
+ * layer never calls it (no module under src/sim/** may import this module —
+ * pinned by tests/sim-purity.test.ts), and the RNG tokens (randomUUID,
+ * Date.now, Math.random) appear in no src/sim/** file. The UI boundary (the
+ * wall clock) consumes it when a new game is created.
  * @boundary
  */
 export function generatePlayerId(): string {

@@ -92,7 +92,23 @@ describe('P2-T07 conquestTransfer — eligibility ladder', () => {
     expect(rejected.reason).toBe('protected')
   })
 
-  it('guards on unconquerable alone, mirroring transferOwnership semantics', () => {
+  it('guards on unconquerable alone: protected iff isHome AND unconquerable (finding 3)', () => {
+    const protectedParityCorrect: OwnershipRecord = {
+      bodyId: TARGET,
+      ownerId: OWNER_A,
+      previousOwnerId: null,
+      acquiredAt: CLAIMED_AT,
+      acquisitionMethod: 'home-assignment',
+      isHome: true,
+      unconquerable: true,
+    }
+    expect(
+      rejection(conquestTransfer(makeInput({ record: protectedParityCorrect })))
+        .reason,
+    ).toBe('protected')
+  })
+
+  it('rejects an unequal-flag record with a throw before any ladder decision (finding 3 parity gate)', () => {
     const nonCanonical: OwnershipRecord = {
       bodyId: TARGET,
       ownerId: OWNER_A,
@@ -102,9 +118,14 @@ describe('P2-T07 conquestTransfer — eligibility ladder', () => {
       isHome: false,
       unconquerable: true,
     }
-    expect(rejection(conquestTransfer(makeInput({ record: nonCanonical }))).reason).toBe(
-      'protected',
+    expect(() => conquestTransfer(makeInput({ record: nonCanonical }))).toThrow(
+      /parity/,
     )
+    expect(() =>
+      conquestTransfer(
+        makeInput({ record: { ...colonyRecord(), isHome: true } }),
+      ),
+    ).toThrow(/parity/)
   })
 
   it('rejects a transfer to the current owner with ok:false reason self-transfer', () => {

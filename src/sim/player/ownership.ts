@@ -24,7 +24,10 @@ import { parseCanonicalId } from '../world/identity'
  *     is_home/unconquerable flag flips on a protected row) that aborts the
  *     same transfer in SQL. transferOwnership keys ONLY on unconquerable,
  *     exactly like the DB guard and deriveProtection (protected iff isHome
- *     AND unconquerable).
+ *     AND unconquerable) — and every decision site (transferOwnership,
+ *     deriveProtection, conquestTransfer) first runs the SAME parity gate
+ *     assertOwnershipParity (finding 3), so an unequal-flag record is
+ *     rejected before any protection/transfer decision.
  *
  * The audit event (OwnershipEvent) is the persistence contract for
  * supabase/migrations/0015_ownership_audit.sql: bodyId, from/to owners,
@@ -91,6 +94,26 @@ function assertBodyId(value: unknown, field: string): BodyId {
     throw new RangeError(`${field} must be a valid body id, got: ${String(value)}`)
   }
   return parsed.id
+}
+
+/**
+ * The ONE unified ownership-flag predicate (phase-2 audit finding 3):
+ * protected ⇔ isHome AND unconquerable — exact parity, never a single flag.
+ * A record whose flags disagree is malformed and is REJECTED with a
+ * descriptive error before ANY protection or transfer decision is made.
+ * deriveProtection (src/sim/player/protection.ts), transferOwnership here and
+ * conquestTransfer (src/sim/player/transfer.ts) all call this at the top, so
+ * every decision site shares the identical predicate.
+ */
+export function assertOwnershipParity(
+  isHome: boolean,
+  unconquerable: boolean,
+): void {
+  if (isHome !== unconquerable) {
+    throw new RangeError(
+      `ownership flag parity violated: isHome (${String(isHome)}) must equal unconquerable (${String(unconquerable)})`,
+    )
+  }
 }
 
 /**
@@ -161,6 +184,7 @@ export function transferOwnership(
   at: number,
   method: AcquisitionMethod,
 ): { updated: OwnershipRecord; event: OwnershipEvent } {
+  assertOwnershipParity(record.isHome, record.unconquerable)
   if (record.unconquerable) {
     throw new RangeError(
       `cannot transfer ${record.bodyId}: unconquerable (protected)`,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { generatePlayerId } from '../boundary/id'
 import {
   calculateOfflineEarnings,
   MAX_OFFLINE_BANK_SECONDS,
@@ -16,10 +17,7 @@ import {
   planetTotals,
   walletSpend,
 } from '../sim/player'
-import {
-  createPlayer,
-  generatePlayerId,
-} from '../sim/player'
+import { createPlayer } from '../sim/player'
 import type { OwnedPlanet, PlayerState } from '../sim/player'
 import type { PlanetIdentity } from '../sim/planets/types'
 import { STRUCTURES } from '../sim/structures/data'

@@ -1,4 +1,5 @@
 import type { BodyId } from '../world/identity'
+import { assertOwnershipParity } from './ownership'
 
 /**
  * Home-world protection (DESIGN §5 "unconquerable home planet", §6
@@ -7,6 +8,13 @@ import type { BodyId } from '../world/identity'
  * protected iff the row is BOTH a home (isHome) AND stored unconquerable
  * (unconquerable). All timestamps are caller-supplied inputs; the module
  * never reads the clock, so every function is deterministic.
+ *
+ * FINDING 3 — unified protection predicate: deriveProtection first runs the
+ * shared assertOwnershipParity gate (src/sim/player/ownership.ts) — an
+ * unequal-flag input (isHome ≠ unconquerable) is REJECTED with a descriptive
+ * error before any protection decision, exactly like transferOwnership and
+ * conquestTransfer. All three decision sites then use the identical
+ * predicate: protected ⇔ isHome && unconquerable.
  */
 export type HomeProtectionReason = 'home-world'
 
@@ -46,9 +54,11 @@ export const CONQUERABLE_LABEL = 'Conquerable'
 /**
  * Derive the protection state of a body from its stored ownership flags.
  * Protected iff BOTH isHome AND unconquerable are true (DESIGN §5 locks
- * "unconquerable = is_home at claim"); a single flag is never enough.
- * protectedSince is an INPUT passed through verbatim — it is never computed
- * from the wall clock here. Returns a fresh object (no shared state).
+ * "unconquerable = is_home at claim"); an unequal-flag input is REJECTED by
+ * the shared assertOwnershipParity gate before the decision is made (finding
+ * 3). protectedSince is an INPUT passed through verbatim — it is never
+ * computed from the wall clock here. Returns a fresh object (no shared
+ * state).
  */
 export function deriveProtection(
   bodyId: BodyId,
@@ -57,6 +67,7 @@ export function deriveProtection(
   unconquerable: boolean,
   protectedSince?: number,
 ): HomeProtection {
+  assertOwnershipParity(isHome, unconquerable)
   const isProtected = isHome && unconquerable
   return {
     bodyId,

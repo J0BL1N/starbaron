@@ -46,6 +46,7 @@
  */
 
 import type { StructureId } from '../structures/types'
+import { STARTER_STRUCTURES } from './grid'
 import { querySystem } from '../world/api'
 import { parseCanonicalId, parentOf } from '../world/identity'
 import type { BodyId, SystemId } from '../world/identity'
@@ -150,14 +151,14 @@ function assertPlayerId(value: unknown): string {
 }
 
 /**
- * Starter structure grid for a new player: ALWAYS one Housing at level 1.
- * The phase-2 audit removed the level input, so an empty starter grid is
- * impossible (the invariant is { housing: 1 }, nothing to validate). Legacy
- * save/claim paths adopt the same starter grid during Phase 4 UI integration
- * (tracked residual).
+ * Starter structure grid for a new player: the ONE shared starter-grid
+ * contract (STARTER_STRUCTURES, src/sim/player/grid.ts) — always exactly
+ * `{ housing: 1 }`, never empty. The phase-2 audit pins the contract: the
+ * entry flow, player.createPlayer's home grid and the 0016 claim RPCs all
+ * grant the identical grid (asserted in the tests). Returns a fresh object.
  */
 export function initialStructuresFor(): Record<StructureId, number> {
-  return { housing: 1 } as Record<StructureId, number>
+  return { ...STARTER_STRUCTURES }
 }
 
 /**

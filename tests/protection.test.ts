@@ -54,9 +54,27 @@ function conquestInput(
 describe('deriveProtection — protection combinations', () => {
   it('protects only when isHome AND unconquerable are BOTH true', () => {
     expect(deriveProtection(HOME_BODY, OWNER, true, true).protected).toBe(true)
-    expect(deriveProtection(HOME_BODY, OWNER, true, false).protected).toBe(false)
-    expect(deriveProtection(HOME_BODY, OWNER, false, true).protected).toBe(false)
     expect(deriveProtection(HOME_BODY, OWNER, false, false).protected).toBe(false)
+  })
+
+  it('rejects an unequal-flag input (finding 3: shared assertOwnershipParity gate)', () => {
+    for (const [isHome, unconquerable] of [
+      [true, false],
+      [false, true],
+    ] as const) {
+      expect(() =>
+        deriveProtection(HOME_BODY, OWNER, isHome, unconquerable),
+      ).toThrow(/parity/)
+    }
+  })
+
+  it('never computes protection from a single flag: a one-flag row is malformed, not conquerable', () => {
+    expect(() => deriveProtection(HOME_BODY, OWNER, true, false)).toThrow(
+      RangeError,
+    )
+    expect(() => deriveProtection(HOME_BODY, OWNER, false, true)).toThrow(
+      RangeError,
+    )
   })
 
   it('tags a protected world with reason "home-world" and the caller-supplied protectedSince', () => {
@@ -74,7 +92,7 @@ describe('deriveProtection — protection combinations', () => {
   })
 
   it('never exposes reason or protectedSince on an unprotected world', () => {
-    const p = deriveProtection(HOME_BODY, OWNER, false, true, PROTECTED_SINCE)
+    const p = deriveProtection(HOME_BODY, OWNER, false, false, PROTECTED_SINCE)
     expect(p.protected).toBe(false)
     expect(p.reason).toBeUndefined()
     expect(p.protectedSince).toBeUndefined()

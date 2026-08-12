@@ -1,16 +1,15 @@
 import { makePlanet } from '../planets'
 import type { PlanetIdentity } from '../planets/types'
 import { claimHomePlanet } from './claim'
-import { emptyStructureLevels } from './grid'
+import { STARTER_STRUCTURES } from './grid'
 import { startWallet } from './wallet'
 import type { OwnedPlanet, PlayerState } from './types'
 
 /**
- * Re-export of the boundary id utility (src/sim/player/id.ts) to keep the
- * public API. generatePlayerId is NOT part of the pure sim layer — the sim
- * never calls it, the UI boundary does. The boundary marker is the contract.
+ * generatePlayerId lives at the boundary (src/boundary/id.ts) and is NOT
+ * re-exported here: the sim layer never calls it and never depends on it.
+ * The UI boundary imports it directly (see src/ui/useGameState.ts).
  */
-export { generatePlayerId } from './id'
 
 export function createPlayer(playerId: string, now: number): PlayerState {
   const homePlanet = claimHomePlanet(playerId, now)
@@ -19,7 +18,7 @@ export function createPlayer(playerId: string, now: number): PlayerState {
     homePlanet,
     colonies: [],
     wallet: startWallet(),
-    structureLevels: { [homePlanet.name]: emptyStructureLevels() },
+    structureLevels: { [homePlanet.name]: { ...STARTER_STRUCTURES } },
     lastTickAt: now,
   }
 }

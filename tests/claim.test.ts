@@ -7,6 +7,8 @@ import { PLANETS } from '../src/sim/data/planets'
 import { baselinePassiveIncome } from '../src/sim/core/economy'
 import { populationCapMultiplier } from '../src/sim/planets'
 import { GENERATOR_VERSION } from '../src/sim/planets/generator'
+import { STARTER_STRUCTURES } from '../src/sim/player/grid'
+import { initialStructuresFor } from '../src/sim/player/onboarding'
 import {
   CLAIM_SALT,
   claimColony,
@@ -166,9 +168,25 @@ describe('P2-T03-B createPlayer', () => {
     expect(player.wallet.credits).toBe(STARTER_CREDITS)
     expect(player.lastTickAt).toBe(NOW)
     const grid = player.structureLevels[player.homePlanet.name]
-    for (const level of Object.values(grid)) {
-      expect(level).toBe(0)
-    }
+    expect(grid).toEqual(STARTER_STRUCTURES)
+    expect(grid.housing).toBe(1)
+  })
+
+  it('grants the home planet the shared STARTER_STRUCTURES grid (finding 2 contract)', () => {
+    const player = createPlayer('starter-grid-player', NOW)
+    expect(player.structureLevels[player.homePlanet.name]).toEqual(
+      STARTER_STRUCTURES,
+    )
+    expect(player.structureLevels[player.homePlanet.name].housing).toBe(1)
+    expect(player.structureLevels[player.homePlanet.name].oreMine).toBe(0)
+  })
+
+  it('createPlayer, initialStructuresFor and STARTER_STRUCTURES are one identical grid (finding 2)', () => {
+    const player = createPlayer('three-paths-player', NOW)
+    expect(player.structureLevels[player.homePlanet.name]).toEqual(
+      initialStructuresFor(),
+    )
+    expect(initialStructuresFor()).toEqual(STARTER_STRUCTURES)
   })
 })
 
@@ -213,10 +231,6 @@ function listSimTsFiles(dir: string): string[] {
   return files.sort()
 }
 
-function normalizeSlashes(value: string): string {
-  return value.replaceAll('\\', '/')
-}
-
 function importSpecifiers(source: string): string[] {
   return source
     .split('\n')
@@ -225,38 +239,33 @@ function importSpecifiers(source: string): string[] {
     .map((match) => match[1])
 }
 
-describe('P2 phase audit — id boundary module (finding 5)', () => {
-  it('id.ts exports generatePlayerId and player.ts re-exports the same function', async () => {
-    const idModule = await import('../src/sim/player/id')
-    const playerModule = await import('../src/sim/player/player')
-    expect(typeof idModule.generatePlayerId).toBe('function')
-    expect(playerModule.generatePlayerId).toBe(idModule.generatePlayerId)
-    const sample = idModule.generatePlayerId()
+describe('P2 phase audit — id boundary module (finding 4)', () => {
+  it('boundary/id.ts exports generatePlayerId producing a non-empty string id', async () => {
+    const boundary = await import('../src/boundary/id')
+    expect(typeof boundary.generatePlayerId).toBe('function')
+    const sample = boundary.generatePlayerId()
     expect(typeof sample).toBe('string')
     expect(sample.length).toBeGreaterThan(0)
   })
 
-  it('no sim module other than player.ts imports id.ts', () => {
+  it('no sim module imports boundary/id or the deleted player/id module', () => {
     const offenders: string[] = []
     for (const file of listSimTsFiles(SIM_DIR)) {
-      const normalized = normalizeSlashes(file)
-      if (normalized.endsWith('player/id.ts') || normalized.endsWith('player/player.ts')) {
-        continue
-      }
       const imports = importSpecifiers(readFileSync(file, 'utf8'))
-      if (imports.some((spec) => spec === './id' || spec.includes('player/id'))) {
+      if (
+        imports.some(
+          (spec) => spec.includes('boundary/id') || spec.includes('player/id'),
+        )
+      ) {
         offenders.push(file)
       }
     }
     expect(offenders).toEqual([])
   })
 
-  it('the platform-RNG code tokens appear in no sim module except id.ts', () => {
+  it('the platform-RNG code tokens appear in no sim module at all', () => {
     const offenders: string[] = []
     for (const file of listSimTsFiles(SIM_DIR)) {
-      if (normalizeSlashes(file).endsWith('player/id.ts')) {
-        continue
-      }
       if (/\b(randomUUID|Math\.random|Date\.now)\b/.test(readFileSync(file, 'utf8'))) {
         offenders.push(file)
       }

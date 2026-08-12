@@ -53,3 +53,24 @@ describe('P1-T03-C src/sim purity — no React/DOM leaks', () => {
     expect(leak).toBeNull()
   })
 })
+
+describe('P2 phase audit — boundary import fence (finding 4)', () => {
+  it('no module under src/sim/** imports from the boundary layer', () => {
+    const offenders: string[] = []
+    for (const file of simFiles) {
+      const sources = importSources(readFileSync(file, 'utf8'))
+      if (sources.some((spec) => spec.includes('boundary/'))) {
+        offenders.push(file)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('the nondeterministic id generator lives only at the boundary, never in the sim', async () => {
+    const boundary = await import('../src/boundary/id')
+    expect(typeof boundary.generatePlayerId).toBe('function')
+    const sample = boundary.generatePlayerId()
+    expect(typeof sample).toBe('string')
+    expect(sample.length).toBeGreaterThan(0)
+  })
+})

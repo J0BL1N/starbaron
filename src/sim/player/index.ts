@@ -14,7 +14,6 @@ export {
 } from './claim'
 export {
   createPlayer,
-  generatePlayerId,
   ownedPlanetIdentity,
 } from './player'
 export { emptyStructureLevels } from './grid'
