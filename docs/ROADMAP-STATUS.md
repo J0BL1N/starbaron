@@ -45,7 +45,7 @@
 | T03 Population | ✅ | Codex PASS (first round) — `src/sim/core/population-model.ts` + `tests/population-model.test.ts` (38 tests): timestamp recovery, cap/growth wrappers on locked formulas, war-loss hook |
 | T04 Structure Framework | ✅ | Codex PASS (round 3) — `src/sim/structures/framework.ts` + `tests/framework.test.ts` (33 tests): prereq table (draft, T10 input), locked cost wrappers, canBuild ladder, deep-frozen immutability |
 | T05 Housing | ✅ | Codex PASS (first round) — `src/sim/structures/housing.ts` + `tests/housing.test.ts` (28 tests): locked cap/growth wrappers, upgrade curve, offline outcome, deterministic UI state |
-| T06 Production Structures | ⬜ | |
+| T06 Production Structures | ✅ | Codex PASS (round 2) — `src/sim/structures/production.ts` + `tests/production.test.ts` (38 tests): per-structure rates mirroring locked accrual, summary API, informational efficiency scalar |
 | T07 Construction Queues | ⬜ | |
 | T08 Offline Progression | ⬜ | (src/sim/core/offline.ts exists) |
 | T09 Planet Quirks | ⬜ | (src/sim/planets/quirks.ts exists) |
