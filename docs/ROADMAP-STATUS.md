@@ -19,7 +19,8 @@
 | T05 Real Astronomy Integration | ✅ | Codex PASS (commit 012b96a) — `src/sim/world/catalogue.ts` + `tests/catalogue.test.ts` (35 tests): 6,321 catalogue rows → 4,746 real systems + bodies, provenance flags, canonical-parent validation |
 | T06 Persistence Schema | ✅ | Codex PASS (commit d957edd) — `supabase/migrations/0013_world_schema.sql` + `supabase/tests/07_world_schema.sql`: world_galaxies/systems/bodies, CHECKs/UNIQUEs/FKs/cascade, RLS locked. WRITE-ONLY — apply deferred to Jay authorisation |
 | T07 Deterministic Universe Reconstruction | ✅ | Codex PASS (commit 58c298d) — `src/sim/world/reconstruct.ts` + `tests/reconstruct.test.ts` (30 tests): seed rebuild, byte-stable serialization, exact parent chains (catalogue galaxySlug option in catalogue.ts) |
-| T08 World-State API | ⬜ | |
+| T08 World-State API | ✅ | Codex PASS (commit 77e1c1d) — `src/sim/world/api.ts` + `tests/api.test.ts` (37 tests): query layer, region queries, minimal renderer payloads |
+| **Phase 1 whole-phase audit** | ⛔ BLOCKER (r6) | 6 audit rounds: all T01-T08 individually PASS; phase-level fixes r1-r5 landed (SQL grammar, trust removal, registry exactness, ordinal bounds, canonical ordering — 182 tests). Remaining r6 finding: api list/region queries must dedupe duplicate state records by ID (api.ts:168-179,224-231). → blocker revisit pass |
 
 ## Phase 2 — Players, Home Worlds & Empire Ownership
 
