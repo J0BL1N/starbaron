@@ -55,9 +55,16 @@ function assertFinitePositive(value: number, field: string): void {
 }
 
 /**
- * Deterministic id for a transaction. Unique per (kind, amount, at, nonce);
- * callers pass a per-ledger monotonic nonce so identical fields still yield
- * distinct ids. Uniqueness across a ledger is the caller's responsibility.
+ * Deterministic id for a transaction. Format: `<hex>-<nonce>`, where `<hex>`
+ * is the FNV-1a hash of `kind|amount|at|nonce` and `<nonce>` is the verbatim
+ * nonce. The verbatim nonce component makes the mapping injective on nonce
+ * values, so distinct nonces always yield distinct ids (a number and a string
+ * that stringify identically, e.g. 5 and '5', intentionally share an id). The
+ * FNV-1a component is at most 8 hex chars (32-bit), so ids stay within 64
+ * chars whenever the nonce's string form is at most 55 chars; longer nonces
+ * extend past that documented bound while remaining unambiguous. Uniqueness
+ * across a ledger is the caller's responsibility: they must supply distinct
+ * nonces.
  */
 export function transactionId(
   kind: CreditKind,
@@ -65,7 +72,8 @@ export function transactionId(
   at: number,
   nonce: number | string,
 ): string {
-  return fnv1a(`${kind}|${amount}|${at}|${nonce}`).toString(16)
+  const hex = fnv1a(`${kind}|${amount}|${at}|${nonce}`).toString(16)
+  return `${hex}-${String(nonce)}`
 }
 
 /**
