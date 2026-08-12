@@ -30,6 +30,16 @@ const NOW = 1_700_000_000_000
 const RICH: WalletState = { credits: 1e9, alloys: 1e9 }
 const BODY = bodyId(systemId('planet-panel', 'fixture'), 'planet', 0)
 
+/** PanelSection with every gated section narrowed to non-null (owner view). */
+type OwnerPanel = PanelSection & {
+  structures: NonNullable<PanelSection['structures']>
+  population: NonNullable<PanelSection['population']>
+  production: NonNullable<PanelSection['production']>
+  queues: NonNullable<PanelSection['queues']>
+  defenses: NonNullable<PanelSection['defenses']>
+  activity: NonNullable<PanelSection['activity']>
+}
+
 function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
   const player = createPlayer('player-panel', NOW)
   return {
@@ -76,20 +86,36 @@ function buildJob(
   }).job
 }
 
+function assertOwnerSections(state: PanelSection): OwnerPanel {
+  if (
+    state.structures === null ||
+    state.population === null ||
+    state.production === null ||
+    state.queues === null ||
+    state.defenses === null ||
+    state.activity === null
+  ) {
+    throw new Error('owner-level panel section unexpectedly null')
+  }
+  return state as OwnerPanel
+}
+
 function panel(
   player: PlayerState,
   jobs: readonly ConstructionJob[] = [],
   at: number = NOW,
   ownership?: OwnershipRecord,
-): PanelSection {
-  return planetPanelStateFor({
-    player,
-    planetName: player.homePlanet.name,
-    queue: { planet: player.homePlanet.name, jobs: [...jobs] },
-    at,
-    viewerLevel: 'owner',
-    ownership,
-  })
+): OwnerPanel {
+  return assertOwnerSections(
+    planetPanelStateFor({
+      player,
+      planetName: player.homePlanet.name,
+      queue: { planet: player.homePlanet.name, jobs: [...jobs] },
+      at,
+      viewerLevel: 'owner',
+      ownership,
+    }),
+  )
 }
 
 function panelFor(
@@ -97,14 +123,16 @@ function panelFor(
   planetName: string,
   jobs: readonly ConstructionJob[] = [],
   at: number = NOW,
-): PanelSection {
-  return planetPanelStateFor({
-    player,
-    planetName,
-    queue: { planet: planetName, jobs: [...jobs] },
-    at,
-    viewerLevel: 'owner',
-  })
+): OwnerPanel {
+  return assertOwnerSections(
+    planetPanelStateFor({
+      player,
+      planetName,
+      queue: { planet: planetName, jobs: [...jobs] },
+      at,
+      viewerLevel: 'owner',
+    }),
+  )
 }
 
 describe('P4-T04 structures rows', () => {
@@ -408,6 +436,80 @@ describe('P4-T04 info-gating — viewerLevel', () => {
         }),
       ).toThrow(RangeError)
     }
+  })
+})
+
+describe('P4-T04 viewer-level section gating', () => {
+  function panelAs(
+    viewerLevel: InfoLevel,
+    player: PlayerState,
+    ownership?: OwnershipRecord,
+  ): PanelSection {
+    return planetPanelStateFor({
+      player,
+      planetName: player.homePlanet.name,
+      queue: { planet: player.homePlanet.name, jobs: [] },
+      at: NOW,
+      viewerLevel,
+      ownership,
+    })
+  }
+
+  it('public viewer: every owner-gated section is null, ownership is the public subset', () => {
+    const state = panelAs('public', makePlayer())
+    expect(state.structures).toBeNull()
+    expect(state.population).toBeNull()
+    expect(state.production).toBeNull()
+    expect(state.queues).toBeNull()
+    expect(state.defenses).toBeNull()
+    expect(state.activity).toBeNull()
+    expect(state.ownership).toEqual({ ownerId: null, isHome: false, protected: false })
+  })
+
+  it('alliance viewer is NOT an owner: identical to public, every section null', () => {
+    const state = panelAs('alliance', makePlayer())
+    expect(state.structures).toBeNull()
+    expect(state.population).toBeNull()
+    expect(state.production).toBeNull()
+    expect(state.queues).toBeNull()
+    expect(state.defenses).toBeNull()
+    expect(state.activity).toBeNull()
+    expect(state.ownership).toEqual({ ownerId: null, isHome: false, protected: false })
+  })
+
+  it('intel viewer: sees defense power (intel is the requirement) but no owner sections', () => {
+    const player = makePlayer()
+    const state = panelAs('intel', player)
+    expect(state.defenses).not.toBeNull()
+    expect(state.defenses!.defensePower).toBe(
+      MILITIA_DEFENSE_PER_POPULATION * player.homePlanet.population,
+    )
+    expect(state.structures).toBeNull()
+    expect(state.population).toBeNull()
+    expect(state.production).toBeNull()
+    expect(state.queues).toBeNull()
+    expect(state.activity).toBeNull()
+    expect(state.ownership).toEqual({ ownerId: null, isHome: false, protected: false })
+  })
+
+  it('owner viewer: every section is populated, including defense power', () => {
+    const player = makePlayer()
+    const state = panelAs('owner', player)
+    expect(state).toEqual(panel(player))
+    expect(state.structures).not.toBeNull()
+    expect(state.population).not.toBeNull()
+    expect(state.production).not.toBeNull()
+    expect(state.queues).not.toBeNull()
+    expect(state.defenses).not.toBeNull()
+    expect(state.defenses!.defensePower).toBe(
+      MILITIA_DEFENSE_PER_POPULATION * player.homePlanet.population,
+    )
+    expect(state.activity).toBe('Idle')
+    expect(state.ownership).toEqual({
+      ownerId: player.playerId,
+      isHome: true,
+      protected: true,
+    })
   })
 })
 

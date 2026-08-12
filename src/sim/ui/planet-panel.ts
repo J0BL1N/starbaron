@@ -20,15 +20,27 @@
  *   - queues      → jobsAt over the supplied ConstructionQueue.
  *   - defenses    → the LOCKED defensePower(turretLevels, population).
  *   - ownership   → gated by the REQUIRED `viewerLevel` (info.ts's InfoLevel
- *                   contract): an owner-or-above viewer sees the supplied
+ *                   contract): an owner-level viewer sees the supplied
  *                   OwnershipRecord (ownerId/isHome/protected; when absent,
- *                   the OwnedPlanet flags + player.playerId); a public viewer
- *                   gets the public subset — ownerId null, isHome false,
- *                   protected false — so hidden truth never reaches the client.
+ *                   the OwnedPlanet flags + player.playerId); any other
+ *                   viewer gets the public subset — ownerId null, isHome
+ *                   false, protected false — so hidden truth never reaches
+ *                   the client.
  *   - activity    → one deterministic line: 'Building … → Lv N · completes
  *                   in Xs' (first building job), 'Idle' when no jobs,
  *                   'Offline' when the player is stale (> 24h, reusing the
  *                   HUD_STALE_SECONDS semantics from ./hud).
+ *
+ * LEVEL GATING: every section carries a required InfoLevel and becomes
+ * `X | null` when the viewer is below that level (the UI renders '—' for a
+ * null section). The planet panel is an owner-only management surface, so its
+ * rank order differs from info.ts's cumulative field tiers — the owner sits
+ * on top, then scouted 'intel', then 'alliance', then 'public' (see
+ * PANEL_LEVEL_RANK below). Sections and their required level:
+ *   - structures, population, production, queues, activity → 'owner'
+ *   - defenses.defensePower → 'intel' (the owner always meets it too)
+ *   - ownership → 'owner'; below it the public subset is returned instead of
+ *     null (ownerId null, isHome false, protected false)
  *
  * Validation: `at` must be a positive finite number; planetName must be an
  * owned planet (home or colony) or a RangeError is thrown.
@@ -47,7 +59,7 @@ import { productionSummaryFor } from '../structures/production'
 import { jobsAt } from '../structures/queues'
 import type { ConstructionQueue } from '../structures/queues'
 import type { StructureId } from '../structures/types'
-import { assertInfoLevel, canViewLevel } from './info'
+import { assertInfoLevel } from './info'
 import type { InfoLevel } from './info'
 import { assertPositiveAt } from './validate'
 
@@ -60,13 +72,13 @@ export interface PanelStructureRow {
 }
 
 export interface PanelSection {
-  structures: PanelStructureRow[]
-  population: { current: number; cap: number; growthPerSec: number }
-  production: { creditsPerSec: number; alloysPerSec: number }
-  queues: { building: number; nextCompletionAt: number | null }
-  defenses: { defensePower: number }
+  structures: PanelStructureRow[] | null
+  population: { current: number; cap: number; growthPerSec: number } | null
+  production: { creditsPerSec: number; alloysPerSec: number } | null
+  queues: { building: number; nextCompletionAt: number | null } | null
+  defenses: { defensePower: number } | null
   ownership: { ownerId: string | null; isHome: boolean; protected: boolean }
-  activity: string
+  activity: string | null
 }
 
 export interface PlanetPanelInput {
@@ -76,6 +88,28 @@ export interface PlanetPanelInput {
   at: number
   viewerLevel: InfoLevel
   ownership?: OwnershipRecord
+}
+
+/**
+ * Panel-section visibility ranks. The planet panel is an owner-only
+ * management surface, so the owner is the TOP rank (only the owner manages
+ * the planet); scouted 'intel' sits beneath the owner (its defenses are the
+ * one fact a non-owner may see), then 'alliance', then 'public'. info.ts's
+ * canViewLevel is cumulative (public < owner < alliance < intel) and would
+ * leak every owner section to alliance/intel viewers, so the panel mirrors
+ * info.ts's LEVEL_RANK pattern with its own order instead of importing
+ * canViewLevel.
+ */
+const PANEL_LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
+  public: 0,
+  alliance: 1,
+  intel: 2,
+  owner: 3,
+})
+
+/** A viewer sees a section when their rank meets the section's required rank. */
+function canViewPanelSection(viewerLevel: InfoLevel, requiredLevel: InfoLevel): boolean {
+  return PANEL_LEVEL_RANK[viewerLevel] >= PANEL_LEVEL_RANK[requiredLevel]
 }
 
 function resolveOwnedPlanet(player: PlayerState, planetName: string): OwnedPlanet {
@@ -114,31 +148,65 @@ export function planetPanelStateFor(input: PlanetPanelInput): PanelSection {
 
   const owned = resolveOwnedPlanet(input.player, input.planetName)
   const grid = gridForPlanet(input.player, input.planetName)
+  const isOwner = canViewPanelSection(input.viewerLevel, 'owner')
+  const isIntel = canViewPanelSection(input.viewerLevel, 'intel')
 
-  const structures = STRUCTURE_IDS.map((id) => {
-    const level = grid[id] ?? 0
-    return {
-      id,
-      name: STRUCTURES[id].name,
-      level,
-      nextCost: buildCost(id, level),
-      buildable: canBuild(id, grid, input.player.wallet).ok,
+  let structures: PanelSection['structures'] = null
+  let population: PanelSection['population'] = null
+  let production: PanelSection['production'] = null
+  let queues: PanelSection['queues'] = null
+  let activity: PanelSection['activity'] = null
+
+  if (isOwner) {
+    structures = STRUCTURE_IDS.map((id) => {
+      const level = grid[id] ?? 0
+      return {
+        id,
+        name: STRUCTURES[id].name,
+        level,
+        nextCost: buildCost(id, level),
+        buildable: canBuild(id, grid, input.player.wallet).ok,
+      }
+    })
+
+    const derived = computePlanetDerived(owned, grid)
+    population = {
+      current: owned.population,
+      cap: derived.populationCap,
+      growthPerSec: derived.populationPerSec,
     }
-  })
 
-  const derived = computePlanetDerived(owned, grid)
-  const summary = productionSummaryFor({
-    name: owned.name,
-    tier: owned.tier,
-    quirks: ownedPlanetIdentity(owned).quirks.map((quirk) => quirk.id),
-    grid,
-  })
+    const summary = productionSummaryFor({
+      name: owned.name,
+      tier: owned.tier,
+      quirks: ownedPlanetIdentity(owned).quirks.map((quirk) => quirk.id),
+      grid,
+    })
+    production = {
+      creditsPerSec: summary.total.creditsPerSec,
+      alloysPerSec: summary.total.alloysPerSec,
+    }
 
-  const building = jobsAt(input.queue, input.at)
-  const nextCompletionAt = earliestFinishesAt(building)
+    const building = jobsAt(input.queue, input.at)
+    queues = {
+      building: building.length,
+      nextCompletionAt: earliestFinishesAt(building),
+    }
+
+    if (input.at - input.player.lastTickAt > HUD_STALE_SECONDS * 1000) {
+      activity = 'Offline'
+    } else if (building.length > 0) {
+      const first = building[0]
+      activity =
+        `Building ${STRUCTURES[first.structure].name} → Lv ${first.toLevel}` +
+        ` · completes in ${secondsRemainingUntil(first.finishesAt, input.at)}s`
+    } else {
+      activity = 'Idle'
+    }
+  }
 
   let ownership: PanelSection['ownership']
-  if (!canViewLevel(input.viewerLevel, 'owner')) {
+  if (!isOwner) {
     ownership = { ownerId: null, isHome: false, protected: false }
   } else if (input.ownership !== undefined) {
     ownership = {
@@ -154,36 +222,16 @@ export function planetPanelStateFor(input: PlanetPanelInput): PanelSection {
     }
   }
 
-  let activity: string
-  if (input.at - input.player.lastTickAt > HUD_STALE_SECONDS * 1000) {
-    activity = 'Offline'
-  } else if (building.length > 0) {
-    const first = building[0]
-    activity =
-      `Building ${STRUCTURES[first.structure].name} → Lv ${first.toLevel}` +
-      ` · completes in ${secondsRemainingUntil(first.finishesAt, input.at)}s`
-  } else {
-    activity = 'Idle'
-  }
+  const defenses: PanelSection['defenses'] = isIntel
+    ? { defensePower: defensePower(grid.defenseTurret, owned.population) }
+    : null
 
   return {
     structures,
-    population: {
-      current: owned.population,
-      cap: derived.populationCap,
-      growthPerSec: derived.populationPerSec,
-    },
-    production: {
-      creditsPerSec: summary.total.creditsPerSec,
-      alloysPerSec: summary.total.alloysPerSec,
-    },
-    queues: {
-      building: building.length,
-      nextCompletionAt,
-    },
-    defenses: {
-      defensePower: defensePower(grid.defenseTurret, owned.population),
-    },
+    population,
+    production,
+    queues,
+    defenses,
     ownership,
     activity,
   }
