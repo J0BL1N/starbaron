@@ -7,6 +7,7 @@ import {
   parentOf,
   parseCanonicalId,
   systemId,
+  ORDINAL_MAX,
 } from '../src/sim/world/identity'
 import type {
   BodyId,
@@ -116,6 +117,7 @@ describe('P1-T01 malformed id rejection', () => {
     ['body:a|b|planet|-1', 'negative ordinal'],
     ['body:a|b|planet|NaN', 'non-numeric ordinal'],
     ['body:a|b|planet|2.5', 'non-integer ordinal'],
+    ['body:a|b|planet|01', 'leading-zero ordinal'],
     ['body:a|b|planet|1|extra', 'extra segments'],
     [`body:a|b|planet|${'9'.repeat(400)}`, 'overflowing ordinal'],
     ['planet:HD-564', 'unknown prefix'],
@@ -143,6 +145,43 @@ describe('P1-T01 malformed id rejection', () => {
     expect(parsed.ok).toBe(true)
     if (parsed.ok && parsed.kind === 'body') {
       expect(parsed.ordinal).toBe(9999999)
+    }
+  })
+})
+
+describe('P1-T01 canonical ordinal bounds (ORDINAL_MAX parity)', () => {
+  it('rejects a leading-zero ordinal as a distinct id string', () => {
+    const parsed = parseCanonicalId('body:gal|sys|planet|01')
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) {
+      expect(parsed.reason).toContain('invalid ordinal')
+    }
+  })
+
+  it('rejects an ordinal above the PostgreSQL int4 bound', () => {
+    const parsed = parseCanonicalId('body:gal|sys|planet|2147483648')
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) {
+      expect(parsed.reason).toContain('invalid ordinal')
+    }
+  })
+
+  it('accepts exactly the ORDINAL_MAX boundary', () => {
+    const parsed = parseCanonicalId(`body:gal|sys|planet|${ORDINAL_MAX}`)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok && parsed.kind === 'body') {
+      expect(parsed.ordinal).toBe(ORDINAL_MAX)
+    }
+  })
+
+  it('bodyId round-trips the ORDINAL_MAX boundary', () => {
+    const sys = systemId('gal', 'sys')
+    const id = bodyId(sys, 'planet', ORDINAL_MAX)
+    expect(id).toBe(`body:gal|sys|planet|${ORDINAL_MAX}`)
+    const parsed = parseCanonicalId(id)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok && parsed.kind === 'body') {
+      expect(parsed.ordinal).toBe(ORDINAL_MAX)
     }
   })
 })
@@ -186,6 +225,13 @@ describe('P1-T01 factory input validation', () => {
   it('bodyId(sys, "planet", Infinity) throws', () => {
     const sys = systemId('HD-564', 'inner')
     expect(() => bodyId(sys, 'planet', Infinity)).toThrow(/non-negative integer ordinal/)
+  })
+
+  it('bodyId(sys, "planet", ORDINAL_MAX + 1) throws', () => {
+    const sys = systemId('HD-564', 'inner')
+    expect(() => bodyId(sys, 'planet', ORDINAL_MAX + 1)).toThrow(
+      /non-negative integer ordinal/,
+    )
   })
 
   it('every factory output parses back with ok:true (round-trip invariant)', () => {

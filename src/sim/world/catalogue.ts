@@ -259,6 +259,36 @@ export interface CatalogueValidation {
 }
 
 /**
+ * Real-data flag/provenance consistency for a record — the exact mirror of the
+ * 0013 SQL CHECKs at rest (real_data true requires a catalogue provenance;
+ * real_data false requires provenance 'procedural'). Returns a problem string,
+ * or null when the pair is consistent. Shared by validateCatalogue and the
+ * universe validator in ./reconstruct so the two enforcement nets cannot
+ * drift.
+ */
+export function realDataConsistencyProblem(
+  realData: unknown,
+  provenance: unknown,
+): string | null {
+  if (typeof realData !== 'boolean') {
+    return `realData must be a boolean, got: ${JSON.stringify(realData)}`
+  }
+  if (realData) {
+    if (
+      typeof provenance !== 'string' ||
+      !provenance.startsWith('nasa-exoplanet-archive-')
+    ) {
+      return `realData true requires a catalogue provenance, got: ${JSON.stringify(provenance)}`
+    }
+    return null
+  }
+  if (provenance !== 'procedural') {
+    return `procedural records require provenance 'procedural', got: ${JSON.stringify(provenance)}`
+  }
+  return null
+}
+
+/**
  * Validate a catalogue mapping against the snapshot it claims to map.
  *
  * Checks: bodies count matches snapshot rows; galaxy/system/body ids parse;
@@ -267,7 +297,9 @@ export interface CatalogueValidation {
  * membership is exact in both directions (every system id in galaxy.systemIds
  * and vice versa); every body's parent system exists; every body's declared
  * system equals the canonical parent of its id; every body ordinal equals its
- * index within its host; no duplicate ids anywhere in the mapping; and — for
+ * index within its host; no duplicate ids anywhere in the mapping; every
+ * record's realData/provenance pair is consistent (realData true requires a
+ * catalogue provenance, realData false requires 'procedural'); and — for
  * EVERY system — the bodyIds registry is ordered, duplicate-free, and EXACTLY
  * matches the set of mapped child body ids (each body whose parent is that
  * system appears, no extra ids, no duplicates, registry order equals the
@@ -288,6 +320,13 @@ export function validateCatalogue(
   const galaxyParsed = parseCanonicalId(mapping.galaxy.id)
   if (!galaxyParsed.ok || galaxyParsed.kind !== 'galaxy') {
     problems.push(`galaxy id does not parse as a galaxy: ${mapping.galaxy.id}`)
+  }
+  const galaxyRealDataProblem = realDataConsistencyProblem(
+    mapping.galaxy.realData,
+    mapping.galaxy.provenance,
+  )
+  if (galaxyRealDataProblem !== null) {
+    problems.push(`galaxy ${mapping.galaxy.id}: ${galaxyRealDataProblem}`)
   }
 
   const systemIds = new Set<string>()
@@ -311,6 +350,13 @@ export function validateCatalogue(
       problems.push(
         `system ${system.id} declares parent galaxy ${system.galaxy}, but its canonical parent is ${canonicalSystemParent}`,
       )
+    }
+    const systemRealDataProblem = realDataConsistencyProblem(
+      system.realData,
+      system.provenance,
+    )
+    if (systemRealDataProblem !== null) {
+      problems.push(`system ${system.id}: ${systemRealDataProblem}`)
     }
   }
 
@@ -361,6 +407,13 @@ export function validateCatalogue(
       bodiesBySystem.set(body.system, [body])
     } else {
       group.push(body)
+    }
+    const bodyRealDataProblem = realDataConsistencyProblem(
+      body.realData,
+      body.provenance,
+    )
+    if (bodyRealDataProblem !== null) {
+      problems.push(`body ${body.id}: ${bodyRealDataProblem}`)
     }
   }
 

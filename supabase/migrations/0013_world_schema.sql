@@ -54,6 +54,17 @@
 --   ordinal per system" promise — type is part of body identity, so planet|0
 --   and moon|0 coexist in one system while a second same-type same-ordinal
 --   body is rejected (BodyRecord.ordinal, body.ts:41).
+--   world_bodies.ordinal CHECK mirrors the model-side bound ORDINAL_MAX
+--   (src/sim/world/identity.ts, 2^31 - 1 = PostgreSQL int4 max) — the
+--   column type is INTEGER and the CHECK adds the parity guard explicitly.
+--   Ordinal text normalization is model-side: bodyId/parseCanonicalId reject
+--   leading zeros ('01') and values above ORDINAL_MAX, so a leading-zero id
+--   never reaches the DB as a distinct identity — the ordinal column is
+--   INTEGER, and split_part(id, '|', 4)::bigint normalizes the id's text
+--   before comparing to the ordinal column, so '01' would collide with the
+--   factory id under UNIQUE (system_id, type, ordinal). Model-side
+--   normalization is the primary gate; the SQL bound CHECK is the
+--   belt-and-braces parity. The id-grammar regexp '[0-9]+' stays.
 -- Persistence-only metadata (NOT part of the canonical record contract in
 --   src/sim/world/{galaxy,system,body}.ts): the created_at columns are
 --   DB-filled (default now()) for operational tracing only and are excluded
@@ -166,7 +177,7 @@ create table if not exists public.world_bodies (
   type                         text not null check (type in ('star','planet','moon','asteroid')),
   name                         text not null,
   seed                         text not null,
-  ordinal                      integer not null check (ordinal >= 0),
+  ordinal                      integer not null check (ordinal >= 0 and ordinal <= 2147483647),
   radius                       double precision not null check (radius > 0),
   mass                         double precision,
   semi_major_axis              double precision not null default 0 check (semi_major_axis >= 0),
@@ -202,7 +213,12 @@ create table if not exists public.world_bodies (
     )
   ),
   -- Full canonical id grammar (four segments, numeric ordinal, no extra
-  -- segments) + embedded type/ordinal columns + embedded parent system.
+  -- segments) + embedded type/ordinal columns + embedded parent system. The
+  -- ordinal regexp '[0-9]+' accepts leading zeros ('01'), but the ordinal
+  -- column is INTEGER and split_part(id,'|',4)::bigint normalizes the text
+  -- before comparing to it, so '01' can never persist as a distinct identity
+  -- — the model-side normalization (parseCanonicalId/bodyId, identity.ts
+  -- ORDINAL_MAX) is the primary gate, documented in the header above.
   check (
     id ~ '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|[0-9]+$'
     and split_part(id, '|', 3) = type

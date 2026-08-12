@@ -206,6 +206,56 @@ describe('P1-T07 corrupt payload negatives', () => {
       /canonical parent/,
     )
   })
+
+  it('throws on a payload with a system whose realData/provenance pair is inconsistent', () => {
+    const json = serializeUniverse(buildUniverseState({ seed: SEED }))
+    const payload = parsePayload(json)
+    const systems = payload.systems as unknown[]
+    const system = systems[0] as Record<string, unknown>
+    system.provenance = 'procedural'
+    payload.systems = systems
+    expect(() => deserializeUniverse(JSON.stringify(payload))).toThrow(
+      /realData true requires a catalogue provenance/,
+    )
+  })
+
+  it('throws on a payload with a body whose realData/provenance pair is inconsistent', () => {
+    const json = serializeUniverse(buildUniverseState({ seed: SEED }))
+    const payload = parsePayload(json)
+    const bodies = payload.bodies as unknown[]
+    const body = bodies[0] as Record<string, unknown>
+    body.realData = false
+    payload.bodies = bodies
+    expect(() => deserializeUniverse(JSON.stringify(payload))).toThrow(
+      /procedural records require provenance 'procedural'/,
+    )
+  })
+})
+
+describe('P1-T07 exact system-to-body registry ownership', () => {
+  function swappedState(): UniverseState {
+    const state = buildUniverseState({ seed: SEED })
+    const systems = state.systems.slice()
+    const a = systems[0]
+    const b = systems[1]
+    systems[0] = { ...a, bodyIds: b.bodyIds }
+    systems[1] = { ...b, bodyIds: a.bodyIds }
+    return { ...state, systems }
+  }
+
+  it('deserializeUniverse throws when two systems swap their bodyIds registries', () => {
+    const mutated = swappedState()
+    expect(() => deserializeUniverse(serializeUniverse(mutated))).toThrow(
+      /does not own/,
+    )
+  })
+
+  it('reconstructConsistency reports swapped bodyIds registries', () => {
+    const mutated = swappedState()
+    const result = reconstructConsistency(mutated)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('does not own')
+  })
 })
 
 describe('P1-T07 reconstructConsistency', () => {

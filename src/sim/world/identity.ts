@@ -60,7 +60,20 @@ const GALAXY_PREFIX = 'gal:'
 const SYSTEM_PREFIX = 'sys:'
 const BODY_PREFIX = 'body:'
 
-const ORDINAL_PATTERN = /^\d+$/
+/**
+ * Upper bound of a canonical ordinal: the PostgreSQL int4 max (2^31 - 1), so
+ * every body id that parses here can persist unchanged in world_bodies.ordinal
+ * (0013_world_schema.sql mirrors this bound in its ordinal CHECK).
+ */
+export const ORDINAL_MAX = 2_147_483_647
+
+/**
+ * Canonical ordinal text grammar: zero alone, or a non-empty digit string
+ * with no leading zeros. '01' is rejected so a body id can never encode an
+ * ordinal with a distinct string but the same numeric value as the factory
+ * output ('...|01' vs '...|1' would be two ids with one identity).
+ */
+const ORDINAL_PATTERN = /^(0|[1-9][0-9]*)$/
 
 function isBodyType(value: string): value is BodyType {
   return (BODY_TYPE_VALUES as readonly string[]).includes(value)
@@ -76,9 +89,9 @@ function assertSegment(name: string, value: string): void {
 }
 
 function assertOrdinal(ordinal: number): void {
-  if (!Number.isInteger(ordinal) || ordinal < 0) {
+  if (!Number.isInteger(ordinal) || ordinal < 0 || ordinal > ORDINAL_MAX) {
     throw new Error(
-      `bodyId requires a non-negative integer ordinal, got: ${JSON.stringify(ordinal)}`,
+      `bodyId requires a non-negative integer ordinal within [0, ${ORDINAL_MAX}], got: ${JSON.stringify(ordinal)}`,
     )
   }
 }
@@ -154,7 +167,7 @@ export function parseCanonicalId(id: string): ParsedCanonicalId {
       return { ok: false, reason: `invalid ordinal: ${ordinalText}` }
     }
     const ordinal = Number(ordinalText)
-    if (!Number.isInteger(ordinal) || ordinal < 0) {
+    if (!Number.isInteger(ordinal) || ordinal < 0 || ordinal > ORDINAL_MAX) {
       return { ok: false, reason: `invalid ordinal: ${ordinalText}` }
     }
     return {

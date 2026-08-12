@@ -526,6 +526,36 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
       `bodyIds registry order does not match the mapped bodies order`,
     )
   })
+
+  it('flags a system with realData true but a procedural provenance', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.name === 'Fixture-1' ? { ...system, provenance: 'procedural' } : system,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain(
+      'realData true requires a catalogue provenance',
+    )
+  })
+
+  it('flags a body with realData false but a catalogue provenance', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      bodies: mapping.bodies.map((body, index) =>
+        index === 0 ? { ...body, realData: false } : body,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain(
+      "procedural records require provenance 'procedural'",
+    )
+  })
 })
 
 describe('P1-T05 empty input', () => {

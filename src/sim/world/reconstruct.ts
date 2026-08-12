@@ -27,7 +27,7 @@ import { buildGalaxyRecord, registerSystem, universePositionFor } from './galaxy
 import type { GalaxyRecord } from './galaxy'
 import type { SystemRecord } from './system'
 import type { BodyRecord } from './body'
-import { buildCatalogueMapping } from './catalogue'
+import { buildCatalogueMapping, realDataConsistencyProblem } from './catalogue'
 
 export interface UniverseState {
   galaxy: GalaxyRecord
@@ -113,9 +113,17 @@ function isStringArray(value: unknown): value is string[] {
 
 /**
  * Collect every structural problem in a candidate universe payload: shape,
- * id parsing, parent chains, duplicate ids, and registry consistency. Used by
- * deserializeUniverse (throws when non-empty) and reconstructConsistency
- * (reports as problems).
+ * id parsing, parent chains, duplicate ids, registry consistency, and
+ * realData/provenance consistency. Used by deserializeUniverse (throws when
+ * non-empty) and reconstructConsistency (reports as problems).
+ *
+ * Registry ownership is exact: for each system the expected body set is
+ * derived from the state's bodies array order (filtered to bodies whose
+ * declared system equals the system id AND whose canonical parent is the
+ * system id), and the system's bodyIds registry must be duplicate-free and
+ * equal that set in the same order. Swapping valid body ids between two
+ * systems' registries is therefore reported even when counts match and every
+ * id exists somewhere in the state.
  */
 function collectUniverseProblems(value: unknown): string[] {
   const problems: string[] = []
@@ -145,6 +153,14 @@ function collectUniverseProblems(value: unknown): string[] {
     if (!parsed.ok || parsed.kind !== 'galaxy') {
       problems.push(`galaxy id does not parse as a galaxy: ${galaxyId}`)
     }
+  }
+
+  const galaxyRealDataProblem = realDataConsistencyProblem(
+    galaxy.realData,
+    galaxy.provenance,
+  )
+  if (galaxyRealDataProblem !== null) {
+    problems.push(`galaxy ${JSON.stringify(galaxyId)}: ${galaxyRealDataProblem}`)
   }
 
   if (typeof galaxy.seed !== 'string' || galaxy.seed === '') {
@@ -194,6 +210,14 @@ function collectUniverseProblems(value: unknown): string[] {
       )
     }
 
+    const systemRealDataProblem = realDataConsistencyProblem(
+      entry.realData,
+      entry.provenance,
+    )
+    if (systemRealDataProblem !== null) {
+      problems.push(`system ${id}: ${systemRealDataProblem}`)
+    }
+
     if (!isStringArray(entry.bodyIds)) {
       problems.push(`system ${id} has a malformed bodyIds registry`)
     }
@@ -238,6 +262,13 @@ function collectUniverseProblems(value: unknown): string[] {
         )
       }
     }
+    const bodyRealDataProblem = realDataConsistencyProblem(
+      entry.realData,
+      entry.provenance,
+    )
+    if (bodyRealDataProblem !== null) {
+      problems.push(`body ${id}: ${bodyRealDataProblem}`)
+    }
   }
 
   if (isStringArray(galaxy.systemIds)) {
@@ -255,12 +286,6 @@ function collectUniverseProblems(value: unknown): string[] {
     problems.push('galaxy.systemIds is missing or not a string array')
   }
 
-  const bodyCountBySystem = new Map<string, number>()
-  for (const body of bodies) {
-    if (isRecord(body) && typeof body.system === 'string') {
-      bodyCountBySystem.set(body.system, (bodyCountBySystem.get(body.system) ?? 0) + 1)
-    }
-  }
   for (let index = 0; index < systems.length; index++) {
     const entry = systems[index]
     if (!isRecord(entry) || typeof entry.id !== 'string') {
@@ -269,16 +294,45 @@ function collectUniverseProblems(value: unknown): string[] {
     if (!isStringArray(entry.bodyIds)) {
       continue
     }
-    const expected = bodyCountBySystem.get(entry.id) ?? 0
-    if (entry.bodyIds.length !== expected) {
-      problems.push(
-        `system ${entry.id} bodyIds registry count ${entry.bodyIds.length} does not match attached bodies ${expected}`,
-      )
-    }
-    for (const registeredId of entry.bodyIds) {
-      if (!bodyIds.has(registeredId)) {
-        problems.push(`system ${entry.id} bodyIds references unknown body: ${registeredId}`)
+    const expectedBodyIds: string[] = []
+    for (const body of bodies) {
+      if (
+        isRecord(body) &&
+        typeof body.id === 'string' &&
+        typeof body.system === 'string' &&
+        body.system === entry.id &&
+        parentOf(body.id as BodyId) === entry.id
+      ) {
+        expectedBodyIds.push(body.id)
       }
+    }
+    const expectedSet = new Set(expectedBodyIds)
+    const seen = new Set<string>()
+    for (const registeredId of entry.bodyIds) {
+      if (!expectedSet.has(registeredId)) {
+        problems.push(
+          `system ${entry.id} bodyIds references a body it does not own: ${registeredId}`,
+        )
+      }
+      if (seen.has(registeredId)) {
+        problems.push(`system ${entry.id} bodyIds contains a duplicate: ${registeredId}`)
+      }
+      seen.add(registeredId)
+    }
+    for (const id of expectedBodyIds) {
+      if (!entry.bodyIds.includes(id)) {
+        problems.push(
+          `body ${id} is missing from the system ${entry.id} bodyIds registry`,
+        )
+      }
+    }
+    const sameOrder =
+      entry.bodyIds.length === expectedBodyIds.length &&
+      entry.bodyIds.every((id, bodyIndex) => id === expectedBodyIds[bodyIndex])
+    if (!sameOrder) {
+      problems.push(
+        `system ${entry.id} bodyIds registry order does not match the canonical body order`,
+      )
     }
   }
 
@@ -287,8 +341,9 @@ function collectUniverseProblems(value: unknown): string[] {
 
 /**
  * Parse a serialized universe and validate it. Throws a descriptive Error on
- * corrupt JSON, ids that do not parse, broken parent chains, duplicate ids, or
- * inconsistent registries.
+ * corrupt JSON, ids that do not parse, broken parent chains, duplicate ids,
+ * inconsistent registries (including body ids registered under a system that
+ * does not canonically own them), or an inconsistent realData/provenance pair.
  */
 export function deserializeUniverse(json: string): UniverseState {
   let parsed: unknown
