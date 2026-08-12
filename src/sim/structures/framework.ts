@@ -1,7 +1,14 @@
 import { STRUCTURES, STRUCTURE_IDS, isStructureId } from './data'
 import { structureCost } from '../core/economy'
-import type { StructureGrid } from '../player/types'
 import type { StructureCategory, StructureId } from './types'
+
+/**
+ * Structure levels keyed by structure id (all StructureIds present, 0+).
+ * Local structural type: grid.ts does not re-export `StructureGrid`, so the
+ * framework stays within its authorised import set (./data, ../core/economy,
+ * ./types) and mirrors the shape in ../player/types.ts exactly.
+ */
+export type StructureGrid = Record<StructureId, number>
 
 /**
  * The canonical structure framework: build/upgrade costs, prerequisites,
