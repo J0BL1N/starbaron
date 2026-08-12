@@ -23,8 +23,8 @@
  * the owner from the overlay when present, and null when unowned or unknown.
  *
  * NUMBER FORMATTING: every numeric stat value goes through the locked
- * formatNumber (../core/format) — no locale APIs, so repeated calls produce
- * byte-identical strings.
+ * formatNumber (../core/format) — no environment-dependent formatting APIs,
+ * so repeated calls produce byte-identical strings.
  */
 
 import { formatNumber } from '../core/format'

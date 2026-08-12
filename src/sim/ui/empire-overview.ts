@@ -46,7 +46,8 @@
  * SORT ORDER (documented): 'population' sorts population DESCENDING, 'income'
  * sorts creditsPerSec DESCENDING (the primary income stream), 'name' sorts
  * name ASCENDING. Every primary-key tie breaks by name ascending, then by
- * systemId ascending — fully deterministic, no locale-dependent comparison.
+ * systemId ascending — fully deterministic, no environment-dependent
+ * comparison.
  *
  * TOP PLANET (documented): the row with the maximum population; population
  * ties break by name ascending, then systemId ascending.
