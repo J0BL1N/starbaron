@@ -8,7 +8,7 @@ READ LIST:
 - src/sim/core/format.ts     (formatNumber — locked)
 - src/sim/player/types.ts    (PlayerState)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT e478fc3a1a31916a5cc2625b48b91d09bb076ed8 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT d7c20b8 (adds exactly src/sim/ui/hud.ts + tests/hud.test.ts; later amends/fix commits modify ONLY hud.ts). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p4-t01-brief.md + master roadmap P4-T01):
 1. HudState { at, location {kind,id,name}, resources, population {total, home, cap}, alerts, focusedBody|null }; HudAlert { id (fnv1a(message|at) deterministic), severity, message, at }.
