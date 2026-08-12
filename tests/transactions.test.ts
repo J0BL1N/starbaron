@@ -96,6 +96,11 @@ describe('transactionId', () => {
     ).toThrow(/nonce/)
   })
 
+  it('rejects the -0 number nonce (collides with 0 in the id suffix)', () => {
+    expect(() => transactionId('income', 100, AT, -0)).toThrow(/nonce/)
+    expect(() => transactionId('income', 100, AT, -0)).toThrow(/-0/)
+  })
+
   it('yields distinct ids for a number nonce and the string that stringifies the same', () => {
     expect(transactionId('income', 100, AT, '1')).not.toBe(
       transactionId('income', 100, AT, 1),

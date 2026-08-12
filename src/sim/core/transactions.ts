@@ -62,7 +62,9 @@ function assertFinitePositive(value: number, field: string): void {
  * so `1` and `'1'` yield distinct ids. The FNV-1a component is at most 8 hex
  * chars (32-bit) and the suffix is at most 42 chars (`s:` + 40), so ids stay
  * within 64 chars. Nonces are validated before an id is produced: number
- * nonces must be finite; string nonces must be non-empty, free of control
+ * nonces must be finite and must not be -0 (0 and -0 are distinct JS values
+ * but both stringify to `n:0`, so -0 is rejected to keep ids injective);
+ * string nonces must be non-empty, free of control
  * characters and at most 40 chars. Uniqueness across a ledger is the caller's
  * responsibility: they must supply distinct nonces.
  */
@@ -70,6 +72,9 @@ function assertValidNonce(nonce: number | string): void {
   if (typeof nonce === 'number') {
     if (!Number.isFinite(nonce)) {
       throw new Error(`nonce must be a finite number, got ${nonce}`)
+    }
+    if (Object.is(nonce, -0)) {
+      throw new Error('nonce must not be -0 (rejected: -0 and 0 share the same id)')
     }
     return
   }
