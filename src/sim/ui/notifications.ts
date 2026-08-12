@@ -233,9 +233,9 @@ export function expired(
 /**
  * Validate a NotificationsState, catching tamper classes a well-behaved state
  * machine would never produce: duplicate ids, non-finite or non-positive `at`,
- * a non-boolean `read`, duplicate reactions within an item, and an
- * `unreadCount` that does not match the number of unread items. Collects ALL
- * problems before returning.
+ * a non-boolean `read`, duplicate reactions within an item, an empty or
+ * whitespace-only reaction, and an `unreadCount` that does not match the
+ * number of unread items. Collects ALL problems before returning.
  */
 export function validateNotifications(state: NotificationsState): {
   ok: boolean
@@ -262,6 +262,11 @@ export function validateNotifications(state: NotificationsState): {
     }
     const seenReactions = new Set<string>()
     for (const emoji of item.reactions) {
+      if (emoji.trim().length === 0) {
+        problems.push(
+          `notification ${JSON.stringify(item.id)} has an empty or whitespace-only reaction ${JSON.stringify(emoji)}`,
+        )
+      }
       if (seenReactions.has(emoji)) {
         problems.push(
           `notification ${JSON.stringify(item.id)} has duplicate reaction ${JSON.stringify(emoji)}`,

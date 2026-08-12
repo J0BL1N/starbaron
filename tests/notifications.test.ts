@@ -382,6 +382,23 @@ describe('P4-T07 validateNotifications — tamper detection', () => {
     )
   })
 
+  it('flags an empty or whitespace-only reaction', () => {
+    const state = wellFormed()
+    for (const bad of ['', '   ']) {
+      const tampered = {
+        ...state,
+        items: [{ ...state.items[0]!, reactions: [bad] }],
+      } as unknown as NotificationsState
+      const result = validateNotifications(tampered)
+      expect(result.ok).toBe(false)
+      expect(
+        result.problems.some((p) =>
+          p.includes('empty or whitespace-only reaction'),
+        ),
+      ).toBe(true)
+    }
+  })
+
   it('reports every problem at once, not just the first', () => {
     const state = wellFormed()
     const id = state.items[0]!.id
