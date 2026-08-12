@@ -83,6 +83,17 @@ export interface CatalogueMappingResult {
   stats: CatalogueStats
 }
 
+/** Options controlling how the catalogue mapping is rooted. */
+export interface CatalogueMappingOptions {
+  /**
+   * Galaxy slug the mapping is built under. When provided, the mapping's
+   * galaxy record uses this slug and every system id is built as
+   * systemId(galaxySlug, hostname), so catalogue ids namespace exactly under
+   * that galaxy. Defaults to CATALOGUE_GALAXY_SLUG ('catalogue').
+   */
+  galaxySlug?: string
+}
+
 /** starType for a host: the first entry's value in catalogue order. */
 function hostStarType(planets: readonly PlanetCatalogueEntry[]): string | undefined {
   return planets[0]?.starType
@@ -93,22 +104,28 @@ function hostStarType(planets: readonly PlanetCatalogueEntry[]): string | undefi
  *
  * Deterministic: hosts are iterated in SORTED hostname order; planets within a
  * host keep their catalogue (input) order. One system per unique hostname
- * (id = systemId('catalogue', hostname)); one body per catalogue planet
+ * (id = systemId(galaxySlug, hostname)); one body per catalogue planet
  * (id = bodyId(system, 'planet', ordinal) with ordinal = index within host).
+ * The galaxy slug defaults to CATALOGUE_GALAXY_SLUG; pass opts.galaxySlug to
+ * root the mapping's ids and galaxy record under a different slug, keeping the
+ * parent chain exact by construction (parentOf(system.id) === galaxy.id).
  * Real orbital parameters are NOT present in this snapshot, so orbits use the
  * deterministic id-seeded P1-T04 defaults via buildBodyRecord — a documented
  * future catalogue extension, never a fabricated "real" value.
  *
  * @param meta snapshot meta; defaults to the committed PLANET_SNAPSHOT.
+ * @param opts optional mapping options (see CatalogueMappingOptions).
  */
 export function buildCatalogueMapping(
   planets: readonly PlanetCatalogueEntry[],
   meta: CatalogueSnapshotMeta = PLANET_SNAPSHOT,
+  opts: CatalogueMappingOptions = {},
 ): CatalogueMappingResult {
+  const galaxySlug = opts.galaxySlug ?? CATALOGUE_GALAXY_SLUG
   const provenance = catalogueProvenance(meta.fetchedAt)
 
   const galaxy = buildGalaxyRecord({
-    slug: CATALOGUE_GALAXY_SLUG,
+    slug: galaxySlug,
     name: CATALOGUE_GALAXY_NAME,
     realData: true,
     provenance,
