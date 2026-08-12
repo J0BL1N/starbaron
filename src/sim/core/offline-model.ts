@@ -39,10 +39,11 @@ import type { ConstructionJob, ConstructionQueue } from '../structures/queues'
  *   completes on real elapsed time; the 8h bank applies to accrual only).
  *
  * ZERO-ELAPSED BOUNDARY: when `elapsedSeconds === 0` (`at === lastTickAt`)
- * the result reports NO completed jobs — zero time yields zero progress of any
- * kind. `completeDueJobs` is inclusive (`finishesAt <= at`), so its boundary
- * result is suppressed here; a job whose `finishesAt === lastTickAt` completes
- * only in a NON-zero window (any `at > lastTickAt`). This keeps the
+ * the result reports NO completed jobs — zero time yields zero progress of
+ * every kind. `completeDueJobs` is inclusive (`finishesAt <= at`), so its
+ * boundary result is suppressed here; a job whose `finishesAt === lastTickAt`
+ * completes only in a NON-zero window (the supplied `at` > `lastTickAt`). This
+ * keeps the
  * anti-duplication delta contract exact: applying the zero delta advances
  * `lastTickAt` to `at` (a no-op), and the job is still due in the next real
  * window.
