@@ -74,7 +74,7 @@
 | T01 Ship Definitions | ✅ | Codex PASS (first round) — `src/sim/fleet/ships.ts` + `tests/ships.test.ts` (26 tests): 5-class roster, deep-frozen stats, validation |
 | T02 Shipyard | ✅ | Codex PASS (first round) — `src/sim/fleet/shipyard.ts` + `tests/shipyard.test.ts` (30 tests): locked fleet-cap/income wrappers, build eligibility ladder, cost math |
 | T03 Fleet Creation | ✅ | Codex PASS (first round) — `src/sim/fleet/fleet.ts` + `tests/fleet.test.ts` (34 tests): composition model, cost/size math, eligibility ladder, deterministic ids |
-| T04 Fleet Movement | ⬜ | |
+| T04 Fleet Movement | ✅ | Codex PASS (first round) — `src/sim/fleet/movement.ts` + `tests/movement.test.ts` (30 tests): travel math, slowest-ship fleet speed, overflow-safe arrival |
 | T05 Timestamp-Based Positioning | ⬜ | |
 | T06 Fleet Rendering | ⬜ | (Kimi K3: ship/fleet visual language first) |
 | T07 Fleet Orders | ⬜ | |
