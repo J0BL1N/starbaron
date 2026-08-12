@@ -63,7 +63,7 @@
 | T05 System Overview | ✅ | Codex PASS (round 2) — `src/sim/ui/system-overview.ts` + `tests/system-overview.test.ts` (36 tests): star summary, body cards (tier/ownership/colonisable), selection |
 | T06 Empire Overview | ✅ | Codex PASS (first round) — `src/sim/ui/empire-overview.ts` + `tests/empire-overview.test.ts` (30 tests): planet rows, locked totals, distinct systems, sort/filter |
 | T07 Notifications Framework | ✅ | Codex PASS (round 3) — `src/sim/ui/notifications.ts` + `tests/notifications.test.ts` (36 tests): dedup, read/reaction state, expiry, validation |
-| T08 Responsive / Touch UI | ⬜ | |
+| T08 Responsive / Touch UI | ✅ | Codex PASS (round 2) — `src/sim/ui/layout.ts` + `tests/layout.test.ts` (34 tests): viewport classes, breakpoints, panel stacking, touch targets, frozen tables |
 | T09 UI Mock/Real Data Boundary | ⬜ | |
 
 ## Phase 5 — Fleets & Space Travel
