@@ -275,4 +275,40 @@ end $$;
 
 set local role postgres;
 
+-- ---------------------------------------------------------------------
+-- 7. (finding 2, round 4) owned_planets.body_id is NOT NULL — static
+--    contract. The SET NOT NULL itself is verified at APPLY time (the 0016
+--    round-4 ALTER fails loudly on any NULL row); at test time the schema is
+--    already in its canonical state, so this section STATICALLY reads the
+--    column contract back from the catalog: body_id must be NOT NULL, and
+--    the full unique index owned_planets_body_id_key must be present and
+--    UNIQUE — with the column NOT NULL it admits no NULL escape.
+-- ---------------------------------------------------------------------
+do $$
+declare
+  v_is_nullable text;
+  v_indexdef    text;
+begin
+  select is_nullable into v_is_nullable
+    from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'owned_planets'
+     and column_name = 'body_id';
+  if v_is_nullable is distinct from 'NO' then
+    raise exception '8653 ASSERTION FAILED: owned_planets.body_id must be NOT NULL, catalog says %', v_is_nullable;
+  end if;
+
+  select indexdef into v_indexdef
+    from pg_indexes
+   where schemaname = 'public'
+     and tablename = 'owned_planets'
+     and indexname = 'owned_planets_body_id_key';
+  if v_indexdef is null then
+    raise exception '8653 ASSERTION FAILED: owned_planets_body_id_key unique index is missing';
+  end if;
+  if v_indexdef !~ 'UNIQUE' then
+    raise exception '8653 ASSERTION FAILED: owned_planets_body_id_key must be a UNIQUE index: %', v_indexdef;
+  end if;
+end $$;
+
 rollback;

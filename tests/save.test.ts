@@ -362,7 +362,9 @@ describe('P2-T04-B save v3 — validation', () => {
     const validated = validateSave(missingLevel)
     expect(validated).not.toBeNull()
     expect(validated!.player.structureLevels[name].oreMine).toBe(0)
-    expect(validated!.player.structureLevels[name].housing).toBe(0)
+    // Fresh saves carry the starter grid (housing 1 — phase-2 locked contract);
+    // the lenient loader preserves present keys, only missing keys normalize to 0.
+    expect(validated!.player.structureLevels[name].housing).toBe(1)
 
     const { tutorial: _omitTutorial, offlineSummarySeen: _omitSeen, ...rest } = save
     const missingOptional = validateSave(rest)

@@ -142,7 +142,9 @@ describe('P2-T04-B population independence + tier caps (D4 wiring)', () => {
       colony,
       gridForPlanet(player, colony.name),
     ).populationCap
-    expect(homeCap).toBe(5_000)
+    // Home starts with the starter grid (housing 1): effHousing 1 →
+    // baseCap = 5000×(1+0.2×1) = 6000, tier-1 multiplier 1.0, no denseCore → 6000.
+    expect(homeCap).toBe(6_000)
     expect(colonyCap).toBeCloseTo(5_000 * 1.4, 6)
     expect(populationCapMultiplier(colony.tier)).toBe(1.4)
   })
@@ -152,13 +154,18 @@ describe('P2-T04-B population independence + tier caps (D4 wiring)', () => {
     expect(player.colonies[0].population).toBe(0)
     const after = accruePlayer(player, 60_000)
     expect(after.colonies[0].population).toBe(120)
-    expect(after.homePlanet.population).toBe(1_000 + 120)
+    // Starter-grid context: the home world now holds housing 1, so its growth is
+    // (BASE_GROWTH 2 + HOUSING_GROWTH 2×1) = 4/sec → 1000 + 4×60 = 1240. The
+    // colony grid is all-zero (colonise writes emptyStructureLevels) → base 2/sec.
+    expect(after.homePlanet.population).toBe(1_000 + 4 * 60)
   })
 
   it('population grows independently per planet and pins at its own tier cap', () => {
     const player = makeEmpire(ANCHOR, ['Kepler-1606 b'])
     const after = accruePlayer(player, 8 * HOUR_MS)
-    expect(after.homePlanet.population).toBe(5_000)
+    // Home pins at the housing-1 cap (6000 = 5000×(1+0.2)); the colony pins at
+    // its all-zero-grid tier-3 cap (5000×1.4 = 7000).
+    expect(after.homePlanet.population).toBe(6_000)
     expect(after.colonies[0].population).toBe(7_000)
     expect(after.homePlanet.population).not.toBe(after.colonies[0].population)
   })

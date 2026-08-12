@@ -1025,3 +1025,29 @@ $$;
 
 revoke all on function public.resolve_attack(uuid) from public, anon;
 revoke execute on function public.resolve_attack(uuid) from authenticated;
+
+-- =====================================================================
+-- ROUND-4 COMPLETION (whole-phase audit round 4 — closes Phase 2)
+-- Purpose   : (finding 2) owned_planets.body_id is now NOT NULL. The
+--             round-2 column add (step 2 above) left body_id nullable and
+--             the round-3 RPC replacements only enforce it per-call; a
+--             nullable column lets a Postgres unique index admit multiple
+--             NULL rows, and the audit table (ownership_audit.body_id) is
+--             already NOT NULL. This section closes the gap AFTER the RPC
+--             changes: every claim path now writes body_id, so the column
+--             can be required at rest.
+-- Backfill guard: this stack is WRITE-ONLY (no rows applied), so the ALTER
+--             is a no-op on empty tables. An ALREADY-APPLIED stack with
+--             legacy rows MUST backfill a canonical body id on every
+--             owned_planets row (and de-duplicate body_ids) before this
+--             ALTER runs, else SET NOT NULL fails loudly on the first NULL
+--             row.
+-- The full unique index on body_id (round-3 step 8) is UNCHANGED — it stays
+--             the atomic reservation and, once the column is NOT NULL, it
+--             becomes a true full-uniqueness constraint with no NULL escape.
+-- Idempotent : YES — ALTER COLUMN ... SET NOT NULL is re-runnable (a second
+--             run is a no-op once the column is already NOT NULL).
+-- =====================================================================
+
+alter table public.owned_planets
+  alter column body_id set not null;

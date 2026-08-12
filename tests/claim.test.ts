@@ -24,6 +24,9 @@ import {
   walletSpend,
   STARTER_CREDITS,
 } from '../src/sim/player'
+import { canonicalBodyIdForEntry } from '../src/sim/player/claim'
+import { colonise as coloniseCanonical } from '../src/sim/player/colonisation'
+import type { BodyId } from '../src/sim/world/identity'
 
 const NOW = 1_700_000_000_000
 
@@ -154,6 +157,35 @@ describe('P2-T03-B colonise from unclaimed', () => {
     expect(() => coloniseFirstUnclaimed(full, NOW)).toThrow(
       /no unclaimed planets/,
     )
+  })
+})
+
+describe('P2 phase audit round 4 — single canonical ownership model (finding 3)', () => {
+  it('claimColony/colonise duplicate rejection comes from the canonical path (same body id twice)', () => {
+    const player = createPlayer('round4-canonical-dup', NOW)
+    const entry = firstUnclaimedByIndex(player)!
+    const body = canonicalBodyIdForEntry(entry)
+
+    // The canonical colonise is the single dup-prevention implementation: the
+    // same body id already in existingOwners yields reason 'already-owned'.
+    const canonical = coloniseCanonical({
+      bodyId: body,
+      ownerId: player.playerId,
+      wallet: player.wallet,
+      requirements: { hasFleet: true, hasTravel: true },
+      existingOwners: new Set<BodyId>([body]),
+      at: NOW,
+    })
+    expect(canonical.ok).toBe(false)
+    if (!canonical.ok) {
+      expect(canonical.reason).toBe('already-owned')
+    }
+
+    // The legacy wrapper surfaces the identical decision: a second claim of
+    // the same canonical body (the same entry) throws the mapped error.
+    const next = colonise(player, entry.name, NOW)
+    expect(next.colonies).toHaveLength(1)
+    expect(() => colonise(next, entry.name, NOW)).toThrow(/already claimed/)
   })
 })
 
