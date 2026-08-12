@@ -33,6 +33,7 @@ import type { BodyId, BodyType, GalaxyId, SystemId } from '../world/identity'
 import { parseCanonicalId } from '../world/identity'
 import type { GalaxyClass } from '../world/galaxy'
 import type { UniverseState } from '../world/reconstruct'
+import { starSummaryFor } from './display'
 import { assertInfoLevel, canViewLevel } from './info'
 import type { InfoLevel } from './info'
 import { assertPositiveAt } from './validate'
@@ -91,16 +92,6 @@ export const BODY_TYPE_LABELS: Readonly<Record<BodyType, string>> = Object.freez
   },
 )
 
-const UNKNOWN_STAR_SUBTITLE = 'Unknown star'
-
-/** 'G2 V' → 'G-class star'; missing or blank types fall back to 'Unknown star'. */
-function starSubtitle(starType: string | undefined): string {
-  if (starType === undefined || starType.trim() === '') {
-    return UNKNOWN_STAR_SUBTITLE
-  }
-  return `${starType.trim().charAt(0).toUpperCase()}-class star`
-}
-
 function positionMagnitude(position: {
   x: number
   y: number
@@ -145,7 +136,7 @@ function systemInfo(
     return null
   }
   const title = system.name
-  const subtitle = starSubtitle(system.star.starType)
+  const subtitle = starSummaryFor(system.star.starType)
   const bodies = formatNumber(system.bodyIds.length)
   const magnitude = Math.round(positionMagnitude(system.position))
   const stats: HoverStat[] = [

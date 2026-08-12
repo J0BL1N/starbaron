@@ -58,6 +58,7 @@ import { PLANETS } from '../data/planets'
 import type { PlanetCatalogueEntry } from '../data/planets'
 import { GAS_GIANT_DENSITY_MAX, densityProxy } from '../planets/quirks'
 import { COLONISATION_BASE_COST } from '../player/colonisation'
+import { starSummaryFor } from './display'
 import { assertInfoLevel, canViewLevel } from './info'
 import type { InfoLevel } from './info'
 import { assertPositiveAt } from './validate'
@@ -121,14 +122,6 @@ function planetTier(body: BodyRecord): number | null {
   return entry.tier
 }
 
-/** 'G2 V' → 'G-class star'; missing or blank types fall back to 'Unknown star'. */
-function starClassLabel(starType: string | undefined): string {
-  if (starType === undefined || starType.trim() === '') {
-    return 'Unknown star'
-  }
-  return `${starType.trim().charAt(0).toUpperCase()}-class star`
-}
-
 function bodyCard(
   body: BodyRecord,
   ownership: ReadonlyMap<string, string> | undefined,
@@ -185,7 +178,7 @@ export function systemOverviewFor(input: SystemOverviewInput): SystemOverview {
       ? null
       : input.selectedBodyId
   const count = bodies.length
-  const starSummary = `${starClassLabel(system.star.starType)} · ${count} ${count === 1 ? 'body' : 'bodies'}`
+  const starSummary = `${starSummaryFor(system.star.starType)} · ${count} ${count === 1 ? 'body' : 'bodies'}`
   return {
     systemId: system.id,
     systemName: system.name,

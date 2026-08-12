@@ -302,6 +302,36 @@ describe('P4-T02 hoverInfoFor — system', () => {
     expect(info.stats).toContainEqual({ label: 'Bodies', value: '0' })
   })
 
+  it('applies the shared star summary trimming and capitalisation to the subtitle', () => {
+    const delta = systemId(SLUG, 'delta')
+    let galaxy = buildGalaxyRecord({
+      slug: SLUG,
+      seed: SLUG,
+      name: 'Fixture Home',
+      position: { x: 0, y: 0, z: 0 },
+    })
+    galaxy = registerSystem(galaxy, delta)
+    const custom = buildSystemRecord({
+      galaxy: galaxy.id,
+      slug: 'delta',
+      name: 'Delta',
+      position: { x: 5, y: 0, z: 0 },
+      starType: ' m2 iii ',
+    })
+    const universe: UniverseState = {
+      galaxy,
+      systems: [custom],
+      bodies: [],
+    }
+    const info = hoverInfoFor({
+      target: { kind: 'system', id: delta },
+      universe,
+      viewerLevel: 'owner',
+      at: NOW,
+    })!
+    expect(info.subtitle).toBe('M-class star')
+  })
+
   it('never reports an owner for a system (ownership derives from bodies)', () => {
     const info = hoverInfoFor({
       target: { kind: 'system', id: ALPHA },

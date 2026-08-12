@@ -217,6 +217,30 @@ describe('P4-T05 star summary', () => {
     )
   })
 
+  it('applies the shared star summary trimming and capitalisation to the summary', () => {
+    const delta = systemId(SLUG, 'delta')
+    let galaxy = buildGalaxyRecord({ slug: SLUG, seed: SLUG, name: 'Fixture Home' })
+    galaxy = registerSystem(galaxy, delta)
+    const custom = buildSystemRecord({
+      galaxy: galaxy.id,
+      slug: 'delta',
+      name: 'Delta',
+      starType: ' k0 iv ',
+    })
+    const universe: UniverseState = {
+      galaxy,
+      systems: [custom],
+      bodies: [],
+    }
+    const result = systemOverviewFor({
+      systemId: delta,
+      universe,
+      viewerLevel: 'owner',
+      at: NOW,
+    })
+    expect(result.starSummary).toBe('K-class star · 0 bodies')
+  })
+
   it('includes the system id and display name', () => {
     const result = overview()
     expect(result.systemId).toBe(ALPHA)
