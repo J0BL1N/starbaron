@@ -27,7 +27,7 @@
 | Task | Status | Verdict / evidence |
 |---|---|---|
 | T01 Player Profile | ✅ | Codex PASS (first round) — `src/sim/player/profile.ts` + `tests/profile.test.ts` (27 tests): canonical profile, name/level validation, immutable home-world link |
-| T02 Home-World Assignment | ⬜ | (claim.ts exists, audited — verify against new spec) |
+| T02 Home-World Assignment | ✅ | Codex PASS (round 4) — `src/sim/player/assignment.ts` + `tests/assignment.test.ts` (34 tests): 6,321-body eligible set, two-phase probing (coverage + divergence + 3n budget), exhaustion, repeat-login idempotency |
 | T03 Home-World Protection | ⬜ | |
 | T04 Planet Ownership | ⬜ | |
 | T05 Empire Territory | ⬜ | |
