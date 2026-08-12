@@ -36,7 +36,8 @@
  * backend's (P6) job.
  *
  * NUMBER FORMATTING: numeric values on 'number' fields go through the locked
- * formatNumber (../core/format) — no locale APIs, byte-identical repeats.
+ * formatNumber (../core/format) — no environment-dependent formatting APIs,
+ * byte-identical repeats.
  * String values pass through untouched; numeric values on 'text' fields fall
  * back to String(value).
  */
