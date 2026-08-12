@@ -18,7 +18,7 @@
 | T04 Celestial-Body Data Model | ✅ | Codex PASS (commit b5d2850) — `src/sim/world/body.ts` + `tests/body-model.test.ts` (42 tests): BodyRecord + typed orbit elements, per-type defaults, star zero-orbit rule, seeded names |
 | T05 Real Astronomy Integration | ✅ | Codex PASS (commit 012b96a) — `src/sim/world/catalogue.ts` + `tests/catalogue.test.ts` (35 tests): 6,321 catalogue rows → 4,746 real systems + bodies, provenance flags, canonical-parent validation |
 | T06 Persistence Schema | ✅ | Codex PASS (commit d957edd) — `supabase/migrations/0013_world_schema.sql` + `supabase/tests/07_world_schema.sql`: world_galaxies/systems/bodies, CHECKs/UNIQUEs/FKs/cascade, RLS locked. WRITE-ONLY — apply deferred to Jay authorisation |
-| T07 Deterministic Universe Reconstruction | ⬜ | |
+| T07 Deterministic Universe Reconstruction | ✅ | Codex PASS (commit 58c298d) — `src/sim/world/reconstruct.ts` + `tests/reconstruct.test.ts` (30 tests): seed rebuild, byte-stable serialization, exact parent chains (catalogue galaxySlug option in catalogue.ts) |
 | T08 World-State API | ⬜ | |
 
 ## Phase 2 — Players, Home Worlds & Empire Ownership
