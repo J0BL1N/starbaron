@@ -12,7 +12,7 @@
 
 | Task | Status | Verdict / evidence |
 |---|---|---|
-| T01 Canonical Object Identity | ⬜ | |
+| T01 Canonical Object Identity | ✅ | Codex PASS ×3 rounds — `src/sim/world/identity.ts` + `tests/identity.test.ts` (39 tests): branded GalaxyId/SystemId/BodyId, parent chains, round-trip validation, idSeed=fnv1a. Commits 0410b5d, 4a46bf2 |
 | T02 Galaxy Data Model | ⬜ | |
 | T03 Solar-System Data Model | ⬜ | |
 | T04 Celestial-Body Data Model | ⬜ | |
