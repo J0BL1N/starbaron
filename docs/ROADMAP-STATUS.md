@@ -75,7 +75,7 @@
 | T02 Shipyard | ✅ | Codex PASS (first round) — `src/sim/fleet/shipyard.ts` + `tests/shipyard.test.ts` (30 tests): locked fleet-cap/income wrappers, build eligibility ladder, cost math |
 | T03 Fleet Creation | ✅ | Codex PASS (first round) — `src/sim/fleet/fleet.ts` + `tests/fleet.test.ts` (34 tests): composition model, cost/size math, eligibility ladder, deterministic ids |
 | T04 Fleet Movement | ✅ | Codex PASS (first round) — `src/sim/fleet/movement.ts` + `tests/movement.test.ts` (30 tests): travel math, slowest-ship fleet speed, overflow-safe arrival |
-| T05 Timestamp-Based Positioning | ⬜ | |
+| T05 Timestamp-Based Positioning | ✅ | Codex PASS (round 2) — `src/sim/fleet/positioning.ts` + `tests/positioning.test.ts` (30 tests): deterministic interpolation, boundary contract, no-aliasing |
 | T06 Fleet Rendering | ⬜ | (Kimi K3: ship/fleet visual language first) |
 | T07 Fleet Orders | ⬜ | |
 | T08 Fleet UI | ⬜ | |
