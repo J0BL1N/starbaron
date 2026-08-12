@@ -10,7 +10,7 @@ READ LIST:
 - src/sim/core/economy.ts         (LOCKED cost/income formulas)
 - src/sim/structures/data.ts      (STRUCTURE_IDS)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT f3809f5b68ea4d62a07d4038481b2450ec7804fc (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT ac2a55f31f173c4525660233671c0212910e56c9 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p3-t10-brief.md + master roadmap P3-T10):
 1. HarnessPoint { atSeconds, credits, alloys, population, structureLevels, income, band }; HarnessRun { config, points, summary { timeToFirstUpgradeSeconds, timeToBand, finalCredits, totalUpgrades } }.
