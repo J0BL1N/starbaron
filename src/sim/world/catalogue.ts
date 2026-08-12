@@ -9,23 +9,30 @@
  * deep-equal mapping. No nondeterministic APIs, wall-clock timestamps,
  * module-level mutable state, or rendering imports.
  *
- * Real-data provenance discipline: every record produced here is a catalogue
- * entry, so realData is always true and provenance carries the snapshot fetch
- * timestamp. Records are never relabelled procedural. This module is the ONLY
- * source of construction that may label a record real: it mints the
- * CATALOGUE_TRUST capability (./trust) and passes it to the factories, which
- * otherwise refuse realData: true. Procedural values are used ONLY for fields
- * the pinned snapshot does not carry (orbital elements and radius/mass when
- * absent), and those defaults derive deterministically from the body id via
- * the P1-T04 band logic — never fabricated as "real".
+ * Real-data provenance discipline: every record returned here is a catalogue
+ * entry, so realData is true and provenance carries the snapshot fetch
+ * timestamp. The factories (./galaxy, ./system, ./body) accept NO real-data
+ * or provenance input — they always build procedural records — so this module
+ * labels the FULLY BUILT mapping at one post-construction spread
+ * ({ ...builtRecord, realData: true, provenance }) just before returning.
+ * That single boundary is the ONLY labelled place in the codebase; there is
+ * no public elevation path through a factory. Records are never relabelled
+ * procedural. Procedural values are used ONLY for fields the pinned snapshot
+ * does not carry (orbital elements and radius/mass when absent), and those
+ * defaults derive deterministically from the body id via the P1-T04 band logic
+ * — never fabricated as "real".
+ *
+ * Because the returned records are plain data, a direct object spread outside
+ * this module could in principle craft a labelled record (plain-data reality).
+ * That is out of scope here — the enforcement net for materialized rows is the
+ * SQL CHECK set (supabase/migrations/0013_world_schema.sql) and
+ * validateCatalogue below.
  */
 
 import { PLANET_SNAPSHOT } from '../data/planets'
 import type { PlanetCatalogueEntry } from '../data/planets'
 import { parseCanonicalId, parentOf } from './identity'
 import type { BodyId, SystemId } from './identity'
-import { CATALOGUE_TRUST } from './trust'
-import type { CatalogueTrust } from './trust'
 import { buildGalaxyRecord, registerSystem } from './galaxy'
 import type { GalaxyRecord } from './galaxy'
 import { buildSystemRecord, registerBody } from './system'
@@ -60,14 +67,6 @@ export interface CatalogueSnapshotMeta {
 export function catalogueProvenance(fetchedAt: string): string {
   return `nasa-exoplanet-archive-${fetchedAt}`
 }
-
-/**
- * The catalogue's real-data capability token. Holding the unique
- * CATALOGUE_TRUST symbol key is the ONLY way a factory accepts realData: true
- * (assertTrustedRealData in ./galaxy). This module is the sole legitimate
- * issuer; the token object is never mutated.
- */
-const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 /**
  * World radius from catalogue Earth-radii: offset + scaled, clamped to
@@ -140,9 +139,6 @@ export function buildCatalogueMapping(
   const galaxy = buildGalaxyRecord({
     slug: galaxySlug,
     name: CATALOGUE_GALAXY_NAME,
-    realData: true,
-    provenance,
-    trust: CATALOGUE_TRUST_TOKEN,
   })
 
   const planetsByHost = new Map<string, PlanetCatalogueEntry[]>()
@@ -163,9 +159,6 @@ export function buildCatalogueMapping(
       slug: hostname,
       name: hostname,
       starType: hostStarType(planetsByHost.get(hostname) ?? []),
-      realData: true,
-      provenance,
-      trust: CATALOGUE_TRUST_TOKEN,
     }),
   )
 
@@ -196,9 +189,6 @@ export function buildCatalogueMapping(
           // BodyRecord.mass is in Jupiter masses (massJup) for catalogue
           // mappings — passed through as-is, no kg conversion.
           mass: entry.massJup,
-          realData: true,
-          provenance,
-          trust: CATALOGUE_TRUST_TOKEN,
         }),
       )
     }
@@ -228,30 +218,37 @@ export function buildCatalogueMapping(
     galaxyWithSystems = registerSystem(galaxyWithSystems, system.id)
   }
 
-  let realSystems = 0
-  let seededSystems = 0
-  for (const system of systemsWithBodies) {
-    if (system.realData) {
-      realSystems++
-    } else {
-      seededSystems++
-    }
+  // THE single real-data labelling boundary. Every record this module returns
+  // is a catalogue entry, so the fully-built mapping is relabelled HERE, after
+  // construction, in one place. The factories accept no real-data/provenance
+  // input, so no other path can elevate a record; the SQL CHECKs and
+  // validateCatalogue are the enforcement net for materialized rows.
+  const labelledGalaxy: GalaxyRecord = {
+    ...galaxyWithSystems,
+    realData: true,
+    provenance,
   }
-  let realBodies = 0
-  let seededBodies = 0
-  for (const body of bodies) {
-    if (body.realData) {
-      realBodies++
-    } else {
-      seededBodies++
-    }
-  }
+  const labelledSystems: SystemRecord[] = systemsWithBodies.map((system) => ({
+    ...system,
+    realData: true,
+    provenance,
+  }))
+  const labelledBodies: BodyRecord[] = bodies.map((body) => ({
+    ...body,
+    realData: true,
+    provenance,
+  }))
 
   return {
-    galaxy: galaxyWithSystems,
-    systems: systemsWithBodies,
-    bodies,
-    stats: { realSystems, realBodies, seededSystems, seededBodies },
+    galaxy: labelledGalaxy,
+    systems: labelledSystems,
+    bodies: labelledBodies,
+    stats: {
+      realSystems: labelledSystems.length,
+      realBodies: labelledBodies.length,
+      seededSystems: 0,
+      seededBodies: 0,
+    },
   }
 }
 
@@ -270,7 +267,11 @@ export interface CatalogueValidation {
  * membership is exact in both directions (every system id in galaxy.systemIds
  * and vice versa); every body's parent system exists; every body's declared
  * system equals the canonical parent of its id; every body ordinal equals its
- * index within its host; no duplicate ids anywhere in the mapping.
+ * index within its host; no duplicate ids anywhere in the mapping; and — for
+ * EVERY system — the bodyIds registry is ordered, duplicate-free, and EXACTLY
+ * matches the set of mapped child body ids (each body whose parent is that
+ * system appears, no extra ids, no duplicates, registry order equals the
+ * mapped bodies order).
  */
 export function validateCatalogue(
   mapping: CatalogueMappingResult,
@@ -370,6 +371,44 @@ export function validateCatalogue(
           `body ${group[index].id} has ordinal ${group[index].ordinal}, expected ${index} within host ${system}`,
         )
       }
+    }
+  }
+
+  for (const system of mapping.systems) {
+    const childBodies = bodiesBySystem.get(system.id) ?? []
+    const expectedIds = childBodies.map((body) => body.id)
+    const expectedSet = new Set(expectedIds)
+    if (system.bodyIds.length !== expectedIds.length) {
+      problems.push(
+        `system ${system.id} bodyIds registry count ${system.bodyIds.length} does not match attached bodies ${expectedIds.length}`,
+      )
+    }
+    const seen = new Set<string>()
+    for (const id of system.bodyIds) {
+      if (!expectedSet.has(id)) {
+        problems.push(
+          `system ${system.id} bodyIds references unknown body: ${id}`,
+        )
+      }
+      if (seen.has(id)) {
+        problems.push(`system ${system.id} bodyIds contains a duplicate: ${id}`)
+      }
+      seen.add(id)
+    }
+    for (const id of expectedIds) {
+      if (!system.bodyIds.includes(id)) {
+        problems.push(
+          `body ${id} is missing from the system ${system.id} bodyIds registry`,
+        )
+      }
+    }
+    const sameOrder =
+      system.bodyIds.length === expectedIds.length &&
+      system.bodyIds.every((id, index) => id === expectedIds[index])
+    if (!sameOrder) {
+      problems.push(
+        `system ${system.id} bodyIds registry order does not match the mapped bodies order`,
+      )
     }
   }
 

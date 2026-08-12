@@ -16,7 +16,6 @@
 import { fnv1a } from '../planets/hash'
 import { galaxyId } from './identity'
 import type { GalaxyId, SystemId } from './identity'
-import type { CatalogueTrust } from './trust'
 
 /** Extensible galaxy morphology union. */
 export type GalaxyClass =
@@ -79,65 +78,13 @@ function seededUnit(seed: string): number {
 }
 
 /**
- * Provenance prefix that marks a record as genuinely real catalogue data.
- * realData: true is only reachable through catalogue/reconstruction internals,
- * which always carry a provenance starting with this prefix (see
- * catalogueProvenance in ./catalogue).
- */
-export const REAL_DATA_PROVENANCE_PREFIX = 'nasa-exoplanet-archive-'
-
-/**
- * Enforce the real-data provenance contract: a record flagged realData: true
- * must carry a known catalogue provenance. Any other combination (e.g. a
- * procedural caller labelling a record real) is rejected, so non-catalogue
- * construction can never create a record that claims real data.
- */
-export function assertRealDataProvenance(
-  realData: boolean | undefined,
-  provenance: string,
-): void {
-  if (realData === true && !provenance.startsWith(REAL_DATA_PROVENANCE_PREFIX)) {
-    throw new Error(
-      `realData: true requires a catalogue provenance starting with '${REAL_DATA_PROVENANCE_PREFIX}', got: ${JSON.stringify(provenance)}`,
-    )
-  }
-}
-
-/**
- * Enforce the source-of-construction gate (the real-data capability):
- * setting realData: true — or any non-procedural provenance — requires the
- * opaque CATALOGUE_TRUST capability from ./trust, which only ./catalogue can
- * mint. Without the capability the record must stay procedural (realData
- * false, provenance 'procedural'); any attempt to elevate it throws.
- */
-export function assertTrustedRealData(
-  factory: string,
-  realData: boolean,
-  provenance: string,
-  trust: CatalogueTrust | undefined,
-): void {
-  if (trust === undefined) {
-    if (realData) {
-      throw new Error(
-        `${factory}: realData: true requires the CATALOGUE_TRUST token from ./trust; only catalogue construction may label a record real`,
-      )
-    }
-    if (provenance !== 'procedural') {
-      throw new Error(
-        `${factory}: a non-procedural provenance requires the CATALOGUE_TRUST token from ./trust`,
-      )
-    }
-  }
-  assertRealDataProvenance(realData, provenance)
-}
-
-/**
  * Build a canonical galaxy record. The id is always the branded slug id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record. realData: true is a capability-gated construction: it
- * requires the CATALOGUE_TRUST token (see assertTrustedRealData), so only
- * catalogue construction can label a record real. Without the token the
- * record defaults to realData false with provenance 'procedural'.
+ * deep-equal record. The factory accepts NO real-data/provenance input: every
+ * record is procedural (realData false, provenance 'procedural'). The only
+ * place a record may be labelled real is the single post-construction spread
+ * at the catalogue mapping boundary (./catalogue), which relabels the fully
+ * built mapping; no factory path can elevate a record.
  */
 export function buildGalaxyRecord(input: {
   slug: string
@@ -146,13 +93,7 @@ export function buildGalaxyRecord(input: {
   class?: GalaxyClass
   position?: { x: number; y: number; z: number }
   radius?: number
-  realData?: boolean
-  provenance?: string
-  trust?: CatalogueTrust
 }): GalaxyRecord {
-  const realData = input.realData ?? false
-  const provenance = input.provenance ?? 'procedural'
-  assertTrustedRealData('buildGalaxyRecord', realData, provenance, input.trust)
   return {
     id: galaxyId(input.slug),
     seed: input.seed ?? input.slug,
@@ -162,8 +103,8 @@ export function buildGalaxyRecord(input: {
     radius: input.radius ?? DEFAULT_GALAXY_RADIUS,
     systemIds: [],
     generationVersion: GALAXY_GENERATION_VERSION,
-    realData,
-    provenance,
+    realData: false,
+    provenance: 'procedural',
   }
 }
 

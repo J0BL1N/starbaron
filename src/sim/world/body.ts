@@ -16,8 +16,6 @@
 import { fnv1a } from '../planets/hash'
 import { bodyId, parseCanonicalId } from './identity'
 import type { BodyId, BodyType, SystemId } from './identity'
-import { assertTrustedRealData } from './galaxy'
-import type { CatalogueTrust } from './trust'
 
 export const BODY_GENERATION_VERSION = 1
 
@@ -263,10 +261,10 @@ function validateOrbit(type: BodyType, orbit: BodyOrbit): void {
 /**
  * Build a canonical body record. The id is always the branded id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record. realData: true is a capability-gated construction: it
- * requires the CATALOGUE_TRUST token (see assertTrustedRealData), so only
- * catalogue construction can label a record real. Without the token the
- * record defaults to realData false with provenance 'procedural'.
+ * deep-equal record. The factory accepts NO real-data/provenance input: every
+ * record is procedural (realData false, provenance 'procedural'). The only
+ * place a record may be labelled real is the single post-construction spread
+ * at the catalogue mapping boundary (./catalogue).
  */
 export function buildBodyRecord(input: {
   system: SystemId
@@ -277,18 +275,12 @@ export function buildBodyRecord(input: {
   radius?: number
   orbit?: Partial<BodyOrbit>
   mass?: number
-  realData?: boolean
-  provenance?: string
-  trust?: CatalogueTrust
 }): BodyRecord {
   const systemName = systemNameOf(input.system)
   const id = bodyId(input.system, input.type, input.ordinal)
   const seed = input.seed ?? id
   const orbit = { ...defaultOrbit(input.type, id), ...input.orbit }
   validateOrbit(input.type, orbit)
-  const realData = input.realData ?? false
-  const provenance = input.provenance ?? 'procedural'
-  assertTrustedRealData('buildBodyRecord', realData, provenance, input.trust)
   return {
     id,
     system: input.system,
@@ -299,8 +291,8 @@ export function buildBodyRecord(input: {
     radius: input.radius ?? defaultRadius(input.type, id),
     ...(input.mass !== undefined ? { mass: input.mass } : {}),
     orbit,
-    realData,
-    provenance,
+    realData: false,
+    provenance: 'procedural',
     generationVersion: BODY_GENERATION_VERSION,
   }
 }

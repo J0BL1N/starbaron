@@ -16,8 +16,7 @@
 import { fnv1a } from '../planets/hash'
 import { parseCanonicalId, systemId } from './identity'
 import type { BodyId, GalaxyId, SystemId } from './identity'
-import { assertTrustedRealData, DEFAULT_GALAXY_RADIUS } from './galaxy'
-import type { CatalogueTrust } from './trust'
+import { DEFAULT_GALAXY_RADIUS } from './galaxy'
 
 export const SYSTEM_GENERATION_VERSION = 1
 
@@ -110,10 +109,10 @@ export function starColorFor(
 /**
  * Build a canonical system record. The id is always the branded id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record. realData: true is a capability-gated construction: it
- * requires the CATALOGUE_TRUST token (see assertTrustedRealData), so only
- * catalogue construction can label a record real. Without the token the
- * record defaults to realData false with provenance 'procedural'.
+ * deep-equal record. The factory accepts NO real-data/provenance input: every
+ * record is procedural (realData false, provenance 'procedural'). The only
+ * place a record may be labelled real is the single post-construction spread
+ * at the catalogue mapping boundary (./catalogue).
  */
 export function buildSystemRecord(input: {
   galaxy: GalaxyId
@@ -122,16 +121,10 @@ export function buildSystemRecord(input: {
   name?: string
   position?: { x: number; y: number; z: number }
   starType?: string
-  realData?: boolean
-  provenance?: string
-  trust?: CatalogueTrust
 }): SystemRecord {
   const galaxySlug = galaxySlugOf(input.galaxy)
   const seed = input.seed ?? input.slug
   const starName = input.name ?? input.slug
-  const realData = input.realData ?? false
-  const provenance = input.provenance ?? 'procedural'
-  assertTrustedRealData('buildSystemRecord', realData, provenance, input.trust)
   return {
     id: systemId(galaxySlug, seed),
     galaxy: input.galaxy,
@@ -145,8 +138,8 @@ export function buildSystemRecord(input: {
     },
     bodyIds: [],
     generationVersion: SYSTEM_GENERATION_VERSION,
-    realData,
-    provenance,
+    realData: false,
+    provenance: 'procedural',
   }
 }
 

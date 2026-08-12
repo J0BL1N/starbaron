@@ -38,18 +38,22 @@
 --       minus the 'sys:' prefix) || '|' — a body can never attach to a system
 --       its id does not encode, and its embedded type/ordinal can never drift
 --       from its type/ordinal columns.
---     * all three tables enforce the real-data provenance/flag consistency at
+--     * all three tables enforce the real-data flag/provenance consistency at
 --       rest: real_data true requires a catalogue provenance
 --       (provenance LIKE 'nasa-exoplanet-archive-%') and real_data false
---       requires provenance = 'procedural' — mirror of the source-of-
---       construction gate in src/sim/world (trust.ts / assertTrustedRealData).
+--       requires provenance = 'procedural' — mirror of the real-data labelling
+--       boundary in src/sim/world/catalogue.ts (the factories build procedural
+--       records only; catalogue.ts relabels the whole mapping at one
+--       post-construction spread).
 --   The FK columns (world_systems.galaxy_id, world_bodies.system_id) hold the
 --   parent's canonical id, and the composite UNIQUEs ((galaxy_id, id) /
 --   (system_id, id)) are KEPT as documented belt-and-braces (id is already the
 --   PK, so they can never fire — the CHECKs are the real reparent guard).
 --   world_bodies.ordinal duplicates the id's ordinal segment as a real
---   column; UNIQUE (system_id, ordinal) is the "one body per ordinal per
---   system" promise (BodyRecord.ordinal, body.ts:41).
+--   column; UNIQUE (system_id, type, ordinal) is the "one body per type per
+--   ordinal per system" promise — type is part of body identity, so planet|0
+--   and moon|0 coexist in one system while a second same-type same-ordinal
+--   body is rejected (BodyRecord.ordinal, body.ts:41).
 -- Persistence-only metadata (NOT part of the canonical record contract in
 --   src/sim/world/{galaxy,system,body}.ts): the created_at columns are
 --   DB-filled (default now()) for operational tracing only and are excluded
@@ -95,7 +99,8 @@ create table if not exists public.world_galaxies (
   created_at         timestamptz not null default now(),
   -- Full canonical id grammar: a single non-empty slug segment, no extra '|'.
   check (id ~ '^gal:[^|]+$'),
-  -- Real-data flag/provenance consistency at rest (mirror of trust.ts).
+  -- Real-data flag/provenance consistency at rest (mirror of the real-data
+  -- labelling boundary in src/sim/world/catalogue.ts).
   check (not real_data or provenance like 'nasa-exoplanet-archive-%'),
   check (real_data or provenance = 'procedural')
 );
@@ -129,7 +134,8 @@ create table if not exists public.world_systems (
   -- Full canonical id grammar + embedded parent slug + embedded seed column.
   check (id ~ '^sys:[^|]+\|[^|]+$' and split_part(id, '|', 2) = seed),
   check (id like 'sys:' || substr(galaxy_id, 5) || '|%'),
-  -- Real-data flag/provenance consistency at rest (mirror of trust.ts).
+  -- Real-data flag/provenance consistency at rest (mirror of the real-data
+  -- labelling boundary in src/sim/world/catalogue.ts).
   check (not real_data or provenance like 'nasa-exoplanet-archive-%'),
   check (real_data or provenance = 'procedural')
 );
@@ -140,14 +146,19 @@ create index if not exists world_systems_galaxy_id_idx on public.world_systems (
 --    orbit elements mirror BodyOrbit (body.ts:24-32); mass is nullable
 --    (BodyRecord.mass?, body.ts:43); radius > 0 (body generators always
 --    emit positive radii); ordinal >= 0 (identity.ts assertOrdinal);
---    eccentricity in [0,1) (body.ts:234); period >= 0 (stars keep ZERO
---    orbit, body.ts:184-187). system_id FK cascades. CHECKs tie id to
---    system_id: a body id must encode the same galaxySlug|systemSeed as
---    system_id (id like 'body:' || substr(system_id, 5) || '|%'), and the
---    id's type segment (split_part(id,'|',3)) must equal the type column.
---    UNIQUEs: (system_id, id) belt-and-braces reparent guard (see header),
---    (system_id, ordinal) the one-body-per-ordinal promise. Plain indexes
---    serve system listing + type filtering.
+--    eccentricity in [0,1) (body.ts:234). Star vs non-star orbits:
+--    validateOrbit (body.ts:229) is the documented source — a star keeps the
+--    ALL-ZERO orbit and a non-star must carry a positive period (the model
+--    always emits a positive semi-major axis too: moon >= 1, planet/asteroid
+--    >= 8, defaultOrbit body.ts:191). The CHECKs below enforce that split at
+--    rest: non-stars need period > 0 and semi_major_axis > 0; stars need every
+--    orbit element at 0. system_id FK cascades. CHECKs tie id to system_id: a
+--    body id must encode the same galaxySlug|systemSeed as system_id (id like
+--    'body:' || substr(system_id, 5) || '|%'), and the id's type segment
+--    (split_part(id,'|',3)) must equal the type column. UNIQUEs:
+--    (system_id, id) belt-and-braces reparent guard (see header),
+--    (system_id, type, ordinal) the one-body-per-type-per-ordinal promise.
+--    Plain indexes serve system listing + type filtering.
 -- ---------------------------------------------------------------------
 create table if not exists public.world_bodies (
   id                           text primary key,   -- 'body:<galaxySlug>|<systemSeed>|<type>|<ordinal>'
@@ -171,7 +182,25 @@ create table if not exists public.world_bodies (
   -- DB-filled persistence metadata, excluded from the canonical record contract.
   created_at                   timestamptz not null default now(),
   unique (system_id, id),
-  unique (system_id, ordinal),
+  unique (system_id, type, ordinal),
+  -- Star zero-orbit vs non-star positive orbit (validateOrbit, body.ts:229):
+  -- a star keeps every orbit element at 0; a non-star must carry a positive
+  -- period and a positive semi-major axis — the model never emits a
+  -- zero-period or zero-semi-major-axis non-star (defaultOrbit body.ts:191).
+  check (type = 'star' or semi_major_axis > 0),
+  check (type = 'star' or period > 0),
+  check (
+    type <> 'star'
+    or (
+      semi_major_axis = 0
+      and period = 0
+      and eccentricity = 0
+      and inclination = 0
+      and longitude_of_ascending_node = 0
+      and argument_of_periapsis = 0
+      and mean_anomaly = 0
+    )
+  ),
   -- Full canonical id grammar (four segments, numeric ordinal, no extra
   -- segments) + embedded type/ordinal columns + embedded parent system.
   check (
@@ -181,7 +210,8 @@ create table if not exists public.world_bodies (
   ),
   check (id like 'body:' || substr(system_id, 5) || '|%'),
   check (type = split_part(id, '|', 3)),
-  -- Real-data flag/provenance consistency at rest (mirror of trust.ts).
+  -- Real-data flag/provenance consistency at rest (mirror of the real-data
+  -- labelling boundary in src/sim/world/catalogue.ts).
   check (not real_data or provenance like 'nasa-exoplanet-archive-%'),
   check (real_data or provenance = 'procedural')
 );

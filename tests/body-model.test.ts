@@ -9,17 +9,10 @@ import {
   seededBodyName,
 } from '../src/sim/world/body'
 import type { BodyRecord } from '../src/sim/world/body'
-import { CATALOGUE_TRUST } from '../src/sim/world/trust'
-import type { CatalogueTrust } from '../src/sim/world/trust'
 
 const SYSTEM = systemId('HD-564', 'Aurora')
 
 const BODY_TYPES: readonly BodyType[] = ['star', 'planet', 'moon', 'asteroid']
-
-const REAL_PROVENANCE = 'nasa-exoplanet-archive-2026-08-10'
-
-/** Test-held catalogue capability token (catalogue.ts is the prod issuer). */
-const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 type BodyInput = Omit<
   Parameters<typeof buildBodyRecord>[0],
@@ -128,58 +121,43 @@ describe('P1-T04 factory defaults', () => {
     expect(planet.orbit.eccentricity).toBeGreaterThanOrEqual(0)
   })
 
-  it('honours overrides for realData and provenance', () => {
-    const planet = body('planet', 0, {
-      realData: true,
-      provenance: REAL_PROVENANCE,
-      trust: CATALOGUE_TRUST_TOKEN,
-    })
-    expect(planet.realData).toBe(true)
-    expect(planet.provenance).toBe(REAL_PROVENANCE)
-  })
-
-  it('rejects realData true without the CATALOGUE_TRUST token', () => {
-    expect(() =>
-      body('planet', 0, {
-        realData: true,
-        provenance: REAL_PROVENANCE,
-      }),
-    ).toThrow(/CATALOGUE_TRUST/)
-  })
-
-  it('rejects realData true when provenance defaults to procedural without trust', () => {
-    expect(() => body('planet', 0, { realData: true })).toThrow(/CATALOGUE_TRUST/)
-  })
-
-  it('rejects a non-procedural provenance without the trust token', () => {
-    expect(() => body('planet', 0, { provenance: REAL_PROVENANCE })).toThrow(
-      /CATALOGUE_TRUST/,
-    )
-  })
-
-  it('rejects realData true without a catalogue provenance even with trust', () => {
-    expect(() =>
-      body('planet', 0, {
-        realData: true,
-        provenance: 'procedural',
-        trust: CATALOGUE_TRUST_TOKEN,
-      }),
-    ).toThrow(/catalogue provenance/)
-  })
-
-  it('accepts realData true only with the trust token and a catalogue provenance', () => {
-    const planet = body('planet', 0, {
-      realData: true,
-      provenance: REAL_PROVENANCE,
-      trust: CATALOGUE_TRUST_TOKEN,
-    })
-    expect(planet.realData).toBe(true)
-    expect(planet.provenance).toBe(REAL_PROVENANCE)
-  })
-
   it('mass is omitted from the record when not supplied', () => {
     expect(body('planet').mass).toBeUndefined()
     expect('mass' in body('planet')).toBe(false)
+  })
+})
+
+describe('P1-T04 real-data construction is impossible via the factory', () => {
+  it('the input type has no realData member (compile-time rejection)', () => {
+    // @ts-expect-error realData is not part of the factory input contract
+    buildBodyRecord({ system: SYSTEM, type: 'planet', ordinal: 0, realData: true })
+  })
+
+  it('the input type has no provenance member (compile-time rejection)', () => {
+    // @ts-expect-error provenance is not part of the factory input contract
+    buildBodyRecord({ system: SYSTEM, type: 'planet', ordinal: 0, provenance: 'nasa-exoplanet-archive-2026-08-10' })
+  })
+
+  it('runtime default is always procedural even when extra fields are passed', () => {
+    const input = {
+      system: SYSTEM,
+      type: 'planet' as const,
+      ordinal: 0,
+      name: 'Aurorae-2',
+      realData: true,
+      provenance: 'nasa-exoplanet-archive-2026-08-10',
+    }
+    const planet = buildBodyRecord(input)
+    expect(planet.realData).toBe(false)
+    expect(planet.provenance).toBe('procedural')
+  })
+
+  it('every record stays procedural across all types', () => {
+    for (const type of BODY_TYPES) {
+      const record = buildBodyRecord({ system: SYSTEM, type, ordinal: 0 })
+      expect(record.realData).toBe(false)
+      expect(record.provenance).toBe('procedural')
+    }
   })
 })
 
@@ -410,9 +388,6 @@ describe('P1-T04 determinism', () => {
       radius: 1.3,
       mass: 0.41,
       orbit: { semiMajorAxis: 21 },
-      realData: true,
-      provenance: REAL_PROVENANCE,
-      trust: CATALOGUE_TRUST_TOKEN,
     }
     expect(buildBodyRecord({ system: SYSTEM, type: 'planet', ordinal: 2, ...input })).toEqual(
       buildBodyRecord({ system: SYSTEM, type: 'planet', ordinal: 2, ...input }),

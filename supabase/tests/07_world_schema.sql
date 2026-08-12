@@ -17,17 +17,24 @@
 --                 star|planet|moon|asteroid; the ordinal >= 0 CHECK rejects
 --                 negatives; the eccentricity < 1 CHECK rejects a parabola
 --                 1.0; the radius > 0 CHECK rejects 0; the
---                 semi_major_axis >= 0 and period >= 0 CHECKs reject -1;
---                 the generation_version > 0 CHECK rejects 0; an orphan
+--                 semi_major_axis >= 0 and period >= 0 CHECKs reject -1; the
+--                 generation_version > 0 CHECK rejects 0; an orphan
 --                 insert with no parent system row raises
---                 foreign_key_violation; the UNIQUE (system_id, ordinal)
---                 constraint rejects a second body with the same ordinal in
---                 the same system; the id/system_id CHECK rejects a body id
---                 whose embedded system prefix disagrees with system_id and
---                 the type-segment CHECK rejects a body whose id type
---                 segment disagrees with the type column (both
+--                 foreign_key_violation; the UNIQUE (system_id, type,
+--                 ordinal) constraint rejects a second body with the same
+--                 TYPE + ordinal in the same system while a same-ordinal
+--                 body of a DIFFERENT type (planet|1 + moon|1) persists —
+--                 type is part of body identity; the id/system_id CHECK
+--                 rejects a body id whose embedded system prefix disagrees
+--                 with system_id and the type-segment CHECK rejects a body
+--                 whose id type segment disagrees with the type column (both
 --                 check_violation); the galaxy -> system -> body cascade
 --                 removes bodies with their system.
+--               * STAR vs NON-STAR orbit split (validateOrbit, body.ts:229 is
+--                 the documented source): a star keeps the all-zero orbit
+--                 (semi_major_axis 0, period 0) while a non-star with period
+--                 = 0 or semi_major_axis = 0 raises check_violation — the
+--                 SQL never permits a non-star with a zero orbit.
 --               * FULL canonical id grammar (0013 phase-audit CHECKs):
 --                 world_galaxies.id rejects a slug containing '|'
 --                 (check_violation); world_systems.id rejects an embedded
@@ -40,8 +47,9 @@
 --                 galaxy/system/body with provenance
 --                 'nasa-exoplanet-archive-...' round-trips; real_data = true
 --                 with provenance = 'procedural' violates the CHECK on every
---                 table (check_violation) — mirror of the source-of-
---                 construction gate (src/sim/world/trust.ts).
+--                 table (check_violation) — mirror of the real-data labelling
+--                 boundary in src/sim/world/catalogue.ts (the factories
+--                 always build procedural records).
 --               * created_at is DB-filled persistence metadata EXCLUDED from
 --                 the canonical record contract (0013 header) — no model
 --                 round-trip asserts it; it is purely operational.
@@ -260,12 +268,15 @@ end $$;
 -- ---------------------------------------------------------------------
 -- 3. world_bodies: round-trip + defaults (star ZERO orbit: semi_major_axis
 --    0, eccentricity 0, period 0, mass NULL), type CHECK, ordinal >= 0
---    CHECK, eccentricity < 1 CHECK, UNIQUE (system_id, ordinal).
+--    CHECK, eccentricity < 1 CHECK, UNIQUE (system_id, type, ordinal), star
+--    vs non-star orbit split. moon|1 shares ordinal 1 with planet|1 — type
+--    is part of body identity, so same-ordinal different-type bodies coexist.
 -- ---------------------------------------------------------------------
-insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-values ('body:test-alpha|alpha-seed|star|0',    'sys:test-alpha|alpha-seed', 'star',   'Test Alpha Prime', 'star-seed', 0, 4.0),
-       ('body:test-alpha|alpha-seed|planet|1',  'sys:test-alpha|alpha-seed', 'planet', 'Verdant',          'p1',        1, 1.5),
-       ('body:test-alpha|alpha-seed|planet|2',  'sys:test-alpha|alpha-seed', 'planet', 'Mara',             'p2',        2, 1.2);
+insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+values ('body:test-alpha|alpha-seed|star|0',    'sys:test-alpha|alpha-seed', 'star',   'Test Alpha Prime', 'star-seed', 0, 4.0,  0,    0),
+       ('body:test-alpha|alpha-seed|planet|1',  'sys:test-alpha|alpha-seed', 'planet', 'Verdant',          'p1',        1, 1.5,  9.5,  250),
+       ('body:test-alpha|alpha-seed|planet|2',  'sys:test-alpha|alpha-seed', 'planet', 'Mara',             'p2',        2, 1.2,  12.0, 320),
+       ('body:test-alpha|alpha-seed|moon|1',    'sys:test-alpha|alpha-seed', 'moon',   'Test Alpha II',    'm1',        1, 0.2,  1.8,  20);
 
 do $$
 declare
@@ -275,7 +286,8 @@ declare
   v_mass double precision;
   v_n bigint;
 begin
-  -- planet round-trip: orbit defaults are all 0, mass NULL (BodyRecord.mass?).
+  -- planet round-trip: explicit positive non-star orbit persisted, mass NULL
+  -- (BodyRecord.mass?).
   select type, ordinal, semi_major_axis, eccentricity, period, mass
     into v_type, v_ord, v_sma, v_ecc, v_period, v_mass
     from public.world_bodies
@@ -283,16 +295,24 @@ begin
   if v_type is null then
     raise exception '8653 ASSERTION FAILED: body round-trip must find the inserted row';
   end if;
-  if v_type <> 'planet' or v_ord <> 1 or v_sma <> 0 or v_ecc <> 0
-     or v_period <> 0 or v_mass is not null then
+  if v_type <> 'planet' or v_ord <> 1 or v_sma <> 9.5 or v_ecc <> 0
+     or v_period <> 250 or v_mass is not null then
     raise exception '8653 ASSERTION FAILED: body defaults wrong (type % ord % sma % ecc % period % mass %)',
       v_type, v_ord, v_sma, v_ecc, v_period, v_mass;
   end if;
 
+  -- same ordinal across DISTINCT types coexists: planet|1 and moon|1 both
+  -- persist (type is part of body identity; UNIQUE (system_id, type,
+  -- ordinal) does not pair planet with moon).
+  if not exists (select 1 from public.world_bodies where id = 'body:test-alpha|alpha-seed|planet|1')
+     or not exists (select 1 from public.world_bodies where id = 'body:test-alpha|alpha-seed|moon|1') then
+    raise exception '8653 ASSERTION FAILED: same ordinal across distinct types must both persist';
+  end if;
+
   -- type CHECK: not in star|planet|moon|asteroid.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|comet|9', 'sys:test-alpha|alpha-seed', 'comet', 'Bad', 'b', 9, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|comet|9', 'sys:test-alpha|alpha-seed', 'comet', 'Bad', 'b', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body type outside star|planet|moon|asteroid must raise';
   exception
     when check_violation then null; -- expected
@@ -300,8 +320,8 @@ begin
 
   -- ordinal >= 0 CHECK: negative ordinal (identity.ts assertOrdinal).
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|planet|255', 'sys:test-alpha|alpha-seed', 'planet', 'Neg', 'b', -1, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|255', 'sys:test-alpha|alpha-seed', 'planet', 'Neg', 'b', -1, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: negative body ordinal must raise';
   exception
     when check_violation then null; -- expected
@@ -309,26 +329,28 @@ begin
 
   -- eccentricity [0,1) CHECK: 1.0 is a parabola, body.ts:234 rejects it.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, eccentricity)
-    values ('body:test-alpha|alpha-seed|planet|254', 'sys:test-alpha|alpha-seed', 'planet', 'Par', 'b', 254, 1.0, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, eccentricity, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|254', 'sys:test-alpha|alpha-seed', 'planet', 'Par', 'b', 254, 1.0, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: eccentricity 1.0 must raise';
   exception
     when check_violation then null; -- expected
   end;
 
-  -- UNIQUE (system_id, ordinal): body 2 re-uses ordinal 1 in the same system.
+  -- UNIQUE (system_id, type, ordinal): a second same-type body re-using
+  -- ordinal 1 in the same system raises (planet|253 duplicates the identity
+  -- of planet|1); a different type at the same ordinal stays allowed.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|planet|253', 'sys:test-alpha|alpha-seed', 'planet', 'Dup', 'b', 1, 1.0);
-    raise exception '8653 ASSERTION FAILED: duplicate (system_id, ordinal) must raise unique violation';
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|253', 'sys:test-alpha|alpha-seed', 'planet', 'Dup', 'b', 1, 1.0, 9.5, 250);
+    raise exception '8653 ASSERTION FAILED: duplicate (system_id, type, ordinal) must raise unique violation';
   exception
     when unique_violation then null; -- expected
   end;
 
   -- generation_version > 0 CHECK: 0 is invalid.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, generation_version)
-    values ('body:test-alpha|alpha-seed|planet|252', 'sys:test-alpha|alpha-seed', 'planet', 'Gen', 'b', 252, 1.0, 0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, generation_version, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|252', 'sys:test-alpha|alpha-seed', 'planet', 'Gen', 'b', 252, 1.0, 0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body generation_version 0 must raise';
   exception
     when check_violation then null; -- expected
@@ -336,9 +358,19 @@ begin
 
   -- radius > 0 CHECK: 0 is invalid.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|planet|251', 'sys:test-alpha|alpha-seed', 'planet', 'Rad', 'b', 251, 0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|251', 'sys:test-alpha|alpha-seed', 'planet', 'Rad', 'b', 251, 0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body radius 0 must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
+  -- non-star semi_major_axis 0 CHECK: the star/non-star orbit split rejects a
+  -- planet with a zero semi-major axis (validateOrbit, body.ts:229).
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|248', 'sys:test-alpha|alpha-seed', 'planet', 'Sma0', 'b', 248, 1.0, 0, 250);
+    raise exception '8653 ASSERTION FAILED: non-star semi_major_axis 0 must raise';
   exception
     when check_violation then null; -- expected
   end;
@@ -352,6 +384,16 @@ begin
     when check_violation then null; -- expected
   end;
 
+  -- non-star period 0 CHECK: the star/non-star orbit split rejects a planet
+  -- with a zero period (validateOrbit, body.ts:229).
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|247', 'sys:test-alpha|alpha-seed', 'planet', 'Per0', 'b', 247, 1.0, 9.5, 0);
+    raise exception '8653 ASSERTION FAILED: non-star period 0 must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
   -- period >= 0 CHECK: -1 is invalid.
   begin
     insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, period)
@@ -361,11 +403,21 @@ begin
     when check_violation then null; -- expected
   end;
 
+  -- star with a NONZERO orbit CHECK: the star zero-orbit CHECK rejects a
+  -- star whose orbit is not all zeros (validateOrbit, body.ts:229).
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|star|246', 'sys:test-alpha|alpha-seed', 'star', 'Spin', 'b', 246, 4.0, 2.0, 100);
+    raise exception '8653 ASSERTION FAILED: star with a nonzero orbit must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
   -- full canonical grammar: a non-numeric ordinal segment breaks
   -- '[0-9]+' in the id regex.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|planet|X', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|X', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body id with a non-numeric ordinal must raise';
   exception
     when check_violation then null; -- expected
@@ -374,8 +426,8 @@ begin
   -- full canonical grammar: the id ordinal segment disagrees with the
   -- ordinal column (split_part(id,'|',4)::bigint <> ordinal).
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|planet|3', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|3', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body id ordinal disagreeing with the ordinal column must raise';
   exception
     when check_violation then null; -- expected
@@ -384,15 +436,15 @@ begin
   -- full canonical grammar: an extra '|' segment breaks the exact four-
   -- segment shape of the id regex.
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|planet|1|extra', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 1, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|planet|1|extra', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 1, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body id with an extra segment must raise';
   exception
     when check_violation then null; -- expected
   end;
 
   select count(*) into v_n from public.world_bodies;
-  if v_n <> 3 then
+  if v_n <> 4 then
     raise exception '8653 ASSERTION FAILED: rejected body inserts must not persist, saw % rows', v_n;
   end if;
 end $$;
@@ -402,14 +454,14 @@ do $$
 declare v_n bigint;
 begin
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:no-such|g|planet|9', 'sys:no-such', 'planet', 'Ghost', 'g', 9, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:no-such|g|planet|9', 'sys:no-such', 'planet', 'Ghost', 'g', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: orphan body insert must raise FK violation';
   exception
     when foreign_key_violation then null; -- expected
   end;
   select count(*) into v_n from public.world_bodies;
-  if v_n <> 3 then
+  if v_n <> 4 then
     raise exception '8653 ASSERTION FAILED: orphan body must not persist, saw % rows', v_n;
   end if;
 end $$;
@@ -420,14 +472,14 @@ do $$
 declare v_n bigint;
 begin
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|wrong-seed|planet|9', 'sys:test-alpha|alpha-seed', 'planet', 'Liar', 'b', 9, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|wrong-seed|planet|9', 'sys:test-alpha|alpha-seed', 'planet', 'Liar', 'b', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body id with a foreign system prefix must raise';
   exception
     when check_violation then null; -- expected
   end;
   select count(*) into v_n from public.world_bodies;
-  if v_n <> 3 then
+  if v_n <> 4 then
     raise exception '8653 ASSERTION FAILED: foreign-prefix body must not persist, saw % rows', v_n;
   end if;
 end $$;
@@ -438,14 +490,14 @@ do $$
 declare v_n bigint;
 begin
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
-    values ('body:test-alpha|alpha-seed|comet|9', 'sys:test-alpha|alpha-seed', 'planet', 'Liar', 'b', 9, 1.0);
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period)
+    values ('body:test-alpha|alpha-seed|comet|9', 'sys:test-alpha|alpha-seed', 'planet', 'Liar', 'b', 9, 1.0, 9.5, 250);
     raise exception '8653 ASSERTION FAILED: body id type segment disagreeing with the type column must raise';
   exception
     when check_violation then null; -- expected
   end;
   select count(*) into v_n from public.world_bodies;
-  if v_n <> 3 then
+  if v_n <> 4 then
     raise exception '8653 ASSERTION FAILED: type-mismatched body must not persist, saw % rows', v_n;
   end if;
 end $$;
@@ -468,8 +520,8 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- 4.5 Real-data flag/provenance consistency at rest (mirror of the
---     source-of-construction gate in src/sim/world/trust.ts): a real
+-- 4.5 Real-data flag/provenance consistency at rest (mirror of the real-data
+--     labelling boundary in src/sim/world/catalogue.ts): a real
 --     galaxy/system/body carrying a catalogue provenance round-trips
 --     (positive), while real_data = true with provenance = 'procedural'
 --     violates the CHECK on every table (check_violation) and never
@@ -479,8 +531,8 @@ insert into public.world_galaxies (id, seed, name, class, real_data, provenance)
 values ('gal:real-alpha', 'real-alpha', 'Real Alpha', 'spiral', true, 'nasa-exoplanet-archive-2026-08-10');
 insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color, real_data, provenance)
 values ('sys:real-alpha|real-alpha', 'gal:real-alpha', 'real-alpha', 'Real Alpha', 'Real Alpha Prime', '#fff4e8', true, 'nasa-exoplanet-archive-2026-08-10');
-insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, real_data, provenance)
-values ('body:real-alpha|real-alpha|planet|0', 'sys:real-alpha|real-alpha', 'planet', 'Verdant', 'real-b0', 0, 1.5, true, 'nasa-exoplanet-archive-2026-08-10');
+insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period, real_data, provenance)
+values ('body:real-alpha|real-alpha|planet|0', 'sys:real-alpha|real-alpha', 'planet', 'Verdant', 'real-b0', 0, 1.5, 9.5, 250, true, 'nasa-exoplanet-archive-2026-08-10');
 
 do $$
 begin
@@ -509,8 +561,8 @@ begin
     when check_violation then null; -- expected
   end;
   begin
-    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, real_data, provenance)
-    values ('body:real-alpha|real-alpha|planet|1', 'sys:real-alpha|real-alpha', 'planet', 'Lie', 'b', 1, 1.0, true, 'procedural');
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, semi_major_axis, period, real_data, provenance)
+    values ('body:real-alpha|real-alpha|planet|1', 'sys:real-alpha|real-alpha', 'planet', 'Lie', 'b', 1, 1.0, 9.5, 250, true, 'procedural');
     raise exception '8653 ASSERTION FAILED: real_data true with procedural provenance must raise on world_bodies';
   exception
     when check_violation then null; -- expected

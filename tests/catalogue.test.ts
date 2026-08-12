@@ -15,16 +15,11 @@ import type {
   CatalogueMappingResult,
   CatalogueSnapshotMeta,
 } from '../src/sim/world/catalogue'
-import { galaxyId, parseCanonicalId, parentOf, systemId } from '../src/sim/world/identity'
+import { galaxyId, parseCanonicalId, parentOf, systemId, bodyId } from '../src/sim/world/identity'
 import type { GalaxyId, SystemId } from '../src/sim/world/identity'
 import { buildSystemRecord } from '../src/sim/world/system'
-import { CATALOGUE_TRUST } from '../src/sim/world/trust'
-import type { CatalogueTrust } from '../src/sim/world/trust'
 
 const PROVENANCE = 'nasa-exoplanet-archive-2026-08-10'
-
-/** Test-held catalogue capability token (catalogue.ts is the prod issuer). */
-const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 const FIXTURE: PlanetCatalogueEntry[] = [
   {
@@ -354,9 +349,6 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
       galaxy: mapping.galaxy.id,
       slug: 'Ghost-Host',
       name: 'Ghost-Host',
-      realData: true,
-      provenance: PROVENANCE,
-      trust: CATALOGUE_TRUST_TOKEN,
     })
     const extra: CatalogueMappingResult = {
       ...mapping,
@@ -463,6 +455,76 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
     const validation = validateCatalogue(mutated, FIXTURE_META)
     expect(validation.ok).toBe(false)
     expect(validation.problems.join('\n')).toContain('references unknown system')
+  })
+
+  it('flags a system bodyIds registry missing an attached body', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const fixture1 = mapping.systems.find((system) => system.name === 'Fixture-1')!
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.id === fixture1.id
+          ? { ...system, bodyIds: system.bodyIds.slice(0, 1) }
+          : system,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain(
+      `missing from the system ${fixture1.id} bodyIds registry`,
+    )
+  })
+
+  it('flags a system bodyIds registry that references a foreign body id', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const fixture1 = mapping.systems.find((system) => system.name === 'Fixture-1')!
+    const foreign = bodyId(fixture1.id, 'moon', 0)
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.id === fixture1.id
+          ? { ...system, bodyIds: [...system.bodyIds, foreign] }
+          : system,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain(
+      `references unknown body: ${foreign}`,
+    )
+  })
+
+  it('flags a system bodyIds registry that repeats an entry', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const fixture1 = mapping.systems.find((system) => system.name === 'Fixture-1')!
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.id === fixture1.id
+          ? { ...system, bodyIds: [system.bodyIds[0], ...system.bodyIds] }
+          : system,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain('contains a duplicate')
+  })
+
+  it('flags a system bodyIds registry whose order differs from the mapped bodies', () => {
+    const mapping = buildCatalogueMapping(FIXTURE, FIXTURE_META)
+    const fixture1 = mapping.systems.find((system) => system.name === 'Fixture-1')!
+    const swapped = [fixture1.bodyIds[1], fixture1.bodyIds[0]]
+    const mutated: CatalogueMappingResult = {
+      ...mapping,
+      systems: mapping.systems.map((system) =>
+        system.id === fixture1.id ? { ...system, bodyIds: swapped } : system,
+      ),
+    }
+    const validation = validateCatalogue(mutated, FIXTURE_META)
+    expect(validation.ok).toBe(false)
+    expect(validation.problems.join('\n')).toContain(
+      `bodyIds registry order does not match the mapped bodies order`,
+    )
   })
 })
 
