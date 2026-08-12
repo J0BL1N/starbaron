@@ -56,7 +56,7 @@
 
 | Task | Status | Verdict / evidence |
 |---|---|---|
-| T01 Main HUD | ⬜ | |
+| T01 Main HUD | ✅ | Codex PASS (round 3) — `src/sim/ui/hud.ts` + `tests/hud.test.ts` (32 tests): HUD state contract, derived alerts, locked aggregates, deterministic summary |
 | T02 Contextual Hover Intelligence HUD | ⬜ | |
 | T03 Object Information Contracts | ⬜ | |
 | T04 Planet Management Panel | ⬜ | |
