@@ -17,7 +17,7 @@
 | T03 Solar-System Data Model | ✅ | Codex PASS (commit f86ace7) — `src/sim/world/system.ts` + `tests/system-model.test.ts` (30 tests): SystemRecord, star metadata, spiral-arm galaxy-local positions, immutable body registry |
 | T04 Celestial-Body Data Model | ✅ | Codex PASS (commit b5d2850) — `src/sim/world/body.ts` + `tests/body-model.test.ts` (42 tests): BodyRecord + typed orbit elements, per-type defaults, star zero-orbit rule, seeded names |
 | T05 Real Astronomy Integration | ✅ | Codex PASS (commit 012b96a) — `src/sim/world/catalogue.ts` + `tests/catalogue.test.ts` (35 tests): 6,321 catalogue rows → 4,746 real systems + bodies, provenance flags, canonical-parent validation |
-| T06 Persistence Schema | ⬜ | (migration apply = Jay authorisation only) |
+| T06 Persistence Schema | ✅ | Codex PASS (commit d957edd) — `supabase/migrations/0013_world_schema.sql` + `supabase/tests/07_world_schema.sql`: world_galaxies/systems/bodies, CHECKs/UNIQUEs/FKs/cascade, RLS locked. WRITE-ONLY — apply deferred to Jay authorisation |
 | T07 Deterministic Universe Reconstruction | ⬜ | |
 | T08 World-State API | ⬜ | |
 
