@@ -53,7 +53,11 @@ describe('transactionId', () => {
     expect(id.length).toBeGreaterThan(0)
     expect(id.length).toBeLessThanOrEqual(64)
     expect(/^[0-9a-f]+$/.test(id)).toBe(true)
-    expect(id).not.toMatch(/[\u0000-\u001f\u007f]/)
+    const hasControlChars = [...id].some((c) => {
+      const code = c.charCodeAt(0)
+      return code <= 0x1f || code === 0x7f
+    })
+    expect(hasControlChars).toBe(false)
   })
 
   it('treats a string nonce that stringifies the same as its number equal', () => {
