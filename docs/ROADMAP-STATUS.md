@@ -65,6 +65,7 @@
 | T07 Notifications Framework | ✅ | Codex PASS (round 3) — `src/sim/ui/notifications.ts` + `tests/notifications.test.ts` (36 tests): dedup, read/reaction state, expiry, validation |
 | T08 Responsive / Touch UI | ✅ | Codex PASS (round 2) — `src/sim/ui/layout.ts` + `tests/layout.test.ts` (34 tests): viewport classes, breakpoints, panel stacking, touch targets, frozen tables |
 | T09 UI Mock/Real Data Boundary | ✅ | Codex PASS (round 2) — `src/sim/ui/data-sources.ts` + `tests/data-sources.test.ts` (31 tests): tagged adapters, deterministic mock, guardReal, boundary report |
+| **Phase 4 whole-phase audit** | ⛔ BLOCKER #2 (6-round cap) | 5 fix rounds landed (owner-top level hierarchy, per-section gating, gesture contract, shared validator/display helpers, frozen tables, estimated-state emission). Remaining finding for the revisit pass: duplicated deterministic sort comparator (hud.ts:197 vs notifications.ts:195) → extract shared helper |
 
 ## Phase 5 — Fleets & Space Travel
 
