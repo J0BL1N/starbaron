@@ -239,6 +239,34 @@ describe('P4-T09 realDataSource — delegation', () => {
     expect(source.playerAt(AT)).toBe(sentinelPlayer)
     expect(source.universeAt(AT)).toBe(sentinelUniverse)
   })
+
+  it('playerAt/universeAt throw RangeError on non-positive or non-finite at BEFORE invoking the getter', () => {
+    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at))
+    const getUniverse = vi.fn(
+      (at: number): UniverseState =>
+        buildUniverseState({ seed: `live-${at}`, includeCatalogue: false }),
+    )
+    const source = realDataSource(getPlayer, getUniverse)
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => source.playerAt(bad)).toThrow(RangeError)
+      expect(() => source.universeAt(bad)).toThrow(RangeError)
+    }
+    expect(getPlayer).not.toHaveBeenCalled()
+    expect(getUniverse).not.toHaveBeenCalled()
+  })
+
+  it('a valid at passes the assert and reaches the getter unchanged', () => {
+    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at))
+    const getUniverse = vi.fn(
+      (at: number): UniverseState =>
+        buildUniverseState({ seed: `live-${at}`, includeCatalogue: false }),
+    )
+    const source = realDataSource(getPlayer, getUniverse)
+    expect(source.playerAt(AT)).toBeDefined()
+    expect(getPlayer).toHaveBeenCalledExactlyOnceWith(AT)
+    expect(source.universeAt(AT)).toBeDefined()
+    expect(getUniverse).toHaveBeenCalledExactlyOnceWith(AT)
+  })
 })
 
 describe('P4-T09 guardReal — boundary guard', () => {

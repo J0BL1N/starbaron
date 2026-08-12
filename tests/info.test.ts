@@ -100,7 +100,7 @@ function project(input: {
   const full: ProjectInfoInput = {
     contract: input.contract ?? contractFor('body', 'planet'),
     values: input.values ?? bodyValues(),
-    viewerLevel: input.viewerLevel ?? 'intel',
+    viewerLevel: input.viewerLevel ?? 'owner',
     staleness: input.staleness ?? new Map(),
   }
   return projectInfo(full)
@@ -250,35 +250,34 @@ describe('P4-T03 projectInfo — viewer levels', () => {
     ])
   })
 
-  it('an owner viewer sees public + owner fields', () => {
-    expect(keys(project({ viewerLevel: 'owner' }))).toEqual([
-      'name',
-      'id',
-      'type',
-      'class',
-      'radius',
-      'population',
-      'structures',
-      'income',
-    ])
-  })
-
-  it('an alliance viewer sees public + owner + alliance fields', () => {
+  it('an alliance viewer sees public + alliance fields (no owner or intel)', () => {
     expect(keys(project({ viewerLevel: 'alliance' }))).toEqual([
       'name',
       'id',
       'type',
       'class',
       'radius',
-      'population',
-      'structures',
-      'income',
       'allianceHeld',
     ])
   })
 
-  it('an intel viewer sees every contract field', () => {
-    expect(keys(project({ viewerLevel: 'intel' }))).toEqual(BODY_KEYS)
+  it('an intel viewer sees public + alliance + intel fields but NOT owner fields', () => {
+    expect(keys(project({ viewerLevel: 'intel' }))).toEqual([
+      'name',
+      'id',
+      'type',
+      'class',
+      'radius',
+      'allianceHeld',
+      'garrison',
+      'defensePower',
+      'fleetStrength',
+      'estimatedOdds',
+    ])
+  })
+
+  it('an owner viewer sees EVERY contract field, including intel-gated ones', () => {
+    expect(keys(project({ viewerLevel: 'owner' }))).toEqual(BODY_KEYS)
   })
 
   it('hidden fields never appear, even as placeholders', () => {
@@ -295,7 +294,7 @@ describe('P4-T03 projectInfo — viewer levels', () => {
   })
 
   it('preserves the contract field order in the projection', () => {
-    expect(keys(project({ viewerLevel: 'intel' }))).toEqual(BODY_KEYS)
+    expect(keys(project({ viewerLevel: 'owner' }))).toEqual(BODY_KEYS)
     expect(keys(project({ viewerLevel: 'public' }))).toEqual(
       BODY_KEYS.filter((key) =>
         contractFor('body', 'planet').fields.some(
@@ -312,7 +311,7 @@ describe('P4-T03 projectInfo — states', () => {
       ['population', true],
       ['garrison', true],
     ])
-    const fields = project({ staleness, viewerLevel: 'intel' })
+    const fields = project({ staleness, viewerLevel: 'owner' })
     const byKey = new Map(fields.map((field) => [field.key, field.state]))
     expect(byKey.get('population')).toBe('stale')
     expect(byKey.get('garrison')).toBe('stale')
@@ -369,7 +368,7 @@ describe('P4-T03 projectInfo — states', () => {
 
 describe('P4-T03 projectInfo — values and formatting', () => {
   it('formats number fields with formatNumber, passes strings, strings text-field numbers', () => {
-    const fields = project({ viewerLevel: 'intel' })
+    const fields = project({ viewerLevel: 'owner' })
     const radius = fields.find((field) => field.key === 'radius')!
     expect(radius.value).toBe(formatNumber(2_500_000))
     expect(radius.value).toBe('2.5M')
@@ -416,7 +415,7 @@ describe('P4-T03 projectInfo — values and formatting', () => {
 
 describe('P4-T03 summaryLine', () => {
   it('joins the title and the primary stat of a visible body field set', () => {
-    expect(summaryLine(project({ viewerLevel: 'intel' }))).toBe(
+    expect(summaryLine(project({ viewerLevel: 'owner' }))).toBe(
       'Alpha World · 1.2M',
     )
   })
@@ -478,6 +477,8 @@ describe('P4-T03 module purity — deep-frozen tables', () => {
   }
 
   it.each([
+    ['INFO_KINDS', INFO_KINDS],
+    ['INFO_LEVELS', INFO_LEVELS],
     ['GALAXY_FIELDS', GALAXY_FIELDS],
     ['SYSTEM_FIELDS', SYSTEM_FIELDS],
     ['BODY_FIELDS', BODY_FIELDS],
@@ -495,13 +496,23 @@ describe('P4-T03 module purity — deep-frozen tables', () => {
 })
 
 describe('P4-T03 gating helpers — canViewLevel / assertInfoLevel', () => {
-  it('canViewLevel follows the cumulative rank contract', () => {
+  it('canViewLevel follows the cumulative rank contract (public < alliance < intel < owner)', () => {
     expect(canViewLevel('public', 'public')).toBe(true)
+    expect(canViewLevel('public', 'alliance')).toBe(false)
+    expect(canViewLevel('public', 'intel')).toBe(false)
     expect(canViewLevel('public', 'owner')).toBe(false)
-    expect(canViewLevel('owner', 'owner')).toBe(true)
-    expect(canViewLevel('alliance', 'owner')).toBe(true)
+    expect(canViewLevel('alliance', 'public')).toBe(true)
+    expect(canViewLevel('alliance', 'alliance')).toBe(true)
+    expect(canViewLevel('alliance', 'intel')).toBe(false)
+    expect(canViewLevel('alliance', 'owner')).toBe(false)
+    expect(canViewLevel('intel', 'public')).toBe(true)
+    expect(canViewLevel('intel', 'alliance')).toBe(true)
     expect(canViewLevel('intel', 'intel')).toBe(true)
-    expect(canViewLevel('intel', 'owner')).toBe(true)
+    expect(canViewLevel('intel', 'owner')).toBe(false)
+    expect(canViewLevel('owner', 'public')).toBe(true)
+    expect(canViewLevel('owner', 'alliance')).toBe(true)
+    expect(canViewLevel('owner', 'intel')).toBe(true)
+    expect(canViewLevel('owner', 'owner')).toBe(true)
   })
 
   it('assertInfoLevel passes the four levels and throws for anything else', () => {

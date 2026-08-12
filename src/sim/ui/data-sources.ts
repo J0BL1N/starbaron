@@ -38,11 +38,12 @@
  *     inside mockDataSource), never module-level.
  *
  * REAL (realDataSource) — pure DELEGATION:
- *   - kind 'real', label 'live'. playerAt/universeAt forward `at` verbatim
- *     to the supplied getters, which the app wires to the live sim /
+ *   - kind 'real', label 'live'. playerAt/universeAt assert `at` with
+ *     assertPositiveAt (the same gate the mock applies, so a 0/NaN/Infinity
+ *     timestamp can never reach the live getters) and then forward `at`
+ *     verbatim to the supplied getters, which the app wires to the live sim /
  *     persistence. No caching: every call re-delegates, so distinct getter
- *     results flow straight through. `at` validation is the getter's (and
- *     application's) concern, not this adapter's.
+ *     results flow straight through.
  */
 
 import type { PlanetCatalogueEntry } from '../data/planets'
@@ -204,8 +205,9 @@ export function mockDataSource(label: string, seed: string): UiDataSource {
 
 /**
  * The REAL adapter: pure delegation to the app's live getters. kind 'real',
- * label 'live'. No caching and no `at` validation here — every call forwards
- * `at` verbatim to the wired getter.
+ * label 'live'. No caching. Both delegates assert `at` via assertPositiveAt
+ * BEFORE invoking the wired getter — the same gate the mock applies — then
+ * forward `at` verbatim.
  */
 export function realDataSource(
   getPlayer: (at: number) => PlayerState,
@@ -214,8 +216,14 @@ export function realDataSource(
   return {
     kind: 'real',
     label: 'live',
-    playerAt: (at: number): PlayerState => getPlayer(at),
-    universeAt: (at: number): UniverseState => getUniverse(at),
+    playerAt: (at: number): PlayerState => {
+      assertPositiveAt(at)
+      return getPlayer(at)
+    },
+    universeAt: (at: number): UniverseState => {
+      assertPositiveAt(at)
+      return getUniverse(at)
+    },
   }
 }
 

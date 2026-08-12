@@ -14,12 +14,15 @@
  *
  * LEVEL SEMANTICS — cumulative visibility tiers (locked by the roadmap):
  *   - public   — anyone, no relationship (name/id/type/class + spatial facts)
- *   - owner    — the player who owns the object (population/structures/income)
  *   - alliance — the owner's alliance members (alliance-held flags)
  *   - intel    — scouted intelligence (fleet/defense details; DESIGN §5
  *                full-info scouting — attackers see defenses + estimated odds)
+ *   - owner    — the player who owns the object (population/structures/income).
+ *                The owner is the HIGHEST authority for an owned object and
+ *                must see their own intel-tier data (defense details), so the
+ *                owner tier sits above intel, not below it.
  * A field is projected when its level rank <= the viewer's level rank, so an
- * intel viewer sees everything below intel too.
+ * owner viewer sees everything below owner too — including intel-gated fields.
  *
  * HIDDEN-TRUTH RULE (mirrors the roadmap's 'never send unauthorized hidden
  * truth'): fields above the viewer's level are EXCLUDED — never emitted as a
@@ -46,16 +49,20 @@ import { assertNonEmptyString } from './validate'
 
 export type InfoKind = 'galaxy' | 'system' | 'body'
 
-export const INFO_KINDS: readonly InfoKind[] = ['galaxy', 'system', 'body']
+export const INFO_KINDS: readonly InfoKind[] = Object.freeze([
+  'galaxy',
+  'system',
+  'body',
+])
 
-export type InfoLevel = 'public' | 'owner' | 'alliance' | 'intel'
+export type InfoLevel = 'public' | 'alliance' | 'intel' | 'owner'
 
-export const INFO_LEVELS: readonly InfoLevel[] = [
+export const INFO_LEVELS: readonly InfoLevel[] = Object.freeze([
   'public',
-  'owner',
   'alliance',
   'intel',
-]
+  'owner',
+])
 
 export type InfoState = 'unknown' | 'estimated' | 'stale' | 'verified'
 
@@ -93,9 +100,9 @@ export interface ProjectInfoInput {
 
 const LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
   public: 0,
-  owner: 1,
-  alliance: 2,
-  intel: 3,
+  alliance: 1,
+  intel: 2,
+  owner: 3,
 })
 
 /** Module-wide title convention: every contract's titleKey is 'name'. */

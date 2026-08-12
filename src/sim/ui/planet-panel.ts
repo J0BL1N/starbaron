@@ -33,10 +33,12 @@
  *
  * LEVEL GATING: every section carries a required InfoLevel and becomes
  * `X | null` when the viewer is below that level (the UI renders '—' for a
- * null section). The planet panel is an owner-only management surface, so its
- * rank order differs from info.ts's cumulative field tiers — the owner sits
- * on top, then scouted 'intel', then 'alliance', then 'public' (see
- * PANEL_LEVEL_RANK below). Sections and their required level:
+ * null section). The panel shares info.ts's SINGLE source of truth —
+ * canViewLevel over LEVEL_RANK (public < alliance < intel < owner). The
+ * planet panel is an owner-only management surface, and the owner is the
+ * highest authority for an owned object, so only the owner meets the 'owner'
+ * gate; 'intel' is the mid tier a scout sees. Sections and their required
+ * level:
  *   - structures, population, production, queues, activity → 'owner'
  *   - defenses.defensePower → 'intel' (the owner always meets it too)
  *   - ownership → 'owner'; below it the public subset is returned instead of
@@ -59,7 +61,7 @@ import { productionSummaryFor } from '../structures/production'
 import { jobsAt } from '../structures/queues'
 import type { ConstructionQueue } from '../structures/queues'
 import type { StructureId } from '../structures/types'
-import { assertInfoLevel } from './info'
+import { assertInfoLevel, canViewLevel } from './info'
 import type { InfoLevel } from './info'
 import { assertPositiveAt } from './validate'
 
@@ -88,28 +90,6 @@ export interface PlanetPanelInput {
   at: number
   viewerLevel: InfoLevel
   ownership?: OwnershipRecord
-}
-
-/**
- * Panel-section visibility ranks. The planet panel is an owner-only
- * management surface, so the owner is the TOP rank (only the owner manages
- * the planet); scouted 'intel' sits beneath the owner (its defenses are the
- * one fact a non-owner may see), then 'alliance', then 'public'. info.ts's
- * canViewLevel is cumulative (public < owner < alliance < intel) and would
- * leak every owner section to alliance/intel viewers, so the panel mirrors
- * info.ts's LEVEL_RANK pattern with its own order instead of importing
- * canViewLevel.
- */
-const PANEL_LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
-  public: 0,
-  alliance: 1,
-  intel: 2,
-  owner: 3,
-})
-
-/** A viewer sees a section when their rank meets the section's required rank. */
-function canViewPanelSection(viewerLevel: InfoLevel, requiredLevel: InfoLevel): boolean {
-  return PANEL_LEVEL_RANK[viewerLevel] >= PANEL_LEVEL_RANK[requiredLevel]
 }
 
 function resolveOwnedPlanet(player: PlayerState, planetName: string): OwnedPlanet {
@@ -148,8 +128,8 @@ export function planetPanelStateFor(input: PlanetPanelInput): PanelSection {
 
   const owned = resolveOwnedPlanet(input.player, input.planetName)
   const grid = gridForPlanet(input.player, input.planetName)
-  const isOwner = canViewPanelSection(input.viewerLevel, 'owner')
-  const isIntel = canViewPanelSection(input.viewerLevel, 'intel')
+  const isOwner = canViewLevel(input.viewerLevel, 'owner')
+  const isIntel = canViewLevel(input.viewerLevel, 'intel')
 
   let structures: PanelSection['structures'] = null
   let population: PanelSection['population'] = null
