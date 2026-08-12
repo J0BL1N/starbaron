@@ -30,10 +30,9 @@
  * estimate). projectInfo recomputes the viewer-facing state:
  *   - missing value or value null   → 'unknown', value null
  *   - value present, staleness true → 'stale'
- *   - value present, not stale      → 'verified'
- * 'estimated' is the base qualifier only; the projection never emits it —
- * the contract layer cannot know whether a value is an estimate, that is the
- * backend's (P6) job.
+ *   - value present, not stale      → the contract's base state ('estimated'
+ *                                    for intel fields — an estimate stays an
+ *                                    estimate; otherwise 'verified')
  *
  * NUMBER FORMATTING: numeric values on 'number' fields go through the locked
  * formatNumber (../core/format) — no environment-dependent formatting APIs,
@@ -43,6 +42,7 @@
  */
 
 import { formatNumber } from '../core/format'
+import { assertNonEmptyString } from './validate'
 
 export type InfoKind = 'galaxy' | 'system' | 'body'
 
@@ -91,23 +91,23 @@ export interface ProjectInfoInput {
   staleness: ReadonlyMap<string, boolean>
 }
 
-const LEVEL_RANK: Readonly<Record<InfoLevel, number>> = {
+const LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
   public: 0,
   owner: 1,
   alliance: 2,
   intel: 3,
-}
+})
 
 /** Module-wide title convention: every contract's titleKey is 'name'. */
 const TITLE_KEY = 'name'
 
 /** Per-kind primary stat keys — unique across kinds, so summaryLine can
  * recover the display schema's primaryStatKey from a projected field list. */
-const PRIMARY_STAT_KEY_BY_KIND: Readonly<Record<InfoKind, string>> = {
+const PRIMARY_STAT_KEY_BY_KIND: Readonly<Record<InfoKind, string>> = Object.freeze({
   galaxy: 'systemCount',
   system: 'bodyCount',
   body: 'population',
-}
+})
 
 function baseField(
   key: string,
@@ -119,68 +119,82 @@ function baseField(
   return { key, label, value: null, level, state, format }
 }
 
-const GALAXY_FIELDS: readonly InfoField[] = [
-  baseField('name', 'Name', 'public', 'text'),
-  baseField('id', 'ID', 'public', 'text'),
-  baseField('class', 'Class', 'public', 'text'),
-  baseField('radius', 'Radius', 'public', 'number'),
-  baseField('systemCount', 'Systems', 'public', 'number'),
-  baseField('ownedBodies', 'Owned bodies', 'owner', 'number'),
-  baseField('allianceBodies', 'Alliance bodies', 'alliance', 'number'),
-  baseField('foreignFleet', 'Foreign fleet', 'intel', 'number', 'estimated'),
-]
+function freezeField(field: InfoField): InfoField {
+  return Object.freeze(field)
+}
 
-const SYSTEM_FIELDS: readonly InfoField[] = [
-  baseField('name', 'Name', 'public', 'text'),
-  baseField('id', 'ID', 'public', 'text'),
-  baseField('type', 'Star type', 'public', 'text'),
-  baseField('bodyCount', 'Bodies', 'public', 'number'),
-  baseField('ownedBodies', 'Owned bodies', 'owner', 'number'),
-  baseField('allianceHeld', 'Alliance held', 'alliance', 'text'),
-  baseField('defensePower', 'Defense power', 'intel', 'number', 'estimated'),
-  baseField('fleetStrength', 'Fleet strength', 'intel', 'number', 'estimated'),
-]
+export const GALAXY_FIELDS: readonly InfoField[] = Object.freeze(
+  [
+    baseField('name', 'Name', 'public', 'text'),
+    baseField('id', 'ID', 'public', 'text'),
+    baseField('class', 'Class', 'public', 'text'),
+    baseField('radius', 'Radius', 'public', 'number'),
+    baseField('systemCount', 'Systems', 'public', 'number'),
+    baseField('ownedBodies', 'Owned bodies', 'owner', 'number'),
+    baseField('allianceBodies', 'Alliance bodies', 'alliance', 'number'),
+    baseField('foreignFleet', 'Foreign fleet', 'intel', 'number', 'estimated'),
+  ].map(freezeField),
+)
 
-const BODY_FIELDS: readonly InfoField[] = [
-  baseField('name', 'Name', 'public', 'text'),
-  baseField('id', 'ID', 'public', 'text'),
-  baseField('type', 'Type', 'public', 'text'),
-  baseField('class', 'Class', 'public', 'text'),
-  baseField('radius', 'Radius', 'public', 'number'),
-  baseField('population', 'Population', 'owner', 'number'),
-  baseField('structures', 'Structures', 'owner', 'number'),
-  baseField('income', 'Income', 'owner', 'number'),
-  baseField('allianceHeld', 'Alliance held', 'alliance', 'text'),
-  baseField('garrison', 'Garrison', 'intel', 'number', 'estimated'),
-  baseField('defensePower', 'Defense power', 'intel', 'number', 'estimated'),
-  baseField('fleetStrength', 'Fleet strength', 'intel', 'number', 'estimated'),
-  baseField('estimatedOdds', 'Estimated odds', 'intel', 'text', 'estimated'),
-]
+export const SYSTEM_FIELDS: readonly InfoField[] = Object.freeze(
+  [
+    baseField('name', 'Name', 'public', 'text'),
+    baseField('id', 'ID', 'public', 'text'),
+    baseField('type', 'Star type', 'public', 'text'),
+    baseField('bodyCount', 'Bodies', 'public', 'number'),
+    baseField('ownedBodies', 'Owned bodies', 'owner', 'number'),
+    baseField('allianceHeld', 'Alliance held', 'alliance', 'text'),
+    baseField('defensePower', 'Defense power', 'intel', 'number', 'estimated'),
+    baseField('fleetStrength', 'Fleet strength', 'intel', 'number', 'estimated'),
+  ].map(freezeField),
+)
 
-const FIELD_DEFS: Readonly<Record<InfoKind, readonly InfoField[]>> = {
+export const BODY_FIELDS: readonly InfoField[] = Object.freeze(
+  [
+    baseField('name', 'Name', 'public', 'text'),
+    baseField('id', 'ID', 'public', 'text'),
+    baseField('type', 'Type', 'public', 'text'),
+    baseField('class', 'Class', 'public', 'text'),
+    baseField('radius', 'Radius', 'public', 'number'),
+    baseField('population', 'Population', 'owner', 'number'),
+    baseField('structures', 'Structures', 'owner', 'number'),
+    baseField('income', 'Income', 'owner', 'number'),
+    baseField('allianceHeld', 'Alliance held', 'alliance', 'text'),
+    baseField('garrison', 'Garrison', 'intel', 'number', 'estimated'),
+    baseField('defensePower', 'Defense power', 'intel', 'number', 'estimated'),
+    baseField('fleetStrength', 'Fleet strength', 'intel', 'number', 'estimated'),
+    baseField('estimatedOdds', 'Estimated odds', 'intel', 'text', 'estimated'),
+  ].map(freezeField),
+)
+
+export const FIELD_DEFS: Readonly<Record<InfoKind, readonly InfoField[]>> = Object.freeze({
   galaxy: GALAXY_FIELDS,
   system: SYSTEM_FIELDS,
   body: BODY_FIELDS,
-}
+})
 
-const DISPLAY_SCHEMAS: Readonly<Record<InfoKind, DisplaySchema>> = {
-  galaxy: { titleKey: 'name', subtitleKey: 'class', primaryStatKey: 'systemCount' },
-  system: { titleKey: 'name', subtitleKey: 'type', primaryStatKey: 'bodyCount' },
-  body: { titleKey: 'name', subtitleKey: 'type', primaryStatKey: 'population' },
-}
-
-function assertNonEmpty(value: string, name: string): string {
-  const trimmed = value.trim()
-  if (trimmed === '') {
-    throw new RangeError(
-      `${name} must be a non-empty string, got ${JSON.stringify(value)}`,
-    )
-  }
-  return trimmed
-}
+export const DISPLAY_SCHEMAS: Readonly<Record<InfoKind, DisplaySchema>> = Object.freeze({
+  galaxy: Object.freeze({ titleKey: 'name', subtitleKey: 'class', primaryStatKey: 'systemCount' }),
+  system: Object.freeze({ titleKey: 'name', subtitleKey: 'type', primaryStatKey: 'bodyCount' }),
+  body: Object.freeze({ titleKey: 'name', subtitleKey: 'type', primaryStatKey: 'population' }),
+})
 
 function isInfoLevel(value: unknown): value is InfoLevel {
   return (INFO_LEVELS as readonly string[]).includes(value as string)
+}
+
+/** Assert a viewer's authorization level; RangeError when not one of the four. */
+export function assertInfoLevel(value: unknown): asserts value is InfoLevel {
+  if (!isInfoLevel(value)) {
+    throw new RangeError(
+      `invalid viewerLevel ${JSON.stringify(value)}, expected one of ${INFO_LEVELS.join(', ')}`,
+    )
+  }
+}
+
+/** Rank-based check: the viewer sees a field when their rank >= the field's. */
+export function canViewLevel(viewerLevel: InfoLevel, requiredLevel: InfoLevel): boolean {
+  return LEVEL_RANK[viewerLevel] >= LEVEL_RANK[requiredLevel]
 }
 
 /**
@@ -210,7 +224,7 @@ export function contractFor(kind: InfoKind, type?: string): ObjectInfoContract {
       )
     }
   } else {
-    const trimmed = type === undefined ? undefined : assertNonEmpty(type, 'type')
+    const trimmed = type === undefined ? undefined : assertNonEmptyString(type, 'type')
     contractType = trimmed
   }
 
@@ -228,9 +242,11 @@ export function contractFor(kind: InfoKind, type?: string): ObjectInfoContract {
  * otherwise it is EXCLUDED entirely — never a placeholder, never a null
  * stand-in (hidden truth is never sent). Included fields take their value
  * from the values map and their state from staleness:
- *   - value present and non-null: state 'stale' when staleness flags the key,
- *     else 'verified';
- *   - value null or missing from the map: state 'unknown', value null.
+ *   - value null or missing from the map: state 'unknown', value null;
+ *   - value present, staleness flags the key: state 'stale';
+ *   - value present, not stale: the contract's base state is retained
+ *     ('estimated' for intel fields — an estimate stays an estimate — else
+ *     'verified').
  * Numeric values on 'number' fields pass through the locked formatNumber.
  * The output preserves the contract's field order; inputs are never mutated.
  */
@@ -260,7 +276,9 @@ export function projectInfo(input: ProjectInfoInput): InfoField[] {
         ? 'unknown'
         : input.staleness.get(field.key) === true
           ? 'stale'
-          : 'verified'
+          : field.state === 'estimated'
+            ? 'estimated'
+            : 'verified'
     result.push({
       key: field.key,
       label: field.label,

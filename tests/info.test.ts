@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { formatNumber } from '../src/sim/core/format'
 import {
+  BODY_FIELDS,
+  DISPLAY_SCHEMAS,
+  FIELD_DEFS,
+  GALAXY_FIELDS,
+  SYSTEM_FIELDS,
+  assertInfoLevel,
+  canViewLevel,
   contractFor,
   INFO_KINDS,
   INFO_LEVELS,
@@ -300,7 +307,7 @@ describe('P4-T03 projectInfo — viewer levels', () => {
 })
 
 describe('P4-T03 projectInfo — states', () => {
-  it('flags stale keys as stale and leaves the rest verified', () => {
+  it('flags stale keys as stale and leaves the rest at their base state', () => {
     const staleness = new Map([
       ['population', true],
       ['garrison', true],
@@ -311,7 +318,24 @@ describe('P4-T03 projectInfo — states', () => {
     expect(byKey.get('garrison')).toBe('stale')
     expect(byKey.get('name')).toBe('verified')
     expect(byKey.get('radius')).toBe('verified')
-    expect(byKey.get('defensePower')).toBe('verified')
+    expect(byKey.get('defensePower')).toBe('estimated')
+  })
+
+  it('projects a present intel field with state estimated (base qualifier retained)', () => {
+    const fields = project({ viewerLevel: 'intel' })
+    const byKey = new Map(fields.map((field) => [field.key, field.state]))
+    expect(byKey.get('defensePower')).toBe('estimated')
+    expect(byKey.get('fleetStrength')).toBe('estimated')
+    expect(byKey.get('garrison')).toBe('estimated')
+    expect(byKey.get('estimatedOdds')).toBe('estimated')
+    expect(fields.find((field) => field.key === 'defensePower')!.value).toBe('10K')
+  })
+
+  it('a stale estimated field stays stale (staleness beats the base qualifier)', () => {
+    const staleness = new Map([['garrison', true]])
+    const fields = project({ staleness, viewerLevel: 'intel' })
+    const garrison = fields.find((field) => field.key === 'garrison')!
+    expect(garrison.state).toBe('stale')
   })
 
   it('marks missing and explicit-null values as unknown with value null', () => {
@@ -436,5 +460,56 @@ describe('P4-T03 summaryLine', () => {
     expect(summaryLine(project({ viewerLevel: 'intel' }))).toBe(
       summaryLine(project({ viewerLevel: 'intel' })),
     )
+  })
+})
+
+describe('P4-T03 module purity — deep-frozen tables', () => {
+  function isDeepFrozen(value: unknown): boolean {
+    if (value === null || typeof value !== 'object') {
+      return true
+    }
+    if (!Object.isFrozen(value)) {
+      return false
+    }
+    if (Array.isArray(value)) {
+      return value.every(isDeepFrozen)
+    }
+    return Object.values(value).every(isDeepFrozen)
+  }
+
+  it.each([
+    ['GALAXY_FIELDS', GALAXY_FIELDS],
+    ['SYSTEM_FIELDS', SYSTEM_FIELDS],
+    ['BODY_FIELDS', BODY_FIELDS],
+    ['FIELD_DEFS', FIELD_DEFS],
+    ['DISPLAY_SCHEMAS', DISPLAY_SCHEMAS],
+  ])('deep-freezes the %s table (every element and the container)', (_, table) => {
+    expect(isDeepFrozen(table)).toBe(true)
+  })
+
+  it('contractFor still returns fresh clones from the frozen tables', () => {
+    const contract = contractFor('body', 'planet')
+    contract.fields[0]!.label = 'MUTATED'
+    expect(contractFor('body', 'planet').fields[0]!.label).toBe('Name')
+  })
+})
+
+describe('P4-T03 gating helpers — canViewLevel / assertInfoLevel', () => {
+  it('canViewLevel follows the cumulative rank contract', () => {
+    expect(canViewLevel('public', 'public')).toBe(true)
+    expect(canViewLevel('public', 'owner')).toBe(false)
+    expect(canViewLevel('owner', 'owner')).toBe(true)
+    expect(canViewLevel('alliance', 'owner')).toBe(true)
+    expect(canViewLevel('intel', 'intel')).toBe(true)
+    expect(canViewLevel('intel', 'owner')).toBe(true)
+  })
+
+  it('assertInfoLevel passes the four levels and throws for anything else', () => {
+    for (const level of INFO_LEVELS) {
+      expect(() => assertInfoLevel(level)).not.toThrow()
+    }
+    for (const bad of ['guest', '', 'OWNER', 7, null, undefined]) {
+      expect(() => assertInfoLevel(bad)).toThrow(RangeError)
+    }
   })
 })

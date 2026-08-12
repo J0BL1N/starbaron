@@ -11,6 +11,7 @@ import { fnv1a } from '../src/sim/planets/hash'
 import {
   HUD_CREDIT_WARNING_THRESHOLD,
   HUD_STALE_SECONDS,
+  LOCATION_KINDS,
   hudAlertId,
   hudAlertsFor,
   hudStateFor,
@@ -286,7 +287,7 @@ describe('P4-T01 hudStateFor — alerts mapping', () => {
     }
   })
 
-  it('sorts alerts by at ascending, then by id', () => {
+  it('sorts alerts by at descending (newest first), then by id', () => {
     const state = hudStateFor({
       player: makePlayer(),
       universe: UNIVERSE,
@@ -294,9 +295,11 @@ describe('P4-T01 hudStateFor — alerts mapping', () => {
       location: LOCATION,
       alerts,
     })
-    expect(state.alerts[0].message).toBe('C')
-    expect(state.alerts[0].at).toBe(NOW - 1)
-    const sameAt = state.alerts.slice(1)
+    expect(state.alerts[0].at).toBe(NOW)
+    expect(state.alerts[1].at).toBe(NOW)
+    expect(state.alerts[2].message).toBe('C')
+    expect(state.alerts[2].at).toBe(NOW - 1)
+    const sameAt = state.alerts.slice(0, 2)
     expect(sameAt.map((a) => a.at)).toEqual([NOW, NOW])
     expect(sameAt[0].id <= sameAt[1].id).toBe(true)
   })
@@ -620,6 +623,15 @@ describe('P4-T01 hudSummary and hudAlertId', () => {
       expect(typeof alert.id).toBe('string')
       expect(alert.id.length).toBeGreaterThan(0)
       expect(['info', 'warning', 'danger']).toContain(alert.severity)
+    }
+  })
+})
+
+describe('P4-T01 module purity — frozen lookup tables', () => {
+  it('deep-freezes LOCATION_KINDS so no caller can mutate the kind set', () => {
+    expect(Object.isFrozen(LOCATION_KINDS)).toBe(true)
+    for (const kind of LOCATION_KINDS) {
+      expect(typeof kind).toBe('string')
     }
   })
 })

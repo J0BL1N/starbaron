@@ -19,8 +19,12 @@
  *   - production  → productionSummaryFor totals for the planet's grid/tier.
  *   - queues      → jobsAt over the supplied ConstructionQueue.
  *   - defenses    → the LOCKED defensePower(turretLevels, population).
- *   - ownership   → the supplied OwnershipRecord (ownerId/isHome/protected);
- *                   when absent, the OwnedPlanet flags + player.playerId.
+ *   - ownership   → gated by the REQUIRED `viewerLevel` (info.ts's InfoLevel
+ *                   contract): an owner-or-above viewer sees the supplied
+ *                   OwnershipRecord (ownerId/isHome/protected; when absent,
+ *                   the OwnedPlanet flags + player.playerId); a public viewer
+ *                   gets the public subset — ownerId null, isHome false,
+ *                   protected false — so hidden truth never reaches the client.
  *   - activity    → one deterministic line: 'Building … → Lv N · completes
  *                   in Xs' (first building job), 'Idle' when no jobs,
  *                   'Offline' when the player is stale (> 24h, reusing the
@@ -43,6 +47,9 @@ import { productionSummaryFor } from '../structures/production'
 import { jobsAt } from '../structures/queues'
 import type { ConstructionQueue } from '../structures/queues'
 import type { StructureId } from '../structures/types'
+import { assertInfoLevel, canViewLevel } from './info'
+import type { InfoLevel } from './info'
+import { assertPositiveAt } from './validate'
 
 export interface PanelStructureRow {
   id: StructureId
@@ -58,7 +65,7 @@ export interface PanelSection {
   production: { creditsPerSec: number; alloysPerSec: number }
   queues: { building: number; nextCompletionAt: number | null }
   defenses: { defensePower: number }
-  ownership: { ownerId: string; isHome: boolean; protected: boolean }
+  ownership: { ownerId: string | null; isHome: boolean; protected: boolean }
   activity: string
 }
 
@@ -67,15 +74,8 @@ export interface PlanetPanelInput {
   planetName: string
   queue: ConstructionQueue
   at: number
+  viewerLevel: InfoLevel
   ownership?: OwnershipRecord
-}
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
 }
 
 function resolveOwnedPlanet(player: PlayerState, planetName: string): OwnedPlanet {
@@ -110,6 +110,7 @@ function secondsRemainingUntil(finishesAt: number, at: number): number {
  */
 export function planetPanelStateFor(input: PlanetPanelInput): PanelSection {
   assertPositiveAt(input.at)
+  assertInfoLevel(input.viewerLevel)
 
   const owned = resolveOwnedPlanet(input.player, input.planetName)
   const grid = gridForPlanet(input.player, input.planetName)
@@ -137,7 +138,9 @@ export function planetPanelStateFor(input: PlanetPanelInput): PanelSection {
   const nextCompletionAt = earliestFinishesAt(building)
 
   let ownership: PanelSection['ownership']
-  if (input.ownership !== undefined) {
+  if (!canViewLevel(input.viewerLevel, 'owner')) {
+    ownership = { ownerId: null, isHome: false, protected: false }
+  } else if (input.ownership !== undefined) {
     ownership = {
       ownerId: input.ownership.ownerId,
       isHome: input.ownership.isHome,

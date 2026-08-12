@@ -23,6 +23,7 @@ import type { StructureId } from '../src/sim/structures/types'
 import { HUD_STALE_SECONDS } from '../src/sim/ui/hud'
 import { planetPanelStateFor } from '../src/sim/ui/planet-panel'
 import type { PanelSection } from '../src/sim/ui/planet-panel'
+import type { InfoLevel } from '../src/sim/ui/info'
 import { bodyId, systemId } from '../src/sim/world/identity'
 
 const NOW = 1_700_000_000_000
@@ -86,6 +87,7 @@ function panel(
     planetName: player.homePlanet.name,
     queue: { planet: player.homePlanet.name, jobs: [...jobs] },
     at,
+    viewerLevel: 'owner',
     ownership,
   })
 }
@@ -101,6 +103,7 @@ function panelFor(
     planetName,
     queue: { planet: planetName, jobs: [...jobs] },
     at,
+    viewerLevel: 'owner',
   })
 }
 
@@ -341,6 +344,73 @@ describe('P4-T04 ownership section', () => {
   })
 })
 
+describe('P4-T04 info-gating — viewerLevel', () => {
+  function panelPublic(
+    player: PlayerState,
+    ownership?: OwnershipRecord,
+  ): PanelSection {
+    return planetPanelStateFor({
+      player,
+      planetName: player.homePlanet.name,
+      queue: { planet: player.homePlanet.name, jobs: [] },
+      at: NOW,
+      viewerLevel: 'public',
+      ownership,
+    })
+  }
+
+  it('a public viewer gets the public ownership subset, ignoring a supplied record', () => {
+    const record = ownershipFor(BODY, 'other-player', null, NOW, 'conquest', false, false)
+    const state = panelPublic(makePlayer(), record)
+    expect(state.ownership).toEqual({
+      ownerId: null,
+      isHome: false,
+      protected: false,
+    })
+  })
+
+  it('a public viewer gets the public subset for the home planet too', () => {
+    expect(panelPublic(makePlayer()).ownership).toEqual({
+      ownerId: null,
+      isHome: false,
+      protected: false,
+    })
+  })
+
+  it('an owner-level viewer sees the supplied record and the player fallback', () => {
+    const player = makePlayer()
+    const record = ownershipFor(BODY, 'other-player', null, NOW, 'conquest', false, false)
+    const withRecord = panel(player, [], NOW, record)
+    expect(withRecord.ownership).toEqual({
+      ownerId: 'other-player',
+      isHome: false,
+      protected: false,
+    })
+    const fallback = panel(player)
+    expect(fallback.ownership).toEqual({
+      ownerId: player.playerId,
+      isHome: true,
+      protected: true,
+    })
+  })
+
+  it('throws RangeError for an invalid viewerLevel', () => {
+    const player = makePlayer()
+    const queue: ConstructionQueue = { planet: player.homePlanet.name, jobs: [] }
+    for (const bad of ['guest', 'admin', '', 'OWNER']) {
+      expect(() =>
+        planetPanelStateFor({
+          player,
+          planetName: player.homePlanet.name,
+          queue,
+          at: NOW,
+          viewerLevel: bad as InfoLevel,
+        }),
+      ).toThrow(RangeError)
+    }
+  })
+})
+
 describe('P4-T04 activity string', () => {
   it('is Idle with no building jobs', () => {
     expect(panel(makePlayer()).activity).toBe('Idle')
@@ -405,6 +475,7 @@ describe('P4-T04 determinism and validation', () => {
       planetName: player.homePlanet.name,
       queue,
       at: NOW,
+      viewerLevel: 'owner' as const,
       ownership: record,
     }
     const first = planetPanelStateFor(input)
@@ -424,7 +495,13 @@ describe('P4-T04 determinism and validation', () => {
     const queue: ConstructionQueue = { planet: player.homePlanet.name, jobs: [] }
     for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() =>
-        planetPanelStateFor({ player, planetName: player.homePlanet.name, queue, at: bad }),
+        planetPanelStateFor({
+          player,
+          planetName: player.homePlanet.name,
+          queue,
+          at: bad,
+          viewerLevel: 'owner',
+        }),
       ).toThrow(RangeError)
     }
   })

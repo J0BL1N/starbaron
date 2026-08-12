@@ -11,12 +11,16 @@
  * projections only — React components consume them in later tasks. No
  * rendering wiring exists here.
  *
- * OWNERSHIP (P2-T04/T05 overlay pattern): ownership arrives as an opt-in
- * ReadonlyMap<bodyId, ownerId> in the P2-T05 ownershipOverlayPayload shape.
- * Galaxies are NOT owned in v1 (a galaxy hover reports ownedBy null always).
- * Systems DERIVE ownership from their bodies (a system hover reports ownedBy
- * null always — the overlay keys bodies only). A body hover reports the owner
- * from the overlay when present, and null when unowned or unknown.
+ * OWNERSHIP (P2-T04/T05 overlay pattern + P4 info-gating): ownership arrives
+ * as an opt-in ReadonlyMap<bodyId, ownerId> in the P2-T05
+ * ownershipOverlayPayload shape. The viewer's authorization is a REQUIRED
+ * `viewerLevel` input (info.ts's InfoLevel contract); ownedBy is exposed only
+ * for an 'owner'-or-above viewer — a public (or lower) viewer gets null even
+ * when the overlay would name an owner, so hidden truth never reaches the
+ * client. Galaxies are NOT owned in v1 (a galaxy hover reports ownedBy null
+ * always). Systems DERIVE ownership from their bodies (a system hover reports
+ * ownedBy null always — the overlay keys bodies only). A body hover reports
+ * the owner from the overlay when present, and null when unowned or unknown.
  *
  * NUMBER FORMATTING: every numeric stat value goes through the locked
  * formatNumber (../core/format) — no locale APIs, so repeated calls produce
@@ -29,6 +33,9 @@ import type { BodyId, BodyType, GalaxyId, SystemId } from '../world/identity'
 import { parseCanonicalId } from '../world/identity'
 import type { GalaxyClass } from '../world/galaxy'
 import type { UniverseState } from '../world/reconstruct'
+import { assertInfoLevel, canViewLevel } from './info'
+import type { InfoLevel } from './info'
+import { assertPositiveAt } from './validate'
 
 export type HoverTargetKind = 'galaxy' | 'system' | 'body'
 
@@ -55,6 +62,7 @@ export interface HoverInfoInput {
   target: HoverTarget
   universe: UniverseState
   ownership?: ReadonlyMap<string, string>
+  viewerLevel: InfoLevel
   at: number
 }
 
@@ -65,30 +73,25 @@ export interface HoverSwitch {
   immediate: boolean
 }
 
-const GALAXY_CLASS_LABELS: Readonly<Record<GalaxyClass, string>> = {
-  spiral: 'Spiral galaxy',
-  'barred-spiral': 'Barred spiral galaxy',
-  elliptical: 'Elliptical galaxy',
-  irregular: 'Irregular galaxy',
-  dwarf: 'Dwarf galaxy',
-}
+export const GALAXY_CLASS_LABELS: Readonly<Record<GalaxyClass, string>> =
+  Object.freeze({
+    spiral: 'Spiral galaxy',
+    'barred-spiral': 'Barred spiral galaxy',
+    elliptical: 'Elliptical galaxy',
+    irregular: 'Irregular galaxy',
+    dwarf: 'Dwarf galaxy',
+  })
 
-const BODY_TYPE_LABELS: Readonly<Record<BodyType, string>> = {
-  star: 'Star',
-  planet: 'Planet',
-  moon: 'Moon',
-  asteroid: 'Asteroid',
-}
+export const BODY_TYPE_LABELS: Readonly<Record<BodyType, string>> = Object.freeze(
+  {
+    star: 'Star',
+    planet: 'Planet',
+    moon: 'Moon',
+    asteroid: 'Asteroid',
+  },
+)
 
 const UNKNOWN_STAR_SUBTITLE = 'Unknown star'
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
-}
 
 /** 'G2 V' → 'G-class star'; missing or blank types fall back to 'Unknown star'. */
 function starSubtitle(starType: string | undefined): string {
@@ -163,6 +166,7 @@ function bodyInfo(
   target: HoverTarget,
   universe: UniverseState,
   ownership: ReadonlyMap<string, string> | undefined,
+  viewerLevel: InfoLevel,
 ): HoverInfo | null {
   const body = queryBody(universe, target.id as BodyId)
   if (body === null) {
@@ -179,12 +183,16 @@ function bodyInfo(
       value: `${formatNumber(Math.round(body.orbit.period))}s`,
     },
   ]
+  const canSeeOwner = canViewLevel(viewerLevel, 'owner')
   return {
     target: { ...target },
     title,
     subtitle,
     stats,
-    ownedBy: ownership === undefined ? null : (ownership.get(body.id) ?? null),
+    ownedBy:
+      canSeeOwner && ownership !== undefined
+        ? (ownership.get(body.id) ?? null)
+        : null,
     summary: `${title} · ${subtitle} · R ${radius}`,
   }
 }
@@ -192,17 +200,20 @@ function bodyInfo(
 /**
  * Build the hover projection for a target, or null when the target does not
  * resolve against the universe (a query miss or an id that fails canonical
- * parsing). The UI hides the tooltip when null is returned.
+ * parsing). The UI hides the tooltip when null is returned. The viewer's
+ * authorization (`viewerLevel`, REQUIRED) gates ownership fields via info.ts's
+ * contract — ownedBy is only ever non-null for an owner-or-above viewer.
  */
 export function hoverInfoFor(input: HoverInfoInput): HoverInfo | null {
   assertPositiveAt(input.at)
+  assertInfoLevel(input.viewerLevel)
   switch (input.target.kind) {
     case 'galaxy':
       return galaxyInfo(input.target, input.universe)
     case 'system':
       return systemInfo(input.target, input.universe)
     case 'body':
-      return bodyInfo(input.target, input.universe, input.ownership)
+      return bodyInfo(input.target, input.universe, input.ownership, input.viewerLevel)
   }
 }
 

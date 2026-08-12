@@ -18,7 +18,7 @@
  *
  * Composition: hudAlertsFor derives alerts from player state;
  * hudStateFor maps provided alerts (e.g. the hudAlertsFor output) onto
- * deterministic ids and sorts them by at then id.
+ * deterministic ids and sorts them by at (NEWEST first) then id.
  */
 
 import { formatNumber } from '../core/format'
@@ -33,6 +33,7 @@ import type { PlayerState } from '../player/types'
 import { queryBody } from '../world/api'
 import type { BodyId } from '../world/identity'
 import type { UniverseState } from '../world/reconstruct'
+import { assertPositiveAt } from './validate'
 
 export type HudLocationKind = 'planet' | 'moon' | 'system' | 'galaxy' | 'universe'
 
@@ -85,21 +86,13 @@ export interface HudStateInput {
 export const HUD_CREDIT_WARNING_THRESHOLD = 100
 export const HUD_STALE_SECONDS = 24 * 3600
 
-const LOCATION_KINDS: readonly HudLocationKind[] = [
+export const LOCATION_KINDS: readonly HudLocationKind[] = Object.freeze([
   'planet',
   'moon',
   'system',
   'galaxy',
   'universe',
-]
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
-}
+])
 
 function assertLocation(location: HudLocation): void {
   if (!LOCATION_KINDS.includes(location.kind)) {
@@ -183,7 +176,8 @@ export function hudAlertsFor(player: PlayerState, at: number): HudAlert[] {
  * Build the full HUD state projection. Resources and population come from the
  * locked aggregates; focusedBody resolves through queryBody when an id is
  * given (null when absent, fabricated, or unparseable); alerts are mapped to
- * deterministic ids and sorted by at then id. Inputs are never mutated.
+ * deterministic ids and sorted by at (newest first) then id. Inputs are never
+ * mutated.
  */
 export function hudStateFor(input: HudStateInput): HudState {
   assertPositiveAt(input.at)
@@ -200,7 +194,7 @@ export function hudStateFor(input: HudStateInput): HudState {
   const alerts = rawAlerts.map((alert) =>
     mkAlert(alert.severity, alert.message, alert.at),
   )
-  alerts.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  alerts.sort((a, b) => b.at - a.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
   let focusedBody: HudFocusedBody | null = null
   if (input.focusedBodyId !== undefined) {

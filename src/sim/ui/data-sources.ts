@@ -57,6 +57,7 @@ import { buildBodyRecord } from '../world/body'
 import { buildGalaxyRecord, registerSystem } from '../world/galaxy'
 import type { UniverseState } from '../world/reconstruct'
 import { buildSystemRecord, registerBody } from '../world/system'
+import { assertNonEmptyString, assertPositiveAt } from './validate'
 
 /** The mock/real tag: 'mock' = demo/dummy data, 'real' = live sim/persistence. */
 export type DataSourceKind = 'mock' | 'real'
@@ -87,24 +88,6 @@ export const MOCK_COLONY_COUNT = 2
 
 /** System slug for the mock's single system. */
 const MOCK_SYSTEM_SLUG = 'home'
-
-function assertNonEmpty(value: string, name: string): string {
-  const trimmed = value.trim()
-  if (trimmed === '') {
-    throw new RangeError(
-      `${name} must be a non-empty string, got ${JSON.stringify(value)}`,
-    )
-  }
-  return trimmed
-}
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
-}
 
 /** Deterministic mock player id: label plus a namespaced fnv1a(seed) suffix. */
 function mockPlayerId(label: string, seed: string): string {
@@ -198,8 +181,8 @@ function buildMockUniverse(
  * playerAt/universeAt call after `at` validation.
  */
 export function mockDataSource(label: string, seed: string): UiDataSource {
-  const trimmedLabel = assertNonEmpty(label, 'label')
-  const trimmedSeed = assertNonEmpty(seed, 'seed')
+  const trimmedLabel = assertNonEmptyString(label, 'label')
+  const trimmedSeed = assertNonEmptyString(seed, 'seed')
   const player = buildMockPlayer(trimmedLabel, trimmedSeed)
   const universe = buildMockUniverse(trimmedSeed, [
     player.homePlanet,

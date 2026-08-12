@@ -42,6 +42,12 @@
  * SELECTION: `selectedBodyId` is passed through only when it names a body in
  * the card list; otherwise it projects to null. `selectBody` is the immutable
  * selection update and throws for an unknown body id.
+ *
+ * INFO-GATING: `viewerLevel` is a REQUIRED input (info.ts's InfoLevel
+ * contract). ownerId/colonisable/coloniseCost are exposed only for an
+ * owner-or-above viewer; a public (or lower) viewer gets the public subset —
+ * ownerId null, colonisable false, coloniseCost null — so hidden truth never
+ * reaches the client.
  */
 
 import type { UniverseState } from '../world/reconstruct'
@@ -52,6 +58,9 @@ import { PLANETS } from '../data/planets'
 import type { PlanetCatalogueEntry } from '../data/planets'
 import { GAS_GIANT_DENSITY_MAX, densityProxy } from '../planets/quirks'
 import { COLONISATION_BASE_COST } from '../player/colonisation'
+import { assertInfoLevel, canViewLevel } from './info'
+import type { InfoLevel } from './info'
+import { assertPositiveAt } from './validate'
 
 export interface BodyCard {
   id: string
@@ -77,6 +86,7 @@ export interface SystemOverviewInput {
   universe: UniverseState
   ownership?: ReadonlyMap<string, string>
   selectedBodyId?: string | null
+  viewerLevel: InfoLevel
   at: number
 }
 
@@ -85,16 +95,10 @@ export interface SystemOverviewInput {
  * at module load and never mutated (plain frozen data — not module state).
  */
 const CATALOGUE_BY_NAME: Readonly<Record<string, PlanetCatalogueEntry>> = Object.freeze(
-  Object.fromEntries(PLANETS.map((entry) => [entry.name, entry])),
+  Object.fromEntries(
+    PLANETS.map((entry) => [entry.name, Object.freeze(entry)]),
+  ),
 )
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
-}
 
 /**
  * The LOCKED tier mapping for a body: non-planets, gas giants (tier-5 with
@@ -128,10 +132,15 @@ function starClassLabel(starType: string | undefined): string {
 function bodyCard(
   body: BodyRecord,
   ownership: ReadonlyMap<string, string> | undefined,
+  canSeeOwnership: boolean,
 ): BodyCard {
   const tier = planetTier(body)
-  const ownerId = ownership === undefined ? null : (ownership.get(body.id) ?? null)
-  const colonisable = body.type === 'planet' && ownerId === null && tier !== null
+  const ownerId =
+    canSeeOwnership && ownership !== undefined
+      ? (ownership.get(body.id) ?? null)
+      : null
+  const colonisable =
+    canSeeOwnership && body.type === 'planet' && ownerId === null && tier !== null
   return {
     id: body.id,
     name: body.name,
@@ -153,19 +162,21 @@ function byRadiusDescending(a: BodyCard, b: BodyCard): number {
 
 /**
  * Build the deterministic system-overview projection for one system, or throw
- * when the system id does not resolve against the state (a query miss) or `at`
- * is not a positive finite number.
+ * a RangeError when the system id does not resolve against the state (a query
+ * miss), `at` is not a positive finite number, or `viewerLevel` is not one of
+ * the four InfoLevels.
  */
 export function systemOverviewFor(input: SystemOverviewInput): SystemOverview {
   assertPositiveAt(input.at)
+  assertInfoLevel(input.viewerLevel)
   const system = querySystem(input.universe, input.systemId as SystemId)
   if (system === null) {
-    throw new Error(
-      `systemOverviewFor: no system with id ${JSON.stringify(input.systemId)} in the state`,
+    throw new RangeError(
+      `unknown system id ${JSON.stringify(input.systemId)}`,
     )
   }
   const bodies = queryBodiesBySystem(input.universe, system.id)
-    .map((body) => bodyCard(body, input.ownership))
+    .map((body) => bodyCard(body, input.ownership, canViewLevel(input.viewerLevel, 'owner')))
     .sort(byRadiusDescending)
   const selectedBodyId =
     input.selectedBodyId === undefined ||
@@ -186,14 +197,12 @@ export function systemOverviewFor(input: SystemOverviewInput): SystemOverview {
 
 /**
  * Immutable selection update: return a new overview with `bodyId` selected,
- * leaving the input untouched. Throws when `bodyId` is not one of the
- * overview's body cards.
+ * leaving the input untouched. Throws a RangeError when `bodyId` is not one
+ * of the overview's body cards.
  */
 export function selectBody(overview: SystemOverview, bodyId: string): SystemOverview {
   if (!overview.bodies.some((card) => card.id === bodyId)) {
-    throw new Error(
-      `selectBody: no body with id ${JSON.stringify(bodyId)} in system ${JSON.stringify(overview.systemId)}`,
-    )
+    throw new RangeError(`unknown body id ${JSON.stringify(bodyId)}`)
   }
   return { ...overview, selectedBodyId: bodyId }
 }

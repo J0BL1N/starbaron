@@ -7,6 +7,7 @@ import { bodyId, systemId } from '../src/sim/world/identity'
 import { buildSystemRecord, registerBody } from '../src/sim/world/system'
 import { systemOverviewFor, selectBody } from '../src/sim/ui/system-overview'
 import type { SystemOverview } from '../src/sim/ui/system-overview'
+import type { InfoLevel } from '../src/sim/ui/info'
 import type { UniverseState } from '../src/sim/world/reconstruct'
 
 const SLUG = 'system-overview-fixture'
@@ -150,7 +151,11 @@ function ownershipMap(): ReadonlyMap<string, string> {
 function overview(
   systemIdValue: string = ALPHA,
   at: number = NOW,
-  options: { ownership?: ReadonlyMap<string, string>; selectedBodyId?: string | null } = {},
+  options: {
+    ownership?: ReadonlyMap<string, string>
+    selectedBodyId?: string | null
+    viewerLevel?: InfoLevel
+  } = {},
 ): SystemOverview {
   return systemOverviewFor({
     systemId: systemIdValue,
@@ -159,6 +164,7 @@ function overview(
     ...(options.selectedBodyId === undefined
       ? {}
       : { selectedBodyId: options.selectedBodyId }),
+    viewerLevel: options.viewerLevel ?? 'owner',
     at,
   })
 }
@@ -206,7 +212,7 @@ describe('P4-T05 star summary', () => {
         }),
       ],
     }
-    expect(systemOverviewFor({ systemId: BETA, universe, at: NOW }).starSummary).toBe(
+    expect(systemOverviewFor({ systemId: BETA, universe, viewerLevel: 'owner', at: NOW }).starSummary).toBe(
       'Unknown star · 1 body',
     )
   })
@@ -405,22 +411,81 @@ describe('P4-T05 selection contract', () => {
     expect(one.selectedBodyId).toBe(ALPHA_ROCKY)
   })
 
-  it('throws for an unknown bodyId in selectBody', () => {
+  it('throws a RangeError for an unknown bodyId in selectBody', () => {
     expect(() => selectBody(overview(), 'body:nope|whatever|planet|0')).toThrow(
-      /no body with id/,
+      RangeError,
+    )
+    expect(() => selectBody(overview(), 'body:nope|whatever|planet|0')).toThrow(
+      /unknown body id/,
     )
   })
 })
 
+describe('P4-T05 info-gating — viewerLevel', () => {
+  it('a public viewer sees no ownership or colonisation data, even with an overlay', () => {
+    const result = overview(ALPHA, NOW, {
+      ownership: ownershipMap(),
+      viewerLevel: 'public',
+    })
+    expect(result.bodies.every((card) => card.ownerId === null)).toBe(true)
+    const owned = cardById(result, ALPHA_OWNED)
+    expect(owned.ownerId).toBeNull()
+    expect(owned.colonisable).toBe(false)
+    expect(owned.coloniseCost).toBeNull()
+    const rocky = cardById(result, ALPHA_ROCKY)
+    expect(rocky.ownerId).toBeNull()
+    expect(rocky.colonisable).toBe(false)
+    expect(rocky.coloniseCost).toBeNull()
+  })
+
+  it('an owner-level viewer sees the overlay owner and colonisation flags', () => {
+    const result = overview(ALPHA, NOW, {
+      ownership: ownershipMap(),
+      viewerLevel: 'owner',
+    })
+    expect(cardById(result, ALPHA_OWNED).ownerId).toBe(OWNER_A)
+    expect(cardById(result, ALPHA_OWNED).colonisable).toBe(false)
+    const rocky = cardById(result, ALPHA_ROCKY)
+    expect(rocky.ownerId).toBeNull()
+    expect(rocky.colonisable).toBe(true)
+    expect(rocky.coloniseCost).toBe(COLONISATION_BASE_COST.credits)
+  })
+
+  it('a public viewer still sees identity, radius and tier', () => {
+    const result = overview(ALPHA, NOW, { viewerLevel: 'public' })
+    const rocky = cardById(result, ALPHA_ROCKY)
+    expect(rocky.id).toBe(ALPHA_ROCKY)
+    expect(rocky.name).toBe('Barnard b')
+    expect(rocky.type).toBe('planet')
+    expect(rocky.radiusKm).toBe(3.1)
+    expect(rocky.tier).toBe(1)
+  })
+
+  it('throws RangeError for an invalid viewerLevel', () => {
+    for (const bad of ['guest', 'admin', '', 'OWNER']) {
+      expect(() =>
+        systemOverviewFor({
+          systemId: ALPHA,
+          universe: UNIVERSE,
+          viewerLevel: bad as InfoLevel,
+          at: NOW,
+        }),
+      ).toThrow(RangeError)
+    }
+  })
+})
+
 describe('P4-T05 validation', () => {
-  it('throws a descriptive error for a system id not in the state', () => {
+  it('throws a RangeError for a system id not in the state', () => {
+    expect(() => overview(systemId(SLUG, 'missing'))).toThrow(RangeError)
     expect(() => overview(systemId(SLUG, 'missing'))).toThrow(
-      /no system with id/,
+      /unknown system id/,
     )
   })
 
-  it('throws for a system id that does not parse', () => {
-    expect(() => overview('not-a-system-id')).toThrow(/no system with id/)
+  it('throws a RangeError for a system id that does not parse', () => {
+    expect(() => overview('not-a-system-id')).toThrow(RangeError)
+    expect(() => overview('not-a-system-id')).toThrow(/unknown system id/)
   })
 
   it('throws a RangeError for a non-positive at', () => {

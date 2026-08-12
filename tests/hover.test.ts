@@ -10,11 +10,14 @@ import { buildUniverseState } from '../src/sim/world/reconstruct'
 import type { UniverseState } from '../src/sim/world/reconstruct'
 import { buildSystemRecord, registerBody } from '../src/sim/world/system'
 import {
+  BODY_TYPE_LABELS,
+  GALAXY_CLASS_LABELS,
   hoverInfoFor,
   resolveHoverTarget,
   smoothSwitch,
 } from '../src/sim/ui/hover'
 import type { HoverInfoInput, HoverTarget } from '../src/sim/ui/hover'
+import type { InfoLevel } from '../src/sim/ui/info'
 
 const SLUG = 'hover-fixture'
 const NOW = 1_700_000_000_000
@@ -193,7 +196,7 @@ describe('P4-T02 hoverInfoFor — galaxy', () => {
   it('titles the galaxy by name and subtitles it by class (resolve chain)', () => {
     const target = resolveHoverTarget(GALAXY_ID)
     expect(target).toEqual({ kind: 'galaxy', id: GALAXY_ID })
-    const info = hoverInfoFor({ target: target!, universe: UNIVERSE, at: NOW })
+    const info = hoverInfoFor({ target: target!, universe: UNIVERSE, viewerLevel: 'owner', at: NOW })
     expect(info).not.toBeNull()
     expect(info!.target).toEqual({ kind: 'galaxy', id: GALAXY_ID })
     expect(info!.title).toBe('Fixture Home')
@@ -204,6 +207,7 @@ describe('P4-T02 hoverInfoFor — galaxy', () => {
     const info = hoverInfoFor({
       target: { kind: 'galaxy', id: GALAXY_ID },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(info.stats).toEqual([
@@ -217,6 +221,7 @@ describe('P4-T02 hoverInfoFor — galaxy', () => {
       target: { kind: 'galaxy', id: GALAXY_ID },
       universe: UNIVERSE,
       ownership: ownershipMap(),
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(info.ownedBy).toBeNull()
@@ -227,6 +232,7 @@ describe('P4-T02 hoverInfoFor — galaxy', () => {
     const info = hoverInfoFor({
       target: { kind: 'galaxy', id: empty.galaxy.id },
       universe: empty,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(info.stats).toContainEqual({ label: 'Systems', value: '0' })
@@ -242,6 +248,7 @@ describe('P4-T02 hoverInfoFor — galaxy', () => {
     const input: HoverInfoInput = {
       target: { kind: 'galaxy', id: realUniverse.galaxy.id },
       universe: realUniverse,
+      viewerLevel: 'owner',
       at: NOW,
     }
     const info = hoverInfoFor(input)!
@@ -255,6 +262,7 @@ describe('P4-T02 hoverInfoFor — system', () => {
     const info = hoverInfoFor({
       target: { kind: 'system', id: ALPHA },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })
     expect(info).not.toBeNull()
@@ -267,6 +275,7 @@ describe('P4-T02 hoverInfoFor — system', () => {
     const alpha = hoverInfoFor({
       target: { kind: 'system', id: ALPHA },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(alpha.stats).toEqual([
@@ -276,6 +285,7 @@ describe('P4-T02 hoverInfoFor — system', () => {
     const gamma = hoverInfoFor({
       target: { kind: 'system', id: GAMMA },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(gamma.stats).toContainEqual({ label: 'Position', value: '11' })
@@ -285,6 +295,7 @@ describe('P4-T02 hoverInfoFor — system', () => {
     const info = hoverInfoFor({
       target: { kind: 'system', id: GAMMA },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(info.subtitle).toBe('Unknown star')
@@ -296,6 +307,7 @@ describe('P4-T02 hoverInfoFor — system', () => {
       target: { kind: 'system', id: ALPHA },
       universe: UNIVERSE,
       ownership: ownershipMap(),
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(info.ownedBy).toBeNull()
@@ -305,6 +317,7 @@ describe('P4-T02 hoverInfoFor — system', () => {
     const input: HoverInfoInput = {
       target: { kind: 'system', id: ALPHA },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     }
     expect(hoverInfoFor(input)).toEqual(hoverInfoFor(input))
@@ -316,6 +329,7 @@ describe('P4-T02 hoverInfoFor — body', () => {
     const info = hoverInfoFor({
       target: { kind: 'body', id: ALPHA_PLANET },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })
     expect(info).not.toBeNull()
@@ -329,6 +343,7 @@ describe('P4-T02 hoverInfoFor — body', () => {
     const info = hoverInfoFor({
       target: { kind: 'body', id: ALPHA_PLANET },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(info.stats).toContainEqual({ label: 'Radius', value: '2.5M' })
@@ -342,12 +357,14 @@ describe('P4-T02 hoverInfoFor — body', () => {
     const alpha = hoverInfoFor({
       target: { kind: 'body', id: ALPHA_PLANET },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(alpha.stats).toContainEqual({ label: 'Orbit period', value: '343s' })
     const beta = hoverInfoFor({
       target: { kind: 'body', id: BETA_PLANET },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(beta.stats).toContainEqual({ label: 'Orbit period', value: '60s' })
@@ -358,6 +375,7 @@ describe('P4-T02 hoverInfoFor — body', () => {
       target: { kind: 'body', id: ALPHA_PLANET },
       universe: UNIVERSE,
       ownership: ownershipMap(),
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(owned.ownedBy).toBe(OWNER_A)
@@ -365,6 +383,7 @@ describe('P4-T02 hoverInfoFor — body', () => {
       target: { kind: 'body', id: BETA_PLANET },
       universe: UNIVERSE,
       ownership: ownershipMap(),
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(beta.ownedBy).toBe(OWNER_B)
@@ -372,12 +391,14 @@ describe('P4-T02 hoverInfoFor — body', () => {
       target: { kind: 'body', id: ALPHA_MOON },
       universe: UNIVERSE,
       ownership: ownershipMap(),
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(unowned.ownedBy).toBeNull()
     const noMap = hoverInfoFor({
       target: { kind: 'body', id: ALPHA_PLANET },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })!
     expect(noMap.ownedBy).toBeNull()
@@ -394,6 +415,7 @@ describe('P4-T02 hoverInfoFor — body', () => {
       const info = hoverInfoFor({
         target: { kind: 'body', id },
         universe: UNIVERSE,
+        viewerLevel: 'owner',
         at: NOW,
       })!
       expect(info.subtitle).toBe(subtitle)
@@ -408,6 +430,7 @@ describe('P4-T02 hoverInfoFor — body', () => {
       target: { kind: 'body', id: ALPHA_PLANET },
       universe: UNIVERSE,
       ownership: map,
+      viewerLevel: 'owner',
       at: NOW,
     }
     const first = hoverInfoFor(input)!
@@ -417,11 +440,88 @@ describe('P4-T02 hoverInfoFor — body', () => {
   })
 })
 
+describe('P4-T02 info-gating — viewerLevel', () => {
+  it('a public viewer never sees an owner, even when the overlay names one', () => {
+    const info = hoverInfoFor({
+      target: { kind: 'body', id: ALPHA_PLANET },
+      universe: UNIVERSE,
+      ownership: ownershipMap(),
+      viewerLevel: 'public',
+      at: NOW,
+    })!
+    expect(info.ownedBy).toBeNull()
+
+    const galaxy = hoverInfoFor({
+      target: { kind: 'galaxy', id: GALAXY_ID },
+      universe: UNIVERSE,
+      ownership: ownershipMap(),
+      viewerLevel: 'public',
+      at: NOW,
+    })!
+    expect(galaxy.ownedBy).toBeNull()
+
+    const system = hoverInfoFor({
+      target: { kind: 'system', id: ALPHA },
+      universe: UNIVERSE,
+      ownership: ownershipMap(),
+      viewerLevel: 'public',
+      at: NOW,
+    })!
+    expect(system.ownedBy).toBeNull()
+  })
+
+  it('an owner-level viewer sees the overlay owner for a body', () => {
+    const info = hoverInfoFor({
+      target: { kind: 'body', id: ALPHA_PLANET },
+      universe: UNIVERSE,
+      ownership: ownershipMap(),
+      viewerLevel: 'owner',
+      at: NOW,
+    })!
+    expect(info.ownedBy).toBe(OWNER_A)
+  })
+
+  it('a public viewer still sees public stats and identity (only ownership is gated)', () => {
+    const info = hoverInfoFor({
+      target: { kind: 'body', id: ALPHA_PLANET },
+      universe: UNIVERSE,
+      ownership: ownershipMap(),
+      viewerLevel: 'public',
+      at: NOW,
+    })!
+    expect(info.title).toBe('Alpha World')
+    expect(info.stats).toContainEqual({ label: 'Radius', value: '2.5M' })
+  })
+
+  it('throws RangeError for an invalid viewerLevel', () => {
+    for (const bad of ['guest', 'admin', '', 'OWNER']) {
+      expect(() =>
+        hoverInfoFor({
+          target: { kind: 'body', id: ALPHA_PLANET },
+          universe: UNIVERSE,
+          viewerLevel: bad as InfoLevel,
+          at: NOW,
+        }),
+      ).toThrow(RangeError)
+    }
+  })
+})
+
+describe('P4-T02 module purity — frozen lookup tables', () => {
+  it('deep-freezes the galaxy class and body type label tables', () => {
+    expect(Object.isFrozen(GALAXY_CLASS_LABELS)).toBe(true)
+    expect(Object.isFrozen(BODY_TYPE_LABELS)).toBe(true)
+    expect(GALAXY_CLASS_LABELS.spiral).toBe('Spiral galaxy')
+    expect(BODY_TYPE_LABELS.planet).toBe('Planet')
+  })
+})
+
 describe('P4-T02 hoverInfoFor — miss and unparseable targets', () => {
   it('returns null for a galaxy id that is not the state galaxy', () => {
     const info = hoverInfoFor({
       target: { kind: 'galaxy', id: galaxyId('other-slug') },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })
     expect(info).toBeNull()
@@ -431,6 +531,7 @@ describe('P4-T02 hoverInfoFor — miss and unparseable targets', () => {
     const info = hoverInfoFor({
       target: { kind: 'system', id: systemId(SLUG, 'nope') },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })
     expect(info).toBeNull()
@@ -440,6 +541,7 @@ describe('P4-T02 hoverInfoFor — miss and unparseable targets', () => {
     const info = hoverInfoFor({
       target: { kind: 'body', id: bodyId(ALPHA, 'planet', 99) },
       universe: UNIVERSE,
+      viewerLevel: 'owner',
       at: NOW,
     })
     expect(info).toBeNull()
@@ -452,7 +554,7 @@ describe('P4-T02 hoverInfoFor — miss and unparseable targets', () => {
       { kind: 'body', id: 'garbage' },
     ]
     for (const target of targets) {
-      expect(hoverInfoFor({ target, universe: UNIVERSE, at: NOW })).toBeNull()
+      expect(hoverInfoFor({ target, universe: UNIVERSE, viewerLevel: 'owner', at: NOW })).toBeNull()
     }
   })
 })
@@ -464,6 +566,7 @@ describe('P4-T02 validation — bad at', () => {
         hoverInfoFor({
           target: { kind: 'galaxy', id: GALAXY_ID },
           universe: UNIVERSE,
+          viewerLevel: 'owner',
           at: bad,
         }),
       ).toThrow(RangeError)

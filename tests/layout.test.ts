@@ -3,17 +3,29 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
+  classifyGesture,
   classifyViewport,
+  gestureAction,
   layoutRulesFor,
   panelLayout,
   touchTargetOk,
   validateLayout,
   DESKTOP_MIN_WIDTH_PX,
+  LONG_PRESS_MIN_DURATION_MS,
   MIN_TOUCH_TARGET_POINTER_PX,
   MIN_TOUCH_TARGET_TOUCH_PX,
   PHONE_MAX_WIDTH_PX,
+  PINCH_MIN_SCALE_DELTA,
+  SWIPE_MIN_DISTANCE_PX,
+  TAP_MAX_DISTANCE_PX,
+  TAP_MAX_DURATION_MS,
 } from '../src/sim/ui/layout'
-import type { LayoutRules, PanelMode } from '../src/sim/ui/layout'
+import type {
+  GestureInput,
+  GestureKind,
+  LayoutRules,
+  PanelMode,
+} from '../src/sim/ui/layout'
 
 const PHONE = { width: 599, height: 800, isTouch: true }
 const TABLET = { width: 900, height: 1200, isTouch: true }
@@ -317,7 +329,7 @@ describe('P4-T08 module purity — no mutable module-scope lookup containers', (
     'utf8',
   )
 
-  it.each(['PANEL_MODE_FOR', 'GRID_COLUMNS_FOR', 'INSET_EDGES'])(
+  it.each(['PANEL_MODE_FOR', 'GRID_COLUMNS_FOR', 'INSET_EDGES', 'GESTURE_ACTION'])(
     'wraps the module-scope lookup %s in Object.freeze',
     (binding) => {
       const declaration = layoutSource
@@ -327,6 +339,211 @@ describe('P4-T08 module purity — no mutable module-scope lookup containers', (
       expect(declaration).toContain('Object.freeze(')
     },
   )
+})
+
+describe('P4-T08 classifyGesture — per-kind classification', () => {
+  const rules = layoutRulesFor(PHONE)
+
+  it('classifies a tap and pins only its own fields', () => {
+    const contract = classifyGesture({
+      kind: 'tap',
+      durationMs: 120,
+      distancePx: 3,
+    })
+    expect(contract).toEqual({
+      kind: 'tap',
+      durationMs: 120,
+      distancePx: 3,
+      scaleDelta: null,
+    })
+  })
+
+  it('classifies a long-press and pins only its own fields', () => {
+    const contract = classifyGesture({
+      kind: 'long-press',
+      durationMs: 800,
+      distancePx: 4,
+    })
+    expect(contract).toEqual({
+      kind: 'long-press',
+      durationMs: 800,
+      distancePx: 4,
+      scaleDelta: null,
+    })
+  })
+
+  it('classifies a swipe and pins only its own fields', () => {
+    const contract = classifyGesture({
+      kind: 'swipe',
+      durationMs: 150,
+      distancePx: 120,
+    })
+    expect(contract).toEqual({
+      kind: 'swipe',
+      durationMs: 150,
+      distancePx: 120,
+      scaleDelta: null,
+    })
+  })
+
+  it('classifies a pinch and pins only its own fields', () => {
+    const contract = classifyGesture({
+      kind: 'pinch',
+      durationMs: 400,
+      distancePx: 20,
+      scaleDelta: 0.6,
+    })
+    expect(contract).toEqual({
+      kind: 'pinch',
+      durationMs: 400,
+      distancePx: 20,
+      scaleDelta: 0.6,
+    })
+  })
+
+  it('carries optional measurements as null when absent', () => {
+    const swipe = {
+      kind: 'swipe',
+      distancePx: 40,
+      durationMs: undefined,
+      scaleDelta: undefined,
+    } as unknown as GestureInput
+    expect(classifyGesture(swipe).durationMs).toBeNull()
+    expect(classifyGesture(swipe).scaleDelta).toBeNull()
+    const longPress = {
+      kind: 'long-press',
+      durationMs: 600,
+      distancePx: undefined,
+      scaleDelta: undefined,
+    } as unknown as GestureInput
+    expect(classifyGesture(longPress).distancePx).toBeNull()
+    expect(classifyGesture(longPress).scaleDelta).toBeNull()
+  })
+
+  it('is deterministic and returns a frozen contract', () => {
+    const input: GestureInput = { kind: 'tap', durationMs: 100, distancePx: 5 }
+    expect(classifyGesture(input)).toEqual(classifyGesture(input))
+    expect(Object.isFrozen(classifyGesture(input))).toBe(true)
+  })
+
+  it('ignores rules in gestureAction (v1 mapping is constant)', () => {
+    expect(gestureAction('tap', layoutRulesFor(DESKTOP))).toBe(
+      gestureAction('tap', rules),
+    )
+  })
+})
+
+describe('P4-T08 classifyGesture — boundary cases', () => {
+  it('tap duration boundary: 499 and 500ms classify, 501 throws', () => {
+    expect(
+      classifyGesture({ kind: 'tap', durationMs: 499, distancePx: 1 }).durationMs,
+    ).toBe(499)
+    expect(
+      classifyGesture({ kind: 'tap', durationMs: 500, distancePx: 1 }).durationMs,
+    ).toBe(500)
+    expect(() =>
+      classifyGesture({ kind: 'tap', durationMs: 501, distancePx: 1 }),
+    ).toThrow(RangeError)
+    expect(TAP_MAX_DURATION_MS).toBe(500)
+  })
+
+  it('tap distance boundary: 9 and 10px classify, 11 throws', () => {
+    expect(
+      classifyGesture({ kind: 'tap', durationMs: 100, distancePx: 9 }).distancePx,
+    ).toBe(9)
+    expect(
+      classifyGesture({ kind: 'tap', durationMs: 100, distancePx: 10 }).distancePx,
+    ).toBe(10)
+    expect(() =>
+      classifyGesture({ kind: 'tap', durationMs: 100, distancePx: 11 }),
+    ).toThrow(RangeError)
+    expect(TAP_MAX_DISTANCE_PX).toBe(10)
+  })
+
+  it('long-press duration boundary: 500ms classifies, 499 throws', () => {
+    expect(
+      classifyGesture({ kind: 'long-press', durationMs: 500, distancePx: 0 })
+        .durationMs,
+    ).toBe(500)
+    expect(() =>
+      classifyGesture({ kind: 'long-press', durationMs: 499, distancePx: 0 }),
+    ).toThrow(RangeError)
+    expect(LONG_PRESS_MIN_DURATION_MS).toBe(500)
+  })
+
+  it('swipe distance boundary: 30px classifies, 29 throws', () => {
+    expect(
+      classifyGesture({ kind: 'swipe', durationMs: 0, distancePx: 30 }).distancePx,
+    ).toBe(30)
+    expect(() =>
+      classifyGesture({ kind: 'swipe', durationMs: 0, distancePx: 29 }),
+    ).toThrow(RangeError)
+    expect(SWIPE_MIN_DISTANCE_PX).toBe(30)
+  })
+
+  it('pinch scaleDelta boundary: 0.1 classifies, 0.09 throws', () => {
+    expect(
+      classifyGesture({ kind: 'pinch', durationMs: 0, distancePx: 0, scaleDelta: 0.1 })
+        .scaleDelta,
+    ).toBe(0.1)
+    expect(() =>
+      classifyGesture({ kind: 'pinch', durationMs: 0, distancePx: 0, scaleDelta: 0.09 }),
+    ).toThrow(RangeError)
+    expect(PINCH_MIN_SCALE_DELTA).toBe(0.1)
+  })
+})
+
+describe('P4-T08 classifyGesture — required-field rejection', () => {
+  it('rejects a pinch without scaleDelta', () => {
+    const input = { kind: 'pinch' as GestureKind, durationMs: 200, distancePx: 5 }
+    expect(() => classifyGesture(input as GestureInput)).toThrow(/scaleDelta/)
+  })
+
+  it('rejects a swipe without distance', () => {
+    const input = { kind: 'swipe' as GestureKind, durationMs: 100 }
+    expect(() => classifyGesture(input as GestureInput)).toThrow(/distancePx/)
+  })
+
+  it('rejects a tap without durationMs or distancePx', () => {
+    const noDuration = { kind: 'tap' as GestureKind, distancePx: 2 }
+    const noDistance = { kind: 'tap' as GestureKind, durationMs: 100 }
+    expect(() => classifyGesture(noDuration as GestureInput)).toThrow(/durationMs/)
+    expect(() => classifyGesture(noDistance as GestureInput)).toThrow(/distancePx/)
+  })
+
+  it('rejects a long-press without durationMs', () => {
+    const input = { kind: 'long-press' as GestureKind, distancePx: 0 }
+    expect(() => classifyGesture(input as GestureInput)).toThrow(/durationMs/)
+  })
+
+  it('rejects non-finite measurements', () => {
+    expect(() =>
+      classifyGesture({ kind: 'tap', durationMs: Number.NaN, distancePx: 1 }),
+    ).toThrow(RangeError)
+    expect(() =>
+      classifyGesture({ kind: 'swipe', durationMs: 0, distancePx: Number.NaN }),
+    ).toThrow(RangeError)
+  })
+})
+
+describe('P4-T08 gestureAction — deterministic v1 mapping', () => {
+  const rules = layoutRulesFor(PHONE)
+
+  it.each([
+    ['tap', 'select'],
+    ['long-press', 'context-menu'],
+    ['swipe', 'navigate'],
+    ['pinch', 'zoom'],
+  ] as Array<[GestureKind, string]>)('maps %s → %s', (kind, action) => {
+    expect(gestureAction(kind, rules)).toBe(action)
+  })
+
+  it('is a pure function of the kind', () => {
+    const a = gestureAction('swipe', layoutRulesFor(DESKTOP))
+    const b = gestureAction('swipe', layoutRulesFor(PHONE))
+    expect(a).toBe('navigate')
+    expect(b).toBe(a)
+  })
 })
 
 describe('P4-T08 cross-checks — exported constants stay in sync', () => {

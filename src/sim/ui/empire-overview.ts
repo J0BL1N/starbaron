@@ -65,6 +65,7 @@ import { computePlanetDerived, empireRates, gridForPlanet, planetTotals } from '
 import type { OwnedPlanet, PlayerState } from '../player/types'
 import { defensePower } from '../structures/effects'
 import { systemId } from '../world/identity'
+import { assertPositiveAt } from './validate'
 
 export interface EmpireRow {
   name: string
@@ -95,14 +96,6 @@ export interface EmpireOverview {
   topPlanet: EmpireRow | null
   sortedBy: EmpireSortKey
   filter: EmpireFilter
-}
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
 }
 
 /** Deep-copy a row so a returned overview fully owns its data. */

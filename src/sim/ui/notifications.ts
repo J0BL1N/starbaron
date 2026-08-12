@@ -32,6 +32,7 @@
  */
 
 import { fnv1a } from '../planets/hash'
+import { assertPositiveAt } from './validate'
 
 export type NotificationType = 'info' | 'warning' | 'danger' | 'success'
 
@@ -55,14 +56,6 @@ export interface AddNotificationInput {
   title: string
   message: string
   at: number
-}
-
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
 }
 
 function findItem(

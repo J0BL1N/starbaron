@@ -44,6 +44,13 @@
  * non-positive width/height, or a non-finite or negative safe inset.
  * validateLayout collects every inconsistency (viewport vs width, panelMode,
  * gridColumns, minTouchTargetPx, dimensions, safe insets) before returning.
+ *
+ * GESTURE CONTRACT (P4-T08 gesture contract): classifyGesture turns raw touch
+ * measurements into a typed GestureContract against exported bounds; the kind
+ * declares which fields are REQUIRED (pinch without scaleDelta throws, swipe
+ * without distancePx throws, tap without durationMs/distancePx throws,
+ * long-press without durationMs throws). gestureAction maps a kind to a
+ * deterministic v1 action label; the exact handlers are the UI's concern.
  */
 
 export type ViewportClass = 'phone' | 'tablet' | 'desktop'
@@ -93,6 +100,38 @@ export const TABLET_MAX_WIDTH_PX = 1024
 export const DESKTOP_MIN_WIDTH_PX = 1024
 export const MIN_TOUCH_TARGET_TOUCH_PX = 44
 export const MIN_TOUCH_TARGET_POINTER_PX = 32
+
+/** Gesture families the touch UI recognises in v1. */
+export type GestureKind = 'tap' | 'long-press' | 'swipe' | 'pinch'
+
+/** Normalised gesture: every field present (null when the kind has no value). */
+export interface GestureContract {
+  kind: GestureKind
+  durationMs: number | null
+  distancePx: number | null
+  scaleDelta: number | null
+}
+
+/** Raw touch measurement fed to classifyGesture. */
+export interface GestureInput {
+  kind: GestureKind
+  durationMs: number
+  distancePx: number
+  scaleDelta?: number
+}
+
+export const TAP_MAX_DURATION_MS = 500
+export const TAP_MAX_DISTANCE_PX = 10
+export const LONG_PRESS_MIN_DURATION_MS = 500
+export const SWIPE_MIN_DISTANCE_PX = 30
+export const PINCH_MIN_SCALE_DELTA = 0.1
+
+const GESTURE_ACTION: Readonly<Record<GestureKind, string>> = Object.freeze({
+  tap: 'select',
+  'long-press': 'context-menu',
+  swipe: 'navigate',
+  pinch: 'zoom',
+})
 
 const PANEL_MODE_FOR: Readonly<Record<ViewportClass, PanelMode>> = Object.freeze({
   phone: 'bottom-sheet',
@@ -270,4 +309,115 @@ export function validateLayout(rules: LayoutRules): {
   }
 
   return { ok: problems.length === 0, problems }
+}
+
+function assertGestureField(
+  value: number | undefined,
+  name: string,
+): asserts value is number {
+  if (value === undefined) {
+    throw new RangeError(`${name} is required for this gesture kind`)
+  }
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${name} must be a finite number, got ${value}`)
+  }
+}
+
+/** Carry a non-required measurement through; missing/non-finite → null. */
+function finiteOrNull(value: number | undefined): number | null {
+  if (value === undefined || !Number.isFinite(value)) {
+    return null
+  }
+  return value
+}
+
+/**
+ * Classify raw touch measurements into a typed, frozen GestureContract. The
+ * declared `kind` pins which fields are REQUIRED and which BOUND applies:
+ *   - tap:        durationMs <= 500ms AND distancePx <= 10px (both required)
+ *   - long-press: durationMs >= 500ms (durationMs required)
+ *   - swipe:      distancePx >= 30px (distancePx required)
+ *   - pinch:      scaleDelta >= 0.1 (scaleDelta required)
+ * Missing required fields and out-of-bound values throw a RangeError. Pure and
+ * deterministic: identical inputs always yield an identical contract; the
+ * returned object is Object.freeze'd so the caller cannot corrupt the
+ * projection.
+ */
+export function classifyGesture(input: GestureInput): GestureContract {
+  const { kind, durationMs, distancePx, scaleDelta } = input
+  switch (kind) {
+    case 'tap': {
+      assertGestureField(durationMs, 'durationMs')
+      assertGestureField(distancePx, 'distancePx')
+      if (durationMs > TAP_MAX_DURATION_MS) {
+        throw new RangeError(
+          `tap durationMs must be <= ${TAP_MAX_DURATION_MS}ms, got ${durationMs}`,
+        )
+      }
+      if (distancePx > TAP_MAX_DISTANCE_PX) {
+        throw new RangeError(
+          `tap distancePx must be <= ${TAP_MAX_DISTANCE_PX}px, got ${distancePx}`,
+        )
+      }
+      return Object.freeze({
+        kind,
+        durationMs,
+        distancePx,
+        scaleDelta: finiteOrNull(scaleDelta),
+      })
+    }
+    case 'long-press': {
+      assertGestureField(durationMs, 'durationMs')
+      if (durationMs < LONG_PRESS_MIN_DURATION_MS) {
+        throw new RangeError(
+          `long-press durationMs must be >= ${LONG_PRESS_MIN_DURATION_MS}ms, got ${durationMs}`,
+        )
+      }
+      return Object.freeze({
+        kind,
+        durationMs,
+        distancePx: finiteOrNull(distancePx),
+        scaleDelta: finiteOrNull(scaleDelta),
+      })
+    }
+    case 'swipe': {
+      assertGestureField(distancePx, 'distancePx')
+      if (distancePx < SWIPE_MIN_DISTANCE_PX) {
+        throw new RangeError(
+          `swipe distancePx must be >= ${SWIPE_MIN_DISTANCE_PX}px, got ${distancePx}`,
+        )
+      }
+      return Object.freeze({
+        kind,
+        durationMs: finiteOrNull(durationMs),
+        distancePx,
+        scaleDelta: finiteOrNull(scaleDelta),
+      })
+    }
+    case 'pinch': {
+      assertGestureField(scaleDelta, 'scaleDelta')
+      if (scaleDelta < PINCH_MIN_SCALE_DELTA) {
+        throw new RangeError(
+          `pinch scaleDelta must be >= ${PINCH_MIN_SCALE_DELTA}, got ${scaleDelta}`,
+        )
+      }
+      return Object.freeze({
+        kind,
+        durationMs: finiteOrNull(durationMs),
+        distancePx: finiteOrNull(distancePx),
+        scaleDelta,
+      })
+    }
+  }
+}
+
+/**
+ * Deterministic v1 mapping from a gesture kind to an action label (tap →
+ * 'select', long-press → 'context-menu', swipe → 'navigate', pinch → 'zoom').
+ * `rules` is accepted for signature symmetry with the layout contract but does
+ * not influence the mapping in v1; the exact handlers are the UI's concern.
+ */
+export function gestureAction(kind: GestureKind, rules: LayoutRules): string {
+  void rules
+  return GESTURE_ACTION[kind]
 }
