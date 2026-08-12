@@ -49,7 +49,7 @@
 | T07 Construction Queues | ✅ | Codex PASS (round 2) — `src/sim/structures/queues.ts` + `tests/queues.test.ts` (35 tests): reservations, idempotent completion, full-refund cancel, overflow-safe timestamps |
 | T08 Offline Progression | ✅ | Codex PASS (round 5) — `src/sim/core/offline-model.ts` + `tests/offline-model.test.ts` (36 tests): locked 8h bank policy, delta contract, population window, construction completion |
 | T09 Planet Quirks | ✅ | Codex PASS (round 2) — `src/sim/planets/quirk-model.ts` + `tests/quirk-model.test.ts` (45 tests): effect summaries, deterministic generation, production modifiers mirroring accrual |
-| T10 Economy Balancing Harness | ⬜ | |
+| T10 Economy Balancing Harness | ✅ | Codex PASS (round 2) — `src/sim/balance/harness.ts` + `tests/harness.test.ts` (31 tests): deterministic simulations, cost/income curves, bands, telemetry; surfaced tier-1 stall balance finding |
 
 ## Phase 4 — Core Game UI
 
