@@ -46,7 +46,7 @@
 | T04 Structure Framework | ✅ | Codex PASS (round 3) — `src/sim/structures/framework.ts` + `tests/framework.test.ts` (33 tests): prereq table (draft, T10 input), locked cost wrappers, canBuild ladder, deep-frozen immutability |
 | T05 Housing | ✅ | Codex PASS (first round) — `src/sim/structures/housing.ts` + `tests/housing.test.ts` (28 tests): locked cap/growth wrappers, upgrade curve, offline outcome, deterministic UI state |
 | T06 Production Structures | ✅ | Codex PASS (round 2) — `src/sim/structures/production.ts` + `tests/production.test.ts` (38 tests): per-structure rates mirroring locked accrual, summary API, informational efficiency scalar |
-| T07 Construction Queues | ⬜ | |
+| T07 Construction Queues | ✅ | Codex PASS (round 2) — `src/sim/structures/queues.ts` + `tests/queues.test.ts` (35 tests): reservations, idempotent completion, full-refund cancel, overflow-safe timestamps |
 | T08 Offline Progression | ⬜ | (src/sim/core/offline.ts exists) |
 | T09 Planet Quirks | ⬜ | (src/sim/planets/quirks.ts exists) |
 | T10 Economy Balancing Harness | ⬜ | |
