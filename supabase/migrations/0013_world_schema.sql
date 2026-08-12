@@ -19,14 +19,30 @@
 --   The parent's slug/seed are EMBEDDED in the child id, and the DB ENFORCES
 --   that the embedded slug/seed match the parent columns via CHECK
 --   constraints (deterministic, no PL/pgSQL):
---     * world_systems.id must start with 'sys:' || (galaxy slug inside
---       galaxy_id, i.e. galaxy_id minus the 'gal:' prefix) || '|' — a system
---       can never live under a galaxy its id does not encode.
---     * world_bodies.id must start with 'body:' || (galaxySlug|systemSeed
---       inside system_id, i.e. system_id minus the 'sys:' prefix) || '|' — a
---       body can never attach to a system its id does not encode.
---     * world_bodies: the body id's type segment (split_part(id,'|',3), the
---       segment between the 2nd and 3rd '|') must equal the type column.
+--     * world_galaxies.id must match the full canonical grammar
+--       '^gal:[^|]+$' (a single non-empty slug segment, no extra '|').
+--     * world_systems.id must match '^sys:[^|]+\|[^|]+$' (galaxy slug + seed,
+--       no extra segments) AND the embedded seed segment
+--       (split_part(id, '|', 2)) must equal the seed column AND the id must
+--       start with 'sys:' || (galaxy slug inside galaxy_id, i.e. galaxy_id
+--       minus the 'gal:' prefix) || '|' — a system can never live under a
+--       galaxy its id does not encode, and its embedded seed can never drift
+--       from its seed column.
+--     * world_bodies.id must match
+--       '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|[0-9]+$' (exactly
+--       four segments, numeric ordinal, no extra segments) AND the embedded
+--       type segment (split_part(id, '|', 3)) must equal the type column AND
+--       the embedded ordinal (split_part(id, '|', 4)::bigint) must equal the
+--       ordinal column AND the id must start with
+--       'body:' || (galaxySlug|systemSeed inside system_id, i.e. system_id
+--       minus the 'sys:' prefix) || '|' — a body can never attach to a system
+--       its id does not encode, and its embedded type/ordinal can never drift
+--       from its type/ordinal columns.
+--     * all three tables enforce the real-data provenance/flag consistency at
+--       rest: real_data true requires a catalogue provenance
+--       (provenance LIKE 'nasa-exoplanet-archive-%') and real_data false
+--       requires provenance = 'procedural' — mirror of the source-of-
+--       construction gate in src/sim/world (trust.ts / assertTrustedRealData).
 --   The FK columns (world_systems.galaxy_id, world_bodies.system_id) hold the
 --   parent's canonical id, and the composite UNIQUEs ((galaxy_id, id) /
 --   (system_id, id)) are KEPT as documented belt-and-braces (id is already the
@@ -76,7 +92,12 @@ create table if not exists public.world_galaxies (
   real_data          boolean not null default false,
   provenance         text not null default 'procedural',
   -- DB-filled persistence metadata, excluded from the canonical record contract.
-  created_at         timestamptz not null default now()
+  created_at         timestamptz not null default now(),
+  -- Full canonical id grammar: a single non-empty slug segment, no extra '|'.
+  check (id ~ '^gal:[^|]+$'),
+  -- Real-data flag/provenance consistency at rest (mirror of trust.ts).
+  check (not real_data or provenance like 'nasa-exoplanet-archive-%'),
+  check (real_data or provenance = 'procedural')
 );
 
 -- ---------------------------------------------------------------------
@@ -105,7 +126,12 @@ create table if not exists public.world_systems (
   -- DB-filled persistence metadata, excluded from the canonical record contract.
   created_at         timestamptz not null default now(),
   unique (galaxy_id, id),
-  check (id like 'sys:' || substr(galaxy_id, 5) || '|%')
+  -- Full canonical id grammar + embedded parent slug + embedded seed column.
+  check (id ~ '^sys:[^|]+\|[^|]+$' and split_part(id, '|', 2) = seed),
+  check (id like 'sys:' || substr(galaxy_id, 5) || '|%'),
+  -- Real-data flag/provenance consistency at rest (mirror of trust.ts).
+  check (not real_data or provenance like 'nasa-exoplanet-archive-%'),
+  check (real_data or provenance = 'procedural')
 );
 create index if not exists world_systems_galaxy_id_idx on public.world_systems (galaxy_id);
 
@@ -146,8 +172,18 @@ create table if not exists public.world_bodies (
   created_at                   timestamptz not null default now(),
   unique (system_id, id),
   unique (system_id, ordinal),
+  -- Full canonical id grammar (four segments, numeric ordinal, no extra
+  -- segments) + embedded type/ordinal columns + embedded parent system.
+  check (
+    id ~ '^body:[^|]+\|[^|]+\|(star|planet|moon|asteroid)\|[0-9]+$'
+    and split_part(id, '|', 3) = type
+    and split_part(id, '|', 4)::bigint = ordinal
+  ),
   check (id like 'body:' || substr(system_id, 5) || '|%'),
-  check (type = split_part(id, '|', 3))
+  check (type = split_part(id, '|', 3)),
+  -- Real-data flag/provenance consistency at rest (mirror of trust.ts).
+  check (not real_data or provenance like 'nasa-exoplanet-archive-%'),
+  check (real_data or provenance = 'procedural')
 );
 create index if not exists world_bodies_system_id_idx on public.world_bodies (system_id);
 create index if not exists world_bodies_type_idx     on public.world_bodies (type);

@@ -2,7 +2,8 @@
  * Canonical celestial-body data model.
  *
  * Pure, deterministic module: every value derives from a string id/seed via
- * fnv1a. No nondeterministic APIs or timestamps; no shared mutable data. This is the
+ * fnv1a. No nondeterministic APIs or timestamps; no module-level mutable
+ * state. This is the
  * source of truth for body records — render-side modules may import FROM here,
  * never the reverse.
  *
@@ -15,7 +16,8 @@
 import { fnv1a } from '../planets/hash'
 import { bodyId, parseCanonicalId } from './identity'
 import type { BodyId, BodyType, SystemId } from './identity'
-import { assertRealDataProvenance } from './galaxy'
+import { assertTrustedRealData } from './galaxy'
+import type { CatalogueTrust } from './trust'
 
 export const BODY_GENERATION_VERSION = 1
 
@@ -104,7 +106,7 @@ function seededUnit(seed: string): number {
   return fnv1a(seed) / 0x100000000
 }
 
-/** Minimal deterministic PRNG built on fnv1a (no shared state, no rngFrom). */
+/** Minimal deterministic PRNG built on fnv1a (no module-level mutable state). */
 function seededRng(seed: string): () => number {
   let index = 0
   return () => seededUnit(`${seed}|${index++}`)
@@ -261,9 +263,10 @@ function validateOrbit(type: BodyType, orbit: BodyOrbit): void {
 /**
  * Build a canonical body record. The id is always the branded id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record. When realData is true, provenance must be a catalogue
- * provenance (see assertRealDataProvenance) — records cannot be labelled real
- * outside catalogue/reconstruction internals.
+ * deep-equal record. realData: true is a capability-gated construction: it
+ * requires the CATALOGUE_TRUST token (see assertTrustedRealData), so only
+ * catalogue construction can label a record real. Without the token the
+ * record defaults to realData false with provenance 'procedural'.
  */
 export function buildBodyRecord(input: {
   system: SystemId
@@ -276,6 +279,7 @@ export function buildBodyRecord(input: {
   mass?: number
   realData?: boolean
   provenance?: string
+  trust?: CatalogueTrust
 }): BodyRecord {
   const systemName = systemNameOf(input.system)
   const id = bodyId(input.system, input.type, input.ordinal)
@@ -284,7 +288,7 @@ export function buildBodyRecord(input: {
   validateOrbit(input.type, orbit)
   const realData = input.realData ?? false
   const provenance = input.provenance ?? 'procedural'
-  assertRealDataProvenance(realData, provenance)
+  assertTrustedRealData('buildBodyRecord', realData, provenance, input.trust)
   return {
     id,
     system: input.system,

@@ -13,6 +13,8 @@ import {
   UNIVERSE_POSITION_MIN,
 } from '../src/sim/world/galaxy'
 import type { GalaxyClass } from '../src/sim/world/galaxy'
+import { CATALOGUE_TRUST } from '../src/sim/world/trust'
+import type { CatalogueTrust } from '../src/sim/world/trust'
 
 const GALAXY_CLASSES: readonly GalaxyClass[] = [
   'spiral',
@@ -21,6 +23,11 @@ const GALAXY_CLASSES: readonly GalaxyClass[] = [
   'irregular',
   'dwarf',
 ]
+
+/** Test-held catalogue capability token (catalogue.ts is the prod issuer). */
+const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
+
+const REAL_PROVENANCE = 'nasa-exoplanet-archive-2026-08-10'
 
 describe('P1-T02 factory defaults', () => {
   it('applies every documented default', () => {
@@ -65,12 +72,13 @@ describe('P1-T02 factory defaults', () => {
       position: { x: 1, y: -2, z: 3 },
       radius: 900,
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     expect(record.position).toEqual({ x: 1, y: -2, z: 3 })
     expect(record.radius).toBe(900)
     expect(record.realData).toBe(true)
-    expect(record.provenance).toBe('nasa-exoplanet-archive-2026-08-10')
+    expect(record.provenance).toBe(REAL_PROVENANCE)
   })
 
   it('clones the supplied position so the record is not aliased', () => {
@@ -81,26 +89,55 @@ describe('P1-T02 factory defaults', () => {
   })
 })
 
-describe('P1-T02 real-data provenance contract', () => {
-  it('rejects realData true without a catalogue provenance', () => {
+describe('P1-T02 real-data construction capability', () => {
+  it('rejects realData true without the CATALOGUE_TRUST token', () => {
     expect(() =>
-      buildGalaxyRecord({ slug: 'HD-564', realData: true, provenance: 'procedural' }),
-    ).toThrow(/catalogue provenance/)
+      buildGalaxyRecord({
+        slug: 'HD-564',
+        realData: true,
+        provenance: REAL_PROVENANCE,
+      }),
+    ).toThrow(/CATALOGUE_TRUST/)
   })
 
-  it('rejects realData true when provenance defaults to procedural', () => {
+  it('rejects realData true when provenance defaults to procedural without trust', () => {
     expect(() => buildGalaxyRecord({ slug: 'HD-564', realData: true })).toThrow(
-      /catalogue provenance/,
+      /CATALOGUE_TRUST/,
     )
   })
 
-  it('accepts realData true only with a catalogue provenance prefix', () => {
+  it('rejects a non-procedural provenance without the trust token', () => {
+    expect(() =>
+      buildGalaxyRecord({ slug: 'HD-564', provenance: REAL_PROVENANCE }),
+    ).toThrow(/CATALOGUE_TRUST/)
+  })
+
+  it('rejects realData true without a catalogue provenance even with trust', () => {
+    expect(() =>
+      buildGalaxyRecord({
+        slug: 'HD-564',
+        realData: true,
+        provenance: 'procedural',
+        trust: CATALOGUE_TRUST_TOKEN,
+      }),
+    ).toThrow(/catalogue provenance/)
+  })
+
+  it('accepts realData true only with the trust token and a catalogue provenance', () => {
     const record = buildGalaxyRecord({
       slug: 'HD-564',
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     expect(record.realData).toBe(true)
+    expect(record.provenance).toBe(REAL_PROVENANCE)
+  })
+
+  it('procedural construction needs no trust token and stays procedural', () => {
+    const record = buildGalaxyRecord({ slug: 'HD-564' })
+    expect(record.realData).toBe(false)
+    expect(record.provenance).toBe('procedural')
   })
 })
 

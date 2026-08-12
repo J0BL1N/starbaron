@@ -15,6 +15,7 @@ import type { RendererPayload } from '../src/sim/world/api'
 import { buildUniverseState } from '../src/sim/world/reconstruct'
 import type { UniverseState } from '../src/sim/world/reconstruct'
 import { bodyId, galaxyId, systemId } from '../src/sim/world/identity'
+import type { BodyId } from '../src/sim/world/identity'
 import { buildGalaxyRecord, registerSystem } from '../src/sim/world/galaxy'
 import { buildSystemRecord, registerBody } from '../src/sim/world/system'
 import { buildBodyRecord } from '../src/sim/world/body'
@@ -220,6 +221,24 @@ describe('P1-T08 parent-chain contradiction rejection', () => {
     expect(ids).not.toContain(lying.id)
     expect(ids).toEqual([ALPHA_PLANET_0, ALPHA_PLANET_1, ALPHA_MOON])
   })
+
+  it('queryBodiesBySystem excludes a malformed body id that only matches by string prefix', () => {
+    const state = buildFixture()
+    const malformed: UniverseState['bodies'][number] = {
+      ...buildBodyRecord({ system: ALPHA_ID, type: 'planet', ordinal: 9, name: 'Mal' }),
+      id: `body:${SLUG}|alpha|planet|9|extra` as BodyId,
+    }
+    const alpha = state.systems.find((s) => s.id === ALPHA_ID)!
+    const patched = registerBody(alpha, malformed.id)
+    const inconsistent = {
+      ...state,
+      systems: state.systems.map((s) => (s.id === ALPHA_ID ? patched : s)),
+      bodies: [...state.bodies, malformed],
+    }
+    const ids = queryBodiesBySystem(inconsistent, ALPHA_ID).map((b) => b.id)
+    expect(ids).not.toContain(malformed.id)
+    expect(ids).toEqual([ALPHA_PLANET_0, ALPHA_PLANET_1, ALPHA_MOON])
+  })
 })
 
 describe('P1-T08 list queries and ordering', () => {
@@ -299,6 +318,30 @@ describe('P1-T08 regionQuery', () => {
     const result = regionQuery(state, { x: 5000, y: 0, z: 0 }, 10)
     expect(result.systems).toEqual([])
     expect(result.bodies).toEqual([])
+  })
+
+  it('excludes a registered system whose parent chain is invalid from region results', () => {
+    const state = buildFixture()
+    const fake: UniverseState['systems'][number] = {
+      ...buildSystemRecord({
+        galaxy: state.galaxy.id,
+        slug: 'fake',
+        name: 'Fake',
+        position: { x: 0, y: 0, z: 0 },
+      }),
+      id: systemId('other-galaxy', 'fake'),
+    }
+    const inconsistent = {
+      ...state,
+      galaxy: { ...state.galaxy, systemIds: [...state.galaxy.systemIds, fake.id] },
+      systems: [...state.systems, fake],
+    }
+    const result = regionQuery(inconsistent, ORIGIN, 100)
+    expect(result.systems.map((s) => s.id)).toEqual([ALPHA_ID, BETA_ID])
+    for (const body of result.bodies) {
+      expect([ALPHA_ID, BETA_ID]).toContain(body.system)
+    }
+    expect(result.bodies).toHaveLength(5)
   })
 
   it('throws a descriptive Error on a negative radius', () => {

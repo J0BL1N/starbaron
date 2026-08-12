@@ -9,10 +9,17 @@ import {
   seededBodyName,
 } from '../src/sim/world/body'
 import type { BodyRecord } from '../src/sim/world/body'
+import { CATALOGUE_TRUST } from '../src/sim/world/trust'
+import type { CatalogueTrust } from '../src/sim/world/trust'
 
 const SYSTEM = systemId('HD-564', 'Aurora')
 
 const BODY_TYPES: readonly BodyType[] = ['star', 'planet', 'moon', 'asteroid']
+
+const REAL_PROVENANCE = 'nasa-exoplanet-archive-2026-08-10'
+
+/** Test-held catalogue capability token (catalogue.ts is the prod issuer). */
+const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 type BodyInput = Omit<
   Parameters<typeof buildBodyRecord>[0],
@@ -124,30 +131,50 @@ describe('P1-T04 factory defaults', () => {
   it('honours overrides for realData and provenance', () => {
     const planet = body('planet', 0, {
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     expect(planet.realData).toBe(true)
-    expect(planet.provenance).toBe('nasa-exoplanet-archive-2026-08-10')
+    expect(planet.provenance).toBe(REAL_PROVENANCE)
   })
 
-  it('rejects realData true without a catalogue provenance', () => {
+  it('rejects realData true without the CATALOGUE_TRUST token', () => {
     expect(() =>
-      body('planet', 0, { realData: true, provenance: 'procedural' }),
-    ).toThrow(/catalogue provenance/)
+      body('planet', 0, {
+        realData: true,
+        provenance: REAL_PROVENANCE,
+      }),
+    ).toThrow(/CATALOGUE_TRUST/)
   })
 
-  it('rejects realData true when provenance defaults to procedural', () => {
-    expect(() => body('planet', 0, { realData: true })).toThrow(
-      /catalogue provenance/,
+  it('rejects realData true when provenance defaults to procedural without trust', () => {
+    expect(() => body('planet', 0, { realData: true })).toThrow(/CATALOGUE_TRUST/)
+  })
+
+  it('rejects a non-procedural provenance without the trust token', () => {
+    expect(() => body('planet', 0, { provenance: REAL_PROVENANCE })).toThrow(
+      /CATALOGUE_TRUST/,
     )
   })
 
-  it('accepts realData true only with a catalogue provenance prefix', () => {
+  it('rejects realData true without a catalogue provenance even with trust', () => {
+    expect(() =>
+      body('planet', 0, {
+        realData: true,
+        provenance: 'procedural',
+        trust: CATALOGUE_TRUST_TOKEN,
+      }),
+    ).toThrow(/catalogue provenance/)
+  })
+
+  it('accepts realData true only with the trust token and a catalogue provenance', () => {
     const planet = body('planet', 0, {
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     expect(planet.realData).toBe(true)
+    expect(planet.provenance).toBe(REAL_PROVENANCE)
   })
 
   it('mass is omitted from the record when not supplied', () => {
@@ -384,7 +411,8 @@ describe('P1-T04 determinism', () => {
       mass: 0.41,
       orbit: { semiMajorAxis: 21 },
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     }
     expect(buildBodyRecord({ system: SYSTEM, type: 'planet', ordinal: 2, ...input })).toEqual(
       buildBodyRecord({ system: SYSTEM, type: 'planet', ordinal: 2, ...input }),

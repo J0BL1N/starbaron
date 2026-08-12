@@ -3,7 +3,7 @@
  *
  * PURE module: every function derives only from its arguments and the
  * in-memory UniverseState it is given. No nondeterministic sources, wall-clock
- * timestamps, global state, or mutable module-level state, and no rendering
+ * timestamps, mutable module-level state, and no rendering
  * imports. The same state always yields the same results, so repeated calls
  * deep-equal.
  *
@@ -79,13 +79,16 @@ function resolveBody(state: UniverseState, id: BodyId): BodyRecord | null {
 
 /**
  * Canonical-parent membership of a body under a system: a body belongs to a
- * system exactly when its id embeds the same galaxy slug + system seed. This
- * string-prefix test is equivalent to `parentOf(body.id) === systemId` and is
- * used on the per-body hot path of queryBodiesBySystem to avoid re-parsing
- * every body id.
+ * system exactly when its id parses as a body AND the canonical parent parsed
+ * from the id equals the system id. A malformed id that merely shares a string
+ * prefix never matches — parse is the gate, never a prefix test.
  */
 function bodyBelongsTo(body: BodyRecord, systemId: SystemId): boolean {
-  return body.id.startsWith(`body:${systemId.slice(4)}|`)
+  const parsed = parseCanonicalId(body.id)
+  if (!parsed.ok || parsed.kind !== 'body') {
+    return false
+  }
+  return parentOf(body.id) === systemId
 }
 
 /** Resolve a system record by id, or null when not present in the state. */
@@ -173,6 +176,12 @@ function squaredDistance(
  * stores per-system orbital elements — so a body is included when its SYSTEM
  * is within the radius.
  *
+ * Canonical gating: every candidate system passes through resolveSystem before
+ * being emitted, so a registered system whose id does not parse or whose
+ * parent chain is invalid (declared galaxy != canonical parent, or id absent
+ * from the galaxy registry) is excluded from the region results — the same
+ * semantics as querySystemsByGalaxy.
+ *
  * Throws a descriptive Error when radius is negative or not finite.
  * Results are deterministic: both arrays are sorted by id.
  */
@@ -189,6 +198,8 @@ export function regionQuery(
   const radiusSquared = radius * radius
   const systems = state.systems
     .filter((system) => squaredDistance(center, system.position) <= radiusSquared)
+    .map((system) => resolveSystem(state, system.id))
+    .filter((system): system is SystemRecord => system !== null)
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const bodies = systems
     .flatMap((system) => queryBodiesBySystem(state, system.id))

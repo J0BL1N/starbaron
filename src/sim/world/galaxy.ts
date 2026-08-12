@@ -2,8 +2,8 @@
  * Canonical galaxy data model.
  *
  * Pure, deterministic module: every value derives from a string seed via
- * fnv1a. No nondeterministic APIs or timestamps, no global state. This is
- * the source of
+ * fnv1a. No nondeterministic APIs or timestamps, no module-level mutable
+ * state. This is the source of
  * truth for galaxy records — render-side modules may import FROM here, never
  * the reverse.
  *
@@ -16,6 +16,7 @@
 import { fnv1a } from '../planets/hash'
 import { galaxyId } from './identity'
 import type { GalaxyId, SystemId } from './identity'
+import type { CatalogueTrust } from './trust'
 
 /** Extensible galaxy morphology union. */
 export type GalaxyClass =
@@ -103,11 +104,40 @@ export function assertRealDataProvenance(
 }
 
 /**
+ * Enforce the source-of-construction gate (the real-data capability):
+ * setting realData: true — or any non-procedural provenance — requires the
+ * opaque CATALOGUE_TRUST capability from ./trust, which only ./catalogue can
+ * mint. Without the capability the record must stay procedural (realData
+ * false, provenance 'procedural'); any attempt to elevate it throws.
+ */
+export function assertTrustedRealData(
+  factory: string,
+  realData: boolean,
+  provenance: string,
+  trust: CatalogueTrust | undefined,
+): void {
+  if (trust === undefined) {
+    if (realData) {
+      throw new Error(
+        `${factory}: realData: true requires the CATALOGUE_TRUST token from ./trust; only catalogue construction may label a record real`,
+      )
+    }
+    if (provenance !== 'procedural') {
+      throw new Error(
+        `${factory}: a non-procedural provenance requires the CATALOGUE_TRUST token from ./trust`,
+      )
+    }
+  }
+  assertRealDataProvenance(realData, provenance)
+}
+
+/**
  * Build a canonical galaxy record. The id is always the branded slug id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record. When realData is true, provenance must be a catalogue
- * provenance (see assertRealDataProvenance) — records cannot be labelled real
- * outside catalogue/reconstruction internals.
+ * deep-equal record. realData: true is a capability-gated construction: it
+ * requires the CATALOGUE_TRUST token (see assertTrustedRealData), so only
+ * catalogue construction can label a record real. Without the token the
+ * record defaults to realData false with provenance 'procedural'.
  */
 export function buildGalaxyRecord(input: {
   slug: string
@@ -118,10 +148,11 @@ export function buildGalaxyRecord(input: {
   radius?: number
   realData?: boolean
   provenance?: string
+  trust?: CatalogueTrust
 }): GalaxyRecord {
   const realData = input.realData ?? false
   const provenance = input.provenance ?? 'procedural'
-  assertRealDataProvenance(realData, provenance)
+  assertTrustedRealData('buildGalaxyRecord', realData, provenance, input.trust)
   return {
     id: galaxyId(input.slug),
     seed: input.seed ?? input.slug,

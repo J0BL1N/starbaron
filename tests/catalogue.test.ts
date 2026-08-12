@@ -18,8 +18,13 @@ import type {
 import { galaxyId, parseCanonicalId, parentOf, systemId } from '../src/sim/world/identity'
 import type { GalaxyId, SystemId } from '../src/sim/world/identity'
 import { buildSystemRecord } from '../src/sim/world/system'
+import { CATALOGUE_TRUST } from '../src/sim/world/trust'
+import type { CatalogueTrust } from '../src/sim/world/trust'
 
 const PROVENANCE = 'nasa-exoplanet-archive-2026-08-10'
+
+/** Test-held catalogue capability token (catalogue.ts is the prod issuer). */
+const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 const FIXTURE: PlanetCatalogueEntry[] = [
   {
@@ -351,6 +356,7 @@ describe('P1-T05 validateCatalogue problem detection (mutated mappings)', () => 
       name: 'Ghost-Host',
       realData: true,
       provenance: PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     const extra: CatalogueMappingResult = {
       ...mapping,

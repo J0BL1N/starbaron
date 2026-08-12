@@ -16,7 +16,8 @@
 import { fnv1a } from '../planets/hash'
 import { parseCanonicalId, systemId } from './identity'
 import type { BodyId, GalaxyId, SystemId } from './identity'
-import { assertRealDataProvenance, DEFAULT_GALAXY_RADIUS } from './galaxy'
+import { assertTrustedRealData, DEFAULT_GALAXY_RADIUS } from './galaxy'
+import type { CatalogueTrust } from './trust'
 
 export const SYSTEM_GENERATION_VERSION = 1
 
@@ -67,7 +68,7 @@ function seededUnit(seed: string): number {
   return fnv1a(seed) / 0x100000000
 }
 
-/** Minimal deterministic PRNG built on fnv1a (no shared state, no rngFrom). */
+/** Minimal deterministic PRNG built on fnv1a (no module-level mutable state). */
 function seededRng(seed: string): () => number {
   let index = 0
   return () => seededUnit(`${seed}|${index++}`)
@@ -109,9 +110,10 @@ export function starColorFor(
 /**
  * Build a canonical system record. The id is always the branded id from
  * ./identity — never constructed by hand. Same input always yields a
- * deep-equal record. When realData is true, provenance must be a catalogue
- * provenance (see assertRealDataProvenance) — records cannot be labelled real
- * outside catalogue/reconstruction internals.
+ * deep-equal record. realData: true is a capability-gated construction: it
+ * requires the CATALOGUE_TRUST token (see assertTrustedRealData), so only
+ * catalogue construction can label a record real. Without the token the
+ * record defaults to realData false with provenance 'procedural'.
  */
 export function buildSystemRecord(input: {
   galaxy: GalaxyId
@@ -122,13 +124,14 @@ export function buildSystemRecord(input: {
   starType?: string
   realData?: boolean
   provenance?: string
+  trust?: CatalogueTrust
 }): SystemRecord {
   const galaxySlug = galaxySlugOf(input.galaxy)
   const seed = input.seed ?? input.slug
   const starName = input.name ?? input.slug
   const realData = input.realData ?? false
   const provenance = input.provenance ?? 'procedural'
-  assertRealDataProvenance(realData, provenance)
+  assertTrustedRealData('buildSystemRecord', realData, provenance, input.trust)
   return {
     id: systemId(galaxySlug, seed),
     galaxy: input.galaxy,

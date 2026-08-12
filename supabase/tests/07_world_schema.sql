@@ -28,6 +28,20 @@
 --                 segment disagrees with the type column (both
 --                 check_violation); the galaxy -> system -> body cascade
 --                 removes bodies with their system.
+--               * FULL canonical id grammar (0013 phase-audit CHECKs):
+--                 world_galaxies.id rejects a slug containing '|'
+--                 (check_violation); world_systems.id rejects an embedded
+--                 seed segment that disagrees with the seed column
+--                 (check_violation); world_bodies.id rejects a non-numeric
+--                 ordinal, an id ordinal/type that disagrees with the
+--                 ordinal/type columns, and an extra '|' segment (all
+--                 check_violation).
+--               * REAL-DATA flag/provenance consistency at rest: a real
+--                 galaxy/system/body with provenance
+--                 'nasa-exoplanet-archive-...' round-trips; real_data = true
+--                 with provenance = 'procedural' violates the CHECK on every
+--                 table (check_violation) — mirror of the source-of-
+--                 construction gate (src/sim/world/trust.ts).
 --               * created_at is DB-filled persistence metadata EXCLUDED from
 --                 the canonical record contract (0013 header) — no model
 --                 round-trip asserts it; it is purely operational.
@@ -130,6 +144,14 @@ begin
   exception
     when check_violation then null; -- expected
   end;
+  -- full canonical grammar: a slug containing '|' breaks '^gal:[^|]+$'.
+  begin
+    insert into public.world_galaxies (id, seed, name, class)
+    values ('gal:test|alpha', 's', 'Bad', 'spiral');
+    raise exception '8653 ASSERTION FAILED: galaxy id containing a pipe must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
   select count(*) into v_n from public.world_galaxies;
   if v_n <> 1 then
     raise exception '8653 ASSERTION FAILED: rejected galaxy inserts must not persist, saw % rows', v_n;
@@ -214,6 +236,24 @@ begin
   select count(*) into v_n from public.world_systems;
   if v_n <> 1 then
     raise exception '8653 ASSERTION FAILED: foreign-slug system must not persist, saw % rows', v_n;
+  end if;
+end $$;
+
+-- system id whose embedded seed segment (split_part(id, '|', 2)) disagrees
+-- with the seed column -> the full-grammar CHECK must raise; no row persists.
+do $$
+declare v_n bigint;
+begin
+  begin
+    insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color)
+    values ('sys:test-alpha|other-seed', 'gal:test-alpha', 'alpha-seed', 'Bad', 'Bad Prime', '#fff4e8');
+    raise exception '8653 ASSERTION FAILED: system id with an embedded seed differing from the seed column must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+  select count(*) into v_n from public.world_systems;
+  if v_n <> 1 then
+    raise exception '8653 ASSERTION FAILED: seed-mismatched system must not persist, saw % rows', v_n;
   end if;
 end $$;
 
@@ -321,6 +361,36 @@ begin
     when check_violation then null; -- expected
   end;
 
+  -- full canonical grammar: a non-numeric ordinal segment breaks
+  -- '[0-9]+' in the id regex.
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
+    values ('body:test-alpha|alpha-seed|planet|X', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0);
+    raise exception '8653 ASSERTION FAILED: body id with a non-numeric ordinal must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
+  -- full canonical grammar: the id ordinal segment disagrees with the
+  -- ordinal column (split_part(id,'|',4)::bigint <> ordinal).
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
+    values ('body:test-alpha|alpha-seed|planet|3', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 9, 1.0);
+    raise exception '8653 ASSERTION FAILED: body id ordinal disagreeing with the ordinal column must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
+  -- full canonical grammar: an extra '|' segment breaks the exact four-
+  -- segment shape of the id regex.
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius)
+    values ('body:test-alpha|alpha-seed|planet|1|extra', 'sys:test-alpha|alpha-seed', 'planet', 'Bad', 'b', 1, 1.0);
+    raise exception '8653 ASSERTION FAILED: body id with an extra segment must raise';
+  exception
+    when check_violation then null; -- expected
+  end;
+
   select count(*) into v_n from public.world_bodies;
   if v_n <> 3 then
     raise exception '8653 ASSERTION FAILED: rejected body inserts must not persist, saw % rows', v_n;
@@ -393,6 +463,63 @@ begin
   select count(*) into v_b from public.world_bodies    where system_id = 'sys:test-alpha|alpha-seed';
   if v_g <> 0 or v_s <> 0 or v_b <> 0 then
     raise exception '8653 ASSERTION FAILED: galaxy cascade must remove systems and bodies, saw g % s % b %',
+      v_g, v_s, v_b;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 4.5 Real-data flag/provenance consistency at rest (mirror of the
+--     source-of-construction gate in src/sim/world/trust.ts): a real
+--     galaxy/system/body carrying a catalogue provenance round-trips
+--     (positive), while real_data = true with provenance = 'procedural'
+--     violates the CHECK on every table (check_violation) and never
+--     persists.
+-- ---------------------------------------------------------------------
+insert into public.world_galaxies (id, seed, name, class, real_data, provenance)
+values ('gal:real-alpha', 'real-alpha', 'Real Alpha', 'spiral', true, 'nasa-exoplanet-archive-2026-08-10');
+insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color, real_data, provenance)
+values ('sys:real-alpha|real-alpha', 'gal:real-alpha', 'real-alpha', 'Real Alpha', 'Real Alpha Prime', '#fff4e8', true, 'nasa-exoplanet-archive-2026-08-10');
+insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, real_data, provenance)
+values ('body:real-alpha|real-alpha|planet|0', 'sys:real-alpha|real-alpha', 'planet', 'Verdant', 'real-b0', 0, 1.5, true, 'nasa-exoplanet-archive-2026-08-10');
+
+do $$
+begin
+  if not exists (select 1 from public.world_galaxies where id = 'gal:real-alpha')
+     or not exists (select 1 from public.world_systems where id = 'sys:real-alpha|real-alpha')
+     or not exists (select 1 from public.world_bodies where id = 'body:real-alpha|real-alpha|planet|0') then
+    raise exception '8653 ASSERTION FAILED: real-data rows with a catalogue provenance must round-trip';
+  end if;
+end $$;
+
+do $$
+declare v_g bigint; v_s bigint; v_b bigint;
+begin
+  begin
+    insert into public.world_galaxies (id, seed, name, class, real_data, provenance)
+    values ('gal:real-lie', 's', 'Lie', 'spiral', true, 'procedural');
+    raise exception '8653 ASSERTION FAILED: real_data true with procedural provenance must raise on world_galaxies';
+  exception
+    when check_violation then null; -- expected
+  end;
+  begin
+    insert into public.world_systems (id, galaxy_id, seed, name, star_name, star_color, real_data, provenance)
+    values ('sys:real-alpha|real-lie', 'gal:real-alpha', 'real-lie', 'Lie', 'Lie Prime', '#fff4e8', true, 'procedural');
+    raise exception '8653 ASSERTION FAILED: real_data true with procedural provenance must raise on world_systems';
+  exception
+    when check_violation then null; -- expected
+  end;
+  begin
+    insert into public.world_bodies (id, system_id, type, name, seed, ordinal, radius, real_data, provenance)
+    values ('body:real-alpha|real-alpha|planet|1', 'sys:real-alpha|real-alpha', 'planet', 'Lie', 'b', 1, 1.0, true, 'procedural');
+    raise exception '8653 ASSERTION FAILED: real_data true with procedural provenance must raise on world_bodies';
+  exception
+    when check_violation then null; -- expected
+  end;
+  select count(*) into v_g from public.world_galaxies where id = 'gal:real-lie';
+  select count(*) into v_s from public.world_systems where id = 'sys:real-alpha|real-lie';
+  select count(*) into v_b from public.world_bodies where id = 'body:real-alpha|real-alpha|planet|1';
+  if v_g <> 0 or v_s <> 0 or v_b <> 0 then
+    raise exception '8653 ASSERTION FAILED: rejected real-data rows must not persist, saw g % s % b %',
       v_g, v_s, v_b;
   end if;
 end $$;

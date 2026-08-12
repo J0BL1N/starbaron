@@ -11,8 +11,15 @@ import {
   starColorFor,
   SYSTEM_GENERATION_VERSION,
 } from '../src/sim/world/system'
+import { CATALOGUE_TRUST } from '../src/sim/world/trust'
+import type { CatalogueTrust } from '../src/sim/world/trust'
 
 const GALAXY = galaxyId('HD-564')
+
+const REAL_PROVENANCE = 'nasa-exoplanet-archive-2026-08-10'
+
+/** Test-held catalogue capability token (catalogue.ts is the prod issuer). */
+const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 function record(slug = 'Aurora'): ReturnType<typeof buildSystemRecord> {
   return buildSystemRecord({ galaxy: GALAXY, slug })
@@ -70,11 +77,12 @@ describe('P1-T03 factory defaults', () => {
       slug: 'Alpha-Cyg',
       position: { x: 1, y: -2, z: 3 },
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     expect(sys.position).toEqual({ x: 1, y: -2, z: 3 })
     expect(sys.realData).toBe(true)
-    expect(sys.provenance).toBe('nasa-exoplanet-archive-2026-08-10')
+    expect(sys.provenance).toBe(REAL_PROVENANCE)
   })
 
   it('clones the supplied position so the record is not aliased', () => {
@@ -92,32 +100,62 @@ describe('P1-T03 factory defaults', () => {
   })
 })
 
-describe('P1-T03 real-data provenance contract', () => {
-  it('rejects realData true without a catalogue provenance', () => {
+describe('P1-T03 real-data construction capability', () => {
+  it('rejects realData true without the CATALOGUE_TRUST token', () => {
+    expect(() =>
+      buildSystemRecord({
+        galaxy: GALAXY,
+        slug: 'Alpha-Cyg',
+        realData: true,
+        provenance: REAL_PROVENANCE,
+      }),
+    ).toThrow(/CATALOGUE_TRUST/)
+  })
+
+  it('rejects realData true when provenance defaults to procedural without trust', () => {
+    expect(() =>
+      buildSystemRecord({ galaxy: GALAXY, slug: 'Alpha-Cyg', realData: true }),
+    ).toThrow(/CATALOGUE_TRUST/)
+  })
+
+  it('rejects a non-procedural provenance without the trust token', () => {
+    expect(() =>
+      buildSystemRecord({
+        galaxy: GALAXY,
+        slug: 'Alpha-Cyg',
+        provenance: REAL_PROVENANCE,
+      }),
+    ).toThrow(/CATALOGUE_TRUST/)
+  })
+
+  it('rejects realData true without a catalogue provenance even with trust', () => {
     expect(() =>
       buildSystemRecord({
         galaxy: GALAXY,
         slug: 'Alpha-Cyg',
         realData: true,
         provenance: 'procedural',
+        trust: CATALOGUE_TRUST_TOKEN,
       }),
     ).toThrow(/catalogue provenance/)
   })
 
-  it('rejects realData true when provenance defaults to procedural', () => {
-    expect(() =>
-      buildSystemRecord({ galaxy: GALAXY, slug: 'Alpha-Cyg', realData: true }),
-    ).toThrow(/catalogue provenance/)
-  })
-
-  it('accepts realData true only with a catalogue provenance prefix', () => {
+  it('accepts realData true only with the trust token and a catalogue provenance', () => {
     const sys = buildSystemRecord({
       galaxy: GALAXY,
       slug: 'Alpha-Cyg',
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     })
     expect(sys.realData).toBe(true)
+    expect(sys.provenance).toBe(REAL_PROVENANCE)
+  })
+
+  it('procedural construction needs no trust token and stays procedural', () => {
+    const sys = buildSystemRecord({ galaxy: GALAXY, slug: 'Alpha-Cyg' })
+    expect(sys.realData).toBe(false)
+    expect(sys.provenance).toBe('procedural')
   })
 })
 
@@ -165,7 +203,8 @@ describe('P1-T03 determinism', () => {
       name: 'Aurora',
       starType: 'G2 V',
       realData: true,
-      provenance: 'nasa-exoplanet-archive-2026-08-10',
+      provenance: REAL_PROVENANCE,
+      trust: CATALOGUE_TRUST_TOKEN,
     }
     expect(buildSystemRecord(input)).toEqual(buildSystemRecord(input))
   })

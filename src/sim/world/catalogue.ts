@@ -6,21 +6,26 @@
  * one SystemRecord per unique host star, and one BodyRecord per catalogue
  * planet. Pure and deterministic — every id derives from the catalogue
  * hostname/planets via ./identity, so the same input always yields a
- * deep-equal mapping. No nondeterministic APIs, wall-clock timestamps, shared
- * mutable state, or rendering imports.
+ * deep-equal mapping. No nondeterministic APIs, wall-clock timestamps,
+ * module-level mutable state, or rendering imports.
  *
  * Real-data provenance discipline: every record produced here is a catalogue
  * entry, so realData is always true and provenance carries the snapshot fetch
- * timestamp. Records are never relabelled procedural. Procedural values are
- * used ONLY for fields the pinned snapshot does not carry (orbital elements
- * and radius/mass when absent), and those defaults derive deterministically
- * from the body id via the P1-T04 band logic — never fabricated as "real".
+ * timestamp. Records are never relabelled procedural. This module is the ONLY
+ * source of construction that may label a record real: it mints the
+ * CATALOGUE_TRUST capability (./trust) and passes it to the factories, which
+ * otherwise refuse realData: true. Procedural values are used ONLY for fields
+ * the pinned snapshot does not carry (orbital elements and radius/mass when
+ * absent), and those defaults derive deterministically from the body id via
+ * the P1-T04 band logic — never fabricated as "real".
  */
 
 import { PLANET_SNAPSHOT } from '../data/planets'
 import type { PlanetCatalogueEntry } from '../data/planets'
 import { parseCanonicalId, parentOf } from './identity'
 import type { BodyId, SystemId } from './identity'
+import { CATALOGUE_TRUST } from './trust'
+import type { CatalogueTrust } from './trust'
 import { buildGalaxyRecord, registerSystem } from './galaxy'
 import type { GalaxyRecord } from './galaxy'
 import { buildSystemRecord, registerBody } from './system'
@@ -55,6 +60,14 @@ export interface CatalogueSnapshotMeta {
 export function catalogueProvenance(fetchedAt: string): string {
   return `nasa-exoplanet-archive-${fetchedAt}`
 }
+
+/**
+ * The catalogue's real-data capability token. Holding the unique
+ * CATALOGUE_TRUST symbol key is the ONLY way a factory accepts realData: true
+ * (assertTrustedRealData in ./galaxy). This module is the sole legitimate
+ * issuer; the token object is never mutated.
+ */
+const CATALOGUE_TRUST_TOKEN: CatalogueTrust = { [CATALOGUE_TRUST]: true }
 
 /**
  * World radius from catalogue Earth-radii: offset + scaled, clamped to
@@ -129,6 +142,7 @@ export function buildCatalogueMapping(
     name: CATALOGUE_GALAXY_NAME,
     realData: true,
     provenance,
+    trust: CATALOGUE_TRUST_TOKEN,
   })
 
   const planetsByHost = new Map<string, PlanetCatalogueEntry[]>()
@@ -151,6 +165,7 @@ export function buildCatalogueMapping(
       starType: hostStarType(planetsByHost.get(hostname) ?? []),
       realData: true,
       provenance,
+      trust: CATALOGUE_TRUST_TOKEN,
     }),
   )
 
@@ -183,6 +198,7 @@ export function buildCatalogueMapping(
           mass: entry.massJup,
           realData: true,
           provenance,
+          trust: CATALOGUE_TRUST_TOKEN,
         }),
       )
     }
