@@ -95,7 +95,7 @@
 | T06 Intel Staleness | ✅ | Codex PASS (first round) — `src/sim/intel/staleness.ts` + `tests/staleness.test.ts` (34 tests): freshness ladder, level decay, rescout hook, store drop |
 | T07 PvP Information Gating | ✅ | Codex PASS (round 2) — `src/sim/intel/pvp-gate.ts` + `tests/pvp-gate.test.ts` (39 tests): combined gate, strict no-leak, up-front record validation |
 | T08 Intel-Safe Backend | ✅ | Codex PASS (round 3) — `src/sim/intel/store.ts` + `tests/store.test.ts` (47 tests) + write-only `0018_intel.sql`/`12_intel.sql`: store ops, RLS no-leak schema, never-throwing invariants |
-| T09 Hover HUD Integration | ⬜ | |
+| T09 Hover HUD Integration | ✅ | Codex PASS (round 2) — `src/sim/ui/hover-intel.ts` + `tests/hover-intel.test.ts` (32 tests): gated hover compose, intel status line, caller-supplied inputs (no runtime world API), no-leak blocked base |
 | T10 Future Sensor Hooks | ⬜ | |
 
 ## Phase 7 — Combat & Planet Conquest
