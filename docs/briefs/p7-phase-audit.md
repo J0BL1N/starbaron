@@ -15,7 +15,7 @@ READ LIST (all Phase 7 deliverables):
 - supabase/migrations/0019_home_immunity.sql + supabase/tests/13_home_immunity.sql (write-only)
 - Locked sources: player/transfer.ts, player/protection.ts, player/ownership.ts, player/estimator.ts, structures/effects.ts, fleet/movement.ts, fleet/ships.ts, fleet/fleet.ts, core/format.ts, ui/notifications.ts, ui/validate.ts, planets/hash.ts
 
-AUDIT TARGET: the whole Phase 7 feature set on staging (through the P7-T11 PASS state). Docs commits OUT OF SCOPE.
+AUDIT TARGET: the whole Phase 7 feature set on staging (through the P7-T11 PASS state, INCLUDING the phase-fix commit 16d87ab which addresses findings 1-4; finding 5 docs-reference fixed in the prompt). Docs commits OUT OF SCOPE.
 
 BANNED COMMENT TOKENS (scan comments too — code AND tests): any, Math.random, Date.now, performance.now, localeCompare, locale, wall, clock, scene, Three.js, global state, shared mutable data, random.
 
