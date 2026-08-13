@@ -8,7 +8,7 @@ READ LIST:
 - src/sim/intel/levels.ts      (P6-T02: coverageFor, IntelLevel)
 - src/sim/intel/staleness.ts   (P6-T06: Freshness)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT e2a353d196790f0d8210badf9a879905af5198a6 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 5d65148730689c8d815de0d1424a6484cc2fca6d (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p6-t09-brief.md + master roadmap P6-T09):
 1. IntelHoverInfo { base (HoverInfo), intelLine|null, blocked|null, shownFromIntel }.
