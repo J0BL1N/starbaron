@@ -9,7 +9,7 @@ READ LIST:
 - src/sim/combat/conquest-cost.ts (P7-T06: ConquestCost)
 - src/sim/world/api.ts           (queryBody — universe anchoring)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = the CURRENT state of src/sim/combat/capture.ts + tests/capture.test.ts on staging (HEAD; the feat commit cc1e33c68d3a3d104e46b2062eca49e5fd5f6bdf covers exactly these two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = the CURRENT state of src/sim/combat/capture.ts + tests/capture.test.ts on staging (HEAD; the feat + audit-fix amend cover exactly these two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p7-t07-brief.md + master roadmap P7-T07):
 1. CaptureResult { captureId (fnv1a(attackerId|targetId|capturedAt)), attackerId, defenderId, targetId, capturedAt, outcome captured|repelled, transfer TransferEvent|null, cost ConquestCost|null, casualties CasualtyLedger|null }.
