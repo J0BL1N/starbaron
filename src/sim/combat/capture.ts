@@ -53,10 +53,13 @@
  * on a repelled branch, so every capture is anchored the same way.
  *
  * VALIDATION (each throws RangeError): attackerId / defenderId / targetId
- * non-empty; capturedAt positive finite (assertPositiveAt); outcome.result a
- * terminal battle result with a consistent victory flag; structureSurvival a
- * finite fraction in [0,1]; the casualty ledger satisfies its locked
- * invariants; CROSS-SOURCE consistency — the outcome and the ledger must
+ * non-empty; capturedAt positive finite (assertPositiveAt) and never BEFORE
+ * the battle's resolution (capturedAt >= outcome.resolvedAt — equality is
+ * allowed; the capture follows the resolve → casualties → capture ordering);
+ * outcome.result a terminal battle result with a consistent victory flag;
+ * structureSurvival a finite fraction in [0,1]; the casualty ledger satisfies
+ * its locked invariants; CROSS-SOURCE consistency — the outcome and the
+ * ledger must
  * describe the SAME battle (attackerId / targetId / battleId / resolvedAt /
  * result / survivors / defender losses all agree), so a victory can never
  * ride on a ledger from a different engagement; the cost is well-formed
@@ -227,6 +230,23 @@ function assertConsistent(outcome: BattleOutcome, ledger: CasualtyLedger): void 
   }
 }
 
+/**
+ * The capture must never be stamped BEFORE the battle it derives from — a
+ * conquest transfer/history event written before the outcome's resolve moment
+ * would break the resolve → casualties → capture ordering. capturedAt must be
+ * >= outcome.resolvedAt (equality allowed); an earlier timestamp is rejected
+ * with a descriptive RangeError.
+ */
+function assertCaptureOrdering(capturedAt: number, resolvedAt: number): void {
+  if (capturedAt < resolvedAt) {
+    throw new RangeError(
+      `capturedAt (${capturedAt}) must not precede the battle resolution ` +
+        `resolvedAt (${resolvedAt}) — the capture follows the resolve → ` +
+        'casualties → capture ordering',
+    )
+  }
+}
+
 function assertCost(cost: ConquestCost): void {
   assertNonEmptyString(cost.targetId, 'cost.targetId')
   if (!Number.isInteger(cost.tier) || cost.tier < 1) {
@@ -381,6 +401,7 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
   assertStructureSurvival(input.structureSurvival)
   assertLedger(input.casualties)
   assertConsistent(input.outcome, input.casualties)
+  assertCaptureOrdering(input.capturedAt, input.outcome.resolvedAt)
   assertCost(input.cost)
   assertTargetCurrent(input.targetCurrent)
   assertPreviousHistory(input.previousHistory)

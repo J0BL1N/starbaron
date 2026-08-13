@@ -429,6 +429,25 @@ describe('P7-T07 capturePlanet — validation', () => {
     }
   })
 
+  it('ALLOWS a capture stamped exactly at the battle resolution (equality boundary)', () => {
+    const atResolution = input({ capturedAt: AT })
+    expect(atResolution.capturedAt).toBe(atResolution.outcome.resolvedAt)
+    expect(() => capturePlanet(atResolution)).not.toThrow()
+  })
+
+  it('REJECTS a capture stamped BEFORE the battle resolution (resolvedAt - 1)', () => {
+    const before = input({ capturedAt: AT - 1 })
+    expect(before.capturedAt).toBeLessThan(before.outcome.resolvedAt)
+    expect(() => capturePlanet(before)).toThrow(RangeError)
+    expect(() => capturePlanet(before)).toThrow(/must not precede the battle resolution/)
+  })
+
+  it('ALLOWS a capture stamped AFTER the battle resolution', () => {
+    const after = input({ capturedAt: AT + 1 })
+    expect(after.capturedAt).toBeGreaterThan(after.outcome.resolvedAt)
+    expect(() => capturePlanet(after)).not.toThrow()
+  })
+
   it('rejects a structureSurvival outside [0,1] or non-finite', () => {
     for (const bad of [1.5, -0.1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(
