@@ -19,13 +19,22 @@
 --                 location not JSON objects, fleet_order.target not a JSON
 --                 object when present, fleet_route.legs not a JSON array,
 --                 fleet_route.arrival_at <= departure_at, fleet_route
---                 total_distance_pc < 0 — each raises check_violation and
---                 nothing persists;
+--                 total_distance_pc < 0, the round-3 active/status pair
+--                 mismatches (active=true on 'issued' and active=false on
+--                 'active') — each raises check_violation and nothing
+--                 persists;
 --               * finding 5 NOT NULL columns: fleet.sim_created_at and the
 --                 route legs / total_duration_sec columns are present on
 --                 the written rows and an omitted value raises
 --                 not_null_violation;
---               * finding 5 one-active-order partial UNIQUE index: a second
+--               * round-3 sim-time contract: the fleet / order / route
+--                 sim timestamps round-trip as exact millisecond bigint
+--                 values (sim_created_at, issued_at, departure_at /
+--                 arrival_at) — the TS `number` snapshots persist without
+--                 a timestamptz mapper;
+--               * finding 5 one-active-order partial UNIQUE index: with
+--                 the active slot handed from order-1 to order-2 (status
+--                 and active flag transition together, round-3), a second
 --                 active order for the same fleet raises unique_violation
 --                 and nothing persists;
 --               * ON DELETE CASCADE: deleting a fleet removes its orders
@@ -64,20 +73,20 @@ insert into public.fleet (id, owner_id, name, composition, location, status, sim
 values ('fleet-1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Alpha Strike',
         '{"scout":2,"corvette":0,"frigate":1,"cruiser":0,"battleship":0}'::jsonb,
         '{"kind":"planet","bodyId":"body:home"}'::jsonb,
-        'idle', now());
+        'idle', 1700000000000);
 
 insert into public.fleet_order (id, fleet_id, type, target, issued_at, status, expires_at, active)
-values ('order-1', 'fleet-1', 'move',   '{"kind":"system","id":"sys-alpha"}'::jsonb, now(), 'issued', null, false),
-       ('order-2', 'fleet-1', 'return', null, now() + interval '1 second', 'issued', null, false);
+values ('order-1', 'fleet-1', 'move',   '{"kind":"system","id":"sys-alpha"}'::jsonb, 1700000000000, 'issued', null, false),
+       ('order-2', 'fleet-1', 'return', null, 1700000001000, 'issued', null, false);
 
 insert into public.fleet_route (id, fleet_id, waypoints, legs, total_distance_pc, total_duration_sec, departure_at, arrival_at)
 values ('route-1', 'fleet-1',
         '[{"ref":{"kind":"planet","bodyId":"home"},"position":{"x":0,"y":0,"z":0}},{"ref":{"kind":"system","bodyId":"sys-alpha"},"position":{"x":3,"y":0,"z":0}}]'::jsonb,
         '[{"fleetId":"fleet-1","from":{"kind":"planet","bodyId":"home"},"to":{"kind":"system","bodyId":"sys-alpha"},"distancePc":3,"speedPcPerSec":1,"departureAt":1700000000000,"arrivalAt":1700000003000,"status":"traveling"}]'::jsonb,
-        3, 3, now(), now() + interval '3 seconds');
+        3, 3, 1700000000000, 1700000003000);
 
 do $$
-declare v_n bigint; v_sim timestamptz;
+declare v_n bigint; v_sim bigint;
 begin
   select count(*) into v_n from public.fleet where id = 'fleet-1';
   if v_n <> 1 then
@@ -91,17 +100,20 @@ begin
   if v_n <> 1 then
     raise exception '8653 ASSERTION FAILED: owner route round-trip must find the row';
   end if;
-  -- finding 5: sim_created_at is present on the fleet row
+  -- round-3: sim_created_at round-trips the exact millisecond bigint value
+  -- (the TS createdAt number persists without a timestamptz mapper)
   select sim_created_at into v_sim from public.fleet where id = 'fleet-1';
-  if v_sim is null then
-    raise exception '8653 ASSERTION FAILED: fleet sim_created_at must be present (non-null)';
+  if v_sim <> 1700000000000 then
+    raise exception '8653 ASSERTION FAILED: fleet sim_created_at must round-trip as bigint ms, saw %', v_sim;
   end if;
-  -- finding 5: route legs and total_duration_sec are present on the route row
+  -- finding 5: route legs and total_duration_sec are present on the route
+  -- row; round-3: departure_at / arrival_at round-trip the exact bigint ms
   select count(*) into v_n from public.fleet_route r
     where r.id = 'route-1' and r.legs is not null and jsonb_typeof(r.legs) = 'array'
-      and r.total_duration_sec = 3;
+      and r.total_duration_sec = 3
+      and r.departure_at = 1700000000000 and r.arrival_at = 1700000003000;
   if v_n <> 1 then
-    raise exception '8653 ASSERTION FAILED: route legs and total_duration_sec must be present and match';
+    raise exception '8653 ASSERTION FAILED: route legs, total_duration_sec and bigint ms timestamps must be present and match';
   end if;
 end $$;
 
@@ -131,7 +143,7 @@ do $$
 begin
   begin
     insert into public.fleet_order (id, fleet_id, type, target, issued_at, status)
-    values ('order-x', 'fleet-1', 'move', '{"kind":"system","id":"sys-alpha"}'::jsonb, now(), 'issued');
+    values ('order-x', 'fleet-1', 'move', '{"kind":"system","id":"sys-alpha"}'::jsonb, 1700000000000, 'issued');
     raise exception '8653 ASSERTION FAILED: B must not insert an order on A fleet';
   exception
     when insufficient_privilege then null; -- RLS with-check violation (42501)
@@ -145,8 +157,9 @@ end $$;
 --    object, JSONB shape CHECKs (fleet.location / fleet_order.target must
 --    be objects, fleet_route.legs must be an array), the NOT NULL columns
 --    added in finding 5 (sim_created_at, route legs, total_duration_sec),
---    route arrival_at <= departure_at, route total_distance_pc < 0. Nothing
---    persists.
+--    route arrival_at <= departure_at, route total_distance_pc < 0, and
+--    the round-3 fleet_order_active_matches_status mismatches (active=true
+--    on 'issued', active=false on 'active'). Nothing persists.
 -- ---------------------------------------------------------------------
 set local role postgres;
 do $$
@@ -155,7 +168,7 @@ begin
     insert into public.fleet (id, owner_id, name, composition, location, status, sim_created_at)
     values ('fleet-bad-status', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Bad',
             '{"scout":0,"corvette":0,"frigate":0,"cruiser":0,"battleship":0}'::jsonb,
-            '{"kind":"planet","bodyId":"x"}'::jsonb, 'orbiting', now());
+            '{"kind":"planet","bodyId":"x"}'::jsonb, 'orbiting', 1700000000000);
     raise exception '8653 ASSERTION FAILED: fleet.status outside the union must raise';
   exception
     when check_violation then null; -- expected
@@ -163,7 +176,7 @@ begin
   begin
     insert into public.fleet (id, owner_id, name, composition, location, status, sim_created_at)
     values ('fleet-bad-composition', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Bad',
-            '"scout"'::jsonb, '{"kind":"planet","bodyId":"x"}'::jsonb, 'idle', now());
+            '"scout"'::jsonb, '{"kind":"planet","bodyId":"x"}'::jsonb, 'idle', 1700000000000);
     raise exception '8653 ASSERTION FAILED: fleet.composition must be a JSON object';
   exception
     when check_violation then null; -- expected
@@ -172,7 +185,7 @@ begin
     insert into public.fleet (id, owner_id, name, composition, location, status, sim_created_at)
     values ('fleet-bad-location', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Bad',
             '{"scout":0,"corvette":0,"frigate":0,"cruiser":0,"battleship":0}'::jsonb,
-            '["kind","planet"]'::jsonb, 'idle', now());
+            '["kind","planet"]'::jsonb, 'idle', 1700000000000);
     raise exception '8653 ASSERTION FAILED: fleet.location must be a JSON object (finding 5)';
   exception
     when check_violation then null; -- expected
@@ -188,56 +201,70 @@ begin
   end;
   begin
     insert into public.fleet_order (id, fleet_id, type, target, issued_at, status)
-    values ('order-bad-type', 'fleet-1', 'explore', '{"kind":"system","id":"x"}'::jsonb, now(), 'issued');
+    values ('order-bad-type', 'fleet-1', 'explore', '{"kind":"system","id":"x"}'::jsonb, 1700000000000, 'issued');
     raise exception '8653 ASSERTION FAILED: fleet_order.type outside the union must raise';
   exception
     when check_violation then null; -- expected
   end;
   begin
     insert into public.fleet_order (id, fleet_id, type, target, issued_at, status)
-    values ('order-bad-status', 'fleet-1', 'move', '{"kind":"system","id":"x"}'::jsonb, now(), 'flying');
+    values ('order-bad-status', 'fleet-1', 'move', '{"kind":"system","id":"x"}'::jsonb, 1700000000000, 'flying');
     raise exception '8653 ASSERTION FAILED: fleet_order.status outside the union must raise';
   exception
     when check_violation then null; -- expected
   end;
   begin
     insert into public.fleet_order (id, fleet_id, type, target, issued_at, status)
-    values ('order-bad-target-shape', 'fleet-1', 'move', '["kind","system"]'::jsonb, now(), 'issued');
+    values ('order-bad-target-shape', 'fleet-1', 'move', '["kind","system"]'::jsonb, 1700000000000, 'issued');
     raise exception '8653 ASSERTION FAILED: fleet_order.target must be a JSON object when present (finding 5)';
   exception
     when check_violation then null; -- expected
   end;
   begin
+    insert into public.fleet_order (id, fleet_id, type, target, issued_at, status, active)
+    values ('order-bad-active-issued', 'fleet-1', 'move', '{"kind":"system","id":"x"}'::jsonb, 1700000000000, 'issued', true);
+    raise exception '8653 ASSERTION FAILED: active=true with status ''issued'' must violate fleet_order_active_matches_status (round 3)';
+  exception
+    when check_violation then null; -- expected
+  end;
+  begin
+    insert into public.fleet_order (id, fleet_id, type, target, issued_at, status, active)
+    values ('order-bad-inactive-active', 'fleet-1', 'move', '{"kind":"system","id":"x"}'::jsonb, 1700000000000, 'active', false);
+    raise exception '8653 ASSERTION FAILED: active=false with status ''active'' must violate fleet_order_active_matches_status (round 3)';
+  exception
+    when check_violation then null; -- expected
+  end;
+  begin
     insert into public.fleet_route (id, fleet_id, waypoints, legs, total_distance_pc, total_duration_sec, departure_at, arrival_at)
-    values ('route-bad-window', 'fleet-1', '[]'::jsonb, '[]'::jsonb, 0, 0, now(), now() - interval '1 minute');
+    values ('route-bad-window', 'fleet-1', '[]'::jsonb, '[]'::jsonb, 0, 0, 1700000003000, 1700000000000);
     raise exception '8653 ASSERTION FAILED: fleet_route arrival_at <= departure_at must raise';
   exception
     when check_violation then null; -- expected
   end;
   begin
     insert into public.fleet_route (id, fleet_id, waypoints, legs, total_distance_pc, total_duration_sec, departure_at, arrival_at)
-    values ('route-bad-distance', 'fleet-1', '[]'::jsonb, '[]'::jsonb, -1, 0, now(), now() + interval '1 minute');
+    values ('route-bad-distance', 'fleet-1', '[]'::jsonb, '[]'::jsonb, -1, 0, 1700000000000, 1700000006000);
     raise exception '8653 ASSERTION FAILED: fleet_route total_distance_pc < 0 must raise';
   exception
     when check_violation then null; -- expected
   end;
   begin
     insert into public.fleet_route (id, fleet_id, waypoints, legs, total_distance_pc, total_duration_sec, departure_at, arrival_at)
-    values ('route-bad-legs-shape', 'fleet-1', '[]'::jsonb, '{}'::jsonb, 0, 0, now(), now() + interval '1 minute');
+    values ('route-bad-legs-shape', 'fleet-1', '[]'::jsonb, '{}'::jsonb, 0, 0, 1700000000000, 1700000006000);
     raise exception '8653 ASSERTION FAILED: fleet_route.legs must be a JSON array (finding 5)';
   exception
     when check_violation then null; -- expected
   end;
   begin
     insert into public.fleet_route (id, fleet_id, waypoints, total_distance_pc, total_duration_sec, departure_at, arrival_at)
-    values ('route-missing-legs', 'fleet-1', '[]'::jsonb, 0, 0, now(), now() + interval '1 minute');
+    values ('route-missing-legs', 'fleet-1', '[]'::jsonb, 0, 0, 1700000000000, 1700000006000);
     raise exception '8653 ASSERTION FAILED: fleet_route.legs is NOT NULL (finding 5)';
   exception
     when not_null_violation then null; -- expected
   end;
   begin
     insert into public.fleet_route (id, fleet_id, waypoints, legs, total_distance_pc, departure_at, arrival_at)
-    values ('route-missing-duration', 'fleet-1', '[]'::jsonb, '[]'::jsonb, 0, now(), now() + interval '1 minute');
+    values ('route-missing-duration', 'fleet-1', '[]'::jsonb, '[]'::jsonb, 0, 1700000000000, 1700000006000);
     raise exception '8653 ASSERTION FAILED: fleet_route.total_duration_sec is NOT NULL (finding 5)';
   exception
     when not_null_violation then null; -- expected
@@ -262,17 +289,20 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- 4b. One-active-order partial UNIQUE index (finding 5): flipping an
---     existing order to active, then inserting a SECOND active order for
---     the same fleet, must fail with unique_violation (23505). Nothing
---     persists.
+-- 4b. One-active-order partial UNIQUE index (finding 5 + round 3): the
+--     active slot is handed from order-1 to order-2 with status AND the
+--     active flag transitioning together (order-1 completes → active=false,
+--     order-2 activates → status='active' + active=true), then inserting a
+--     SECOND active order for the same fleet must fail with unique_violation
+--     (23505) — order-2 holds the slot. Nothing persists.
 -- ---------------------------------------------------------------------
 do $$
 begin
-  update public.fleet_order set active = true where id = 'order-1';
+  update public.fleet_order set status = 'done', active = false where id = 'order-1';
+  update public.fleet_order set status = 'active', active = true where id = 'order-2';
   begin
     insert into public.fleet_order (id, fleet_id, type, target, issued_at, status, active)
-    values ('order-active2', 'fleet-1', 'move', '{"kind":"system","id":"x"}'::jsonb, now(), 'active', true);
+    values ('order-active2', 'fleet-1', 'move', '{"kind":"system","id":"x"}'::jsonb, 1700000000000, 'active', true);
     raise exception '8653 ASSERTION FAILED: a second active order for the same fleet must violate the partial unique index';
   exception
     when unique_violation then null; -- expected

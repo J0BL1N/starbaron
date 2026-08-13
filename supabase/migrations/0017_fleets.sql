@@ -30,11 +30,18 @@
 --     (set search_path = public, pg_temp); this file is pure DDL (no
 --     functions) and the top-level DDL migrations (0001/0002/0004/0013)
 --     set no search_path — all objects are public.-qualified. Same here.
--- Timestamps: created_at/updated_at are timestamptz with default now()
---   (0001/0013 DB-filled operational metadata convention); issued_at /
---   expires_at / departure_at / arrival_at are explicit NOT NULL inputs
---   (the sim timestamps are caller-supplied millisecond numbers — the
---   SQL mirror maps them to timestamptz columns).
+-- Timestamps (round-3): every SIM timestamp is a caller-supplied
+--   millisecond number in the TS model (fleet.createdAt, order.issuedAt /
+--   expiresAt, route + leg departureAt / arrivalAt — all `number` in
+--   persistence.ts). They are stored EXACTLY as constrained bigint
+--   milliseconds (sim_created_at, issued_at, expires_at, departure_at,
+--   arrival_at) — never timestamptz — so no ms↔timezone mapper exists and
+--   the SQL round-trips the TS snapshot without drift. The per-leg
+--   departureAt/arrivalAt ms numbers live inside the opaque TS-shaped
+--   fleet_route.legs jsonb (row-level departure_at/arrival_at are the
+--   mirrored bigint contract). created_at/updated_at are DB-managed
+--   timestamptz default now() audit columns (0001/0013 convention) — DB
+--   audit time vs sim time (ms) are deliberately distinct.
 -- Idempotent: NO (forward-only; runs exactly once on an empty schema).
 --   CREATE POLICY has no IF NOT EXISTS, so this file is NOT re-runnable —
 --   the 0001/0002/0004 convention for user-owned tables (0013's
@@ -49,7 +56,12 @@
 --             one-active partial UNIQUE index + target object CHECK,
 --             fleet_route.legs + total_duration_sec + legs array CHECK
 --             (the SQL mirrors the full TS graph; deep JSONB shape
---             validation stays in persistence.ts).
+--             validation stays in persistence.ts). Round-3 (phase audit):
+--             the sim timestamps (sim_created_at, issued_at, expires_at,
+--             departure_at, arrival_at) are constrained bigint ms — the
+--             exact TS `number` contract, no timestamptz mapper — and
+--             fleet_order.active is constrained to agree with status
+--             (fleet_order_active_matches_status).
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -58,11 +70,12 @@
 --    integer counts) and FleetLocation ({kind, bodyId}); status is the
 --    FleetStatus union (text + CHECK, D7). owner_id is the owning
 --    public.players row; deleting a player cascades away their fleets
---    (owned_planets.owner_id precedent, 0001). sim_created_at mirrors the
---    sim's deterministic createdAt (the caller-supplied millisecond
---    timestamp, mapped to timestamptz — finding 5). created_at/updated_at
---    are DB-filled operational metadata (0013 convention) — the sim keeps
---    its own sim_created_at separately. The JSONB CHECKs enforce structural
+--    (owned_planets.owner_id precedent, 0001). sim_created_at is the sim's
+--    deterministic createdAt as a constrained bigint millisecond number
+--    (check sim_created_at >= 0 — round-3: the exact TS number, no mapper).
+--    created_at/updated_at are DB-filled timestamptz audit columns (0013
+--    convention) — DB audit time vs sim time (ms) are distinct; the sim
+--    keeps its own sim_created_at separately. The JSONB CHECKs enforce structural
 --    types only (composition/location must be objects); deep shape
 --    validation (per-class integer counts, {kind, bodyId} fields) stays in
 --    the TS snapshot invariants (persistence.ts).
@@ -74,7 +87,7 @@ create table public.fleet (
   composition   jsonb not null check (jsonb_typeof(composition) = 'object'), -- FleetComposition: per-class non-negative integer counts
   location      jsonb not null check (jsonb_typeof(location) = 'object'),    -- FleetLocation: {kind, bodyId}
   status        text not null check (status in ('idle','traveling','combat','returning')), -- FleetStatus union
-  sim_created_at timestamptz not null, -- the sim's deterministic createdAt (finding 5)
+  sim_created_at bigint not null check (sim_created_at >= 0), -- sim's deterministic createdAt in ms (round-3: bigint, not timestamptz)
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
@@ -85,20 +98,28 @@ create index fleet_owner_idx on public.fleet (owner_id);
 --    queue rows of a fleet's FleetOrders. type/status are text + CHECK
 --    (D7); target is nullable JSONB ({kind,id}, null for 'return') with a
 --    structural object CHECK (deep validation stays in TS); the parent
---    fleet FK cascades (0004 attack_members.attack_id precedent). `active`
---    mirrors the one-active-order semantics: exactly one row per fleet may
---    be active at a time, enforced in SQL by the partial UNIQUE index
---    fleet_order_one_active_idx on (fleet_id) WHERE active (finding 5).
+--    fleet FK cascades (0004 attack_members.attack_id precedent).
+--    issued_at / expires_at are the sim's millisecond numbers stored as
+--    constrained bigint (check issued_at >= 0; check expires_at is null or
+--    expires_at > issued_at — round-3: the exact TS number, no mapper;
+--    orders.ts requires a present expiresAt to be strictly after issuedAt).
+--    `active` mirrors the one-active-order semantics: exactly one row per
+--    fleet may be active at a time, enforced in SQL by the partial UNIQUE
+--    index fleet_order_one_active_idx on (fleet_id) WHERE active (finding
+--    5). active is additionally constrained to AGREE with status by
+--    fleet_order_active_matches_status — active=true only when status =
+--    'active' and vice versa (round-3, phase audit).
 -- ---------------------------------------------------------------------
 create table public.fleet_order (
   id         text primary key,   -- deterministic order id (fnv1a, orders.ts)
   fleet_id   text not null references public.fleet (id) on delete cascade,
   type       text not null check (type in ('move','attack','defend','return')), -- FleetOrderType union
   target     jsonb check (target is null or jsonb_typeof(target) = 'object'),   -- FleetOrderTarget {kind,id} | null ('return' carries no target)
-  issued_at  timestamptz not null,
+  issued_at  bigint not null check (issued_at >= 0), -- sim ms timestamp (round-3: bigint, not timestamptz)
   status     text not null check (status in ('issued','active','done','cancelled')), -- FleetOrderStatus union
-  expires_at timestamptz,
-  active     boolean not null default false -- one-active-order flag (finding 5)
+  expires_at bigint check (expires_at is null or expires_at > issued_at),       -- sim ms timestamp, null when never-expiring (round-3)
+  active     boolean not null default false, -- one-active-order flag (finding 5)
+  constraint fleet_order_active_matches_status check (active = (status = 'active')) -- round-3: flag must agree with status
 );
 create index fleet_order_fleet_status_idx on public.fleet_order (fleet_id, status);
 create unique index fleet_order_one_active_idx on public.fleet_order (fleet_id) where active; -- at most one active order per fleet (finding 5)
@@ -106,16 +127,19 @@ create unique index fleet_order_one_active_idx on public.fleet_order (fleet_id) 
 -- ---------------------------------------------------------------------
 -- 3. fleet_route — one row per TravelRoute (src/sim/fleet/routes.ts).
 --    waypoints is the JSONB waypoint array; legs is the JSONB leg array
---    (finding 5 — the SQL now mirrors the full route graph); total
---    distance/duration totals are numeric (>= 0 — route totals are always
---    non-negative); departure_at must be strictly before arrival_at
---    (routes.ts guarantees arrival > departure). The JSONB CHECKs enforce
---    structural types only (waypoints/legs must be arrays); deep shape
---    validation (per-waypoint ref/position, per-leg refs/timing/geometry)
---    stays in the TS snapshot invariants (persistence.ts). The id is a
---    persistence key — the sim route carries no id field (the caller
---    supplies one at persist time, like owned_planets.id). Parent FK
---    cascades like fleet_order.
+--    (finding 5 — the SQL now mirrors the full route graph; the per-leg
+--    departureAt/arrivalAt ms numbers stay inside this opaque TS-shaped
+--    jsonb — round-3); total distance/duration totals are numeric (>= 0 —
+--    route totals are always non-negative); departure_at / arrival_at are
+--    the sim's millisecond numbers mirrored as constrained bigint
+--    (check departure_at >= 0 and arrival_at > departure_at — round-3:
+--    the exact TS number, no mapper; routes.ts guarantees arrival >
+--    departure). The JSONB CHECKs enforce structural types only
+--    (waypoints/legs must be arrays); deep shape validation (per-waypoint
+--    ref/position, per-leg refs/timing/geometry) stays in the TS snapshot
+--    invariants (persistence.ts). The id is a persistence key — the sim
+--    route carries no id field (the caller supplies one at persist time,
+--    like owned_planets.id). Parent FK cascades like fleet_order.
 -- ---------------------------------------------------------------------
 create table public.fleet_route (
   id                text primary key,   -- persistence key (sim TravelRoute has no id)
@@ -124,9 +148,9 @@ create table public.fleet_route (
   legs              jsonb not null check (jsonb_typeof(legs) = 'array'),       -- TravelLeg[] (finding 5)
   total_distance_pc numeric not null check (total_distance_pc >= 0),
   total_duration_sec numeric not null check (total_duration_sec >= 0),         -- finding 5
-  departure_at      timestamptz not null,
-  arrival_at        timestamptz not null,
-  check (arrival_at > departure_at)
+  departure_at      bigint not null, -- sim ms departure (round-3: bigint, not timestamptz)
+  arrival_at        bigint not null, -- sim ms arrival (round-3)
+  check (departure_at >= 0 and arrival_at > departure_at)
 );
 create index fleet_route_fleet_arrival_idx on public.fleet_route (fleet_id, arrival_at);
 
