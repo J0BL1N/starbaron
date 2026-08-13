@@ -372,6 +372,76 @@ describe('replayCheck — deterministic replay', () => {
     const rerun: ScenarioResult = { ...recorded, scenarioId: 'other' }
     expect(replayCheck(recorded, rerun).firstDifference).toBe('scenarioId')
   })
+
+  it('names a tampered outcome.battleId as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      outcome: { ...recorded.outcome, battleId: `${recorded.outcome.battleId}x` },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe('outcome.battleId')
+  })
+
+  it('names a tampered outcome.victory as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      outcome: { ...recorded.outcome, victory: !recorded.outcome.victory },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe('outcome.victory')
+  })
+
+  it('names a tampered ledger.result as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      ledger: { ...recorded.ledger, result: 'stalemate' },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe('ledger.result')
+  })
+
+  it('names a tampered cost.tier as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      cost: { ...recorded.cost!, tier: recorded.cost!.tier + 1 },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe('cost.tier')
+  })
+
+  it('names a tampered cost.escalation.reason as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      cost: {
+        ...recorded.cost!,
+        escalation: {
+          ...recorded.cost!.escalation,
+          reason: `${recorded.cost!.escalation.reason}x`,
+        },
+      },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe(
+      'cost.escalation.reason',
+    )
+  })
+
+  it('names a tampered cost.total.population as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      cost: {
+        ...recorded.cost!,
+        total: {
+          ...recorded.cost!.total,
+          population: recorded.cost!.total.population + 1,
+        },
+      },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe(
+      'cost.total.population',
+    )
+  })
 })
 
 describe('runScenario — validation', () => {

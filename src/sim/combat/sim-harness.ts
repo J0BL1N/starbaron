@@ -46,8 +46,9 @@
  *
  * scenarioTable emits one row per scenario, sorted by scenarioId with a
  * plain byte-wise comparison (no environment-sensitive collation).
- * replayCheck compares two runs field-by-field and names the first diverging
- * path — the deterministic replay gate.
+ * replayCheck compares two runs leaf-by-leaf — every leaf of ScenarioResult
+ * in a fixed documented order — and names the first diverging path; the
+ * deterministic replay gate.
  *
  * VALIDATION — the full input envelope is validated up front (each throws
  * RangeError) so a malformed scenario fails with a descriptive error before
@@ -299,34 +300,56 @@ export function scenarioTable(scenarios: readonly BattleScenario[]): string[] {
 }
 
 /**
- * DETERMINISTIC REPLAY: compares two scenario runs field-by-field — the
- * outcome powers and survivors, the ledger losses on both sides, the conquest
- * cost totals (and its presence), the captured flag, the report, the travel
- * seconds and the launch cost. firstDifference is the first diverging field
- * path ('outcome.attackPower' style); identical is true only when every field
- * agrees. Neither input is mutated.
+ * DETERMINISTIC REPLAY: compares two scenario runs leaf-by-leaf — every leaf
+ * of ScenarioResult, in a FIXED DOCUMENTED ORDER. firstDifference is the first
+ * diverging field path ('outcome.battleId' style); identical is true only when
+ * every leaf agrees. Neither input is mutated.
+ *
+ * The comparison order is fixed top-to-bottom: scenarioId; the outcome's
+ * battleId, attackerId, targetId, resolvedAt, attackPower, defensePower,
+ * victory, survivingTroops, defenderCasualties and result; the ledger's
+ * attackerId, targetId, battleId, resolvedAt, attacker totals
+ * (troopsCommitted, survivors, populationLoss, fleetLost), defender losses
+ * (populationLoss, garrisonLoss) and result; the captured flag; travelSeconds;
+ * launchCost; the report; then the conquest cost (victory only): its presence
+ * ('cost'), then targetId, tier, base (population, fleet, credits), escalation
+ * (multiplier, reason) and total (population, fleet, credits).
  */
 export function replayCheck(
   recorded: ScenarioResult,
   rerun: ScenarioResult,
 ): ReplayComparison {
+  const outcomeA = recorded.outcome
+  const outcomeB = rerun.outcome
+  const ledgerA = recorded.ledger
+  const ledgerB = rerun.ledger
   const scalarFields: ReadonlyArray<readonly [string, unknown, unknown]> = [
     ['scenarioId', recorded.scenarioId, rerun.scenarioId],
-    ['outcome.attackPower', recorded.outcome.attackPower, rerun.outcome.attackPower],
-    ['outcome.defensePower', recorded.outcome.defensePower, rerun.outcome.defensePower],
-    ['outcome.survivingTroops', recorded.outcome.survivingTroops, rerun.outcome.survivingTroops],
-    ['outcome.defenderCasualties', recorded.outcome.defenderCasualties, rerun.outcome.defenderCasualties],
-    ['outcome.result', recorded.outcome.result, rerun.outcome.result],
-    ['ledger.attacker.troopsCommitted', recorded.ledger.attacker.troopsCommitted, rerun.ledger.attacker.troopsCommitted],
-    ['ledger.attacker.populationLoss', recorded.ledger.attacker.populationLoss, rerun.ledger.attacker.populationLoss],
-    ['ledger.attacker.survivors', recorded.ledger.attacker.survivors, rerun.ledger.attacker.survivors],
-    ['ledger.attacker.fleetLost', recorded.ledger.attacker.fleetLost, rerun.ledger.attacker.fleetLost],
-    ['ledger.defender.populationLoss', recorded.ledger.defender.populationLoss, rerun.ledger.defender.populationLoss],
-    ['ledger.defender.garrisonLoss', recorded.ledger.defender.garrisonLoss, rerun.ledger.defender.garrisonLoss],
+    ['outcome.battleId', outcomeA.battleId, outcomeB.battleId],
+    ['outcome.attackerId', outcomeA.attackerId, outcomeB.attackerId],
+    ['outcome.targetId', outcomeA.targetId, outcomeB.targetId],
+    ['outcome.resolvedAt', outcomeA.resolvedAt, outcomeB.resolvedAt],
+    ['outcome.attackPower', outcomeA.attackPower, outcomeB.attackPower],
+    ['outcome.defensePower', outcomeA.defensePower, outcomeB.defensePower],
+    ['outcome.victory', outcomeA.victory, outcomeB.victory],
+    ['outcome.survivingTroops', outcomeA.survivingTroops, outcomeB.survivingTroops],
+    ['outcome.defenderCasualties', outcomeA.defenderCasualties, outcomeB.defenderCasualties],
+    ['outcome.result', outcomeA.result, outcomeB.result],
+    ['ledger.attackerId', ledgerA.attackerId, ledgerB.attackerId],
+    ['ledger.targetId', ledgerA.targetId, ledgerB.targetId],
+    ['ledger.battleId', ledgerA.battleId, ledgerB.battleId],
+    ['ledger.resolvedAt', ledgerA.resolvedAt, ledgerB.resolvedAt],
+    ['ledger.attacker.troopsCommitted', ledgerA.attacker.troopsCommitted, ledgerB.attacker.troopsCommitted],
+    ['ledger.attacker.survivors', ledgerA.attacker.survivors, ledgerB.attacker.survivors],
+    ['ledger.attacker.populationLoss', ledgerA.attacker.populationLoss, ledgerB.attacker.populationLoss],
+    ['ledger.attacker.fleetLost', ledgerA.attacker.fleetLost, ledgerB.attacker.fleetLost],
+    ['ledger.defender.populationLoss', ledgerA.defender.populationLoss, ledgerB.defender.populationLoss],
+    ['ledger.defender.garrisonLoss', ledgerA.defender.garrisonLoss, ledgerB.defender.garrisonLoss],
+    ['ledger.result', ledgerA.result, ledgerB.result],
     ['captured', recorded.captured, rerun.captured],
-    ['report', recorded.report, rerun.report],
     ['travelSeconds', recorded.travelSeconds, rerun.travelSeconds],
     ['launchCost', recorded.launchCost, rerun.launchCost],
+    ['report', recorded.report, rerun.report],
   ]
   for (const [path, a, b] of scalarFields) {
     if (a !== b) {
@@ -340,14 +363,22 @@ export function replayCheck(
     return { identical: false, firstDifference: 'cost' }
   }
   if (costA !== null && costB !== null) {
-    if (costA.total.population !== costB.total.population) {
-      return { identical: false, firstDifference: 'cost.total.population' }
-    }
-    if (costA.total.fleet !== costB.total.fleet) {
-      return { identical: false, firstDifference: 'cost.total.fleet' }
-    }
-    if (costA.total.credits !== costB.total.credits) {
-      return { identical: false, firstDifference: 'cost.total.credits' }
+    const costLeaves: ReadonlyArray<readonly [string, unknown, unknown]> = [
+      ['cost.targetId', costA.targetId, costB.targetId],
+      ['cost.tier', costA.tier, costB.tier],
+      ['cost.base.population', costA.base.population, costB.base.population],
+      ['cost.base.fleet', costA.base.fleet, costB.base.fleet],
+      ['cost.base.credits', costA.base.credits, costB.base.credits],
+      ['cost.escalation.multiplier', costA.escalation.multiplier, costB.escalation.multiplier],
+      ['cost.escalation.reason', costA.escalation.reason, costB.escalation.reason],
+      ['cost.total.population', costA.total.population, costB.total.population],
+      ['cost.total.fleet', costA.total.fleet, costB.total.fleet],
+      ['cost.total.credits', costA.total.credits, costB.total.credits],
+    ]
+    for (const [path, a, b] of costLeaves) {
+      if (a !== b) {
+        return { identical: false, firstDifference: path }
+      }
     }
   }
 
