@@ -44,10 +44,10 @@
  * the universe, mirroring hoverInfoFor's hide-the-tooltip-on-miss contract.
  *
  * PURE module: every function derives only from its arguments — no
- * nondeterministic APIs, no module-level mutable state (the single frozen
- * rank table holds primitives), no time-source reads (every timestamp is an
- * INPUT), no I/O. Identical inputs always produce identical deep-equal
- * output, and caller-provided objects are never mutated.
+ * nondeterministic APIs, no module-level mutable state (the shared frozen
+ * tier-rank table in intel-ui holds primitives), no time-source reads (every
+ * timestamp is an INPUT), no I/O. Identical inputs always produce identical
+ * deep-equal output, and caller-provided objects are never mutated.
  */
 
 import { pvpGatedView } from '../intel/pvp-gate'
@@ -57,6 +57,7 @@ import { coverageFor } from '../intel/levels'
 import type { IntelLevel, TargetIntel } from '../intel/levels'
 import { freshnessFor } from '../intel/staleness'
 import type { Freshness } from '../intel/staleness'
+import { flooredAgeLabel, highestVisibleTier } from '../intel/intel-ui'
 import { hoverInfoFor } from './hover'
 import type { HoverInfo, HoverStat, HoverTarget } from './hover'
 import type { InfoField, InfoLevel } from './info'
@@ -95,15 +96,6 @@ export interface HoverIntelInput {
  * (state 'unknown'). A literal string, so the module keeps no mutable data. */
 const UNKNOWN_VALUE = 'Unknown'
 
-/** The info-tier rank, used only to recover the relationship tier from the
- * visible fields of a non-intel view. Primitives → freeze is total. */
-const INFO_LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
-  public: 0,
-  alliance: 1,
-  intel: 2,
-  owner: 3,
-})
-
 /** The target must be the exact object the gate evaluates: a HoverTarget and
  * a TargetContext naming different objects could project the wrong picture. */
 function assertTargetMatch(target: HoverTarget, targetContext: TargetContext): void {
@@ -112,22 +104,6 @@ function assertTargetMatch(target: HoverTarget, targetContext: TargetContext): v
       `target.id ${JSON.stringify(target.id)} does not match targetContext.targetId ${JSON.stringify(targetContext.targetId)}`,
     )
   }
-}
-
-/** The deterministic age label with fixed s/m/h/d units, floored. A negative
- * age (an `at` before the update moment) clamps to '0s'. */
-function ageLabel(ageSeconds: number): string {
-  const clamped = Math.max(0, ageSeconds)
-  if (clamped < 60) {
-    return `${Math.floor(clamped)}s`
-  }
-  if (clamped < 60 * 60) {
-    return `${Math.floor(clamped / 60)}m`
-  }
-  if (clamped < 24 * 60 * 60) {
-    return `${Math.floor(clamped / 3600)}h`
-  }
-  return `${Math.floor(clamped / (24 * 60 * 60))}d`
 }
 
 /** The status-line headline for a level: the coverageFor lead (the text
@@ -154,7 +130,7 @@ function statusLineFor(
     return `${headline} · expired · never updated`
   }
   const ageSeconds = (at - lastUpdatedAt) / 1000
-  return `${headline} · ${freshness} · updated ${ageLabel(ageSeconds)} ago`
+  return `${headline} · ${freshness} · updated ${flooredAgeLabel(ageSeconds)} ago`
 }
 
 /**
@@ -178,18 +154,6 @@ function revealInfoLevel(level: IntelLevel): InfoLevel {
   return level === 'none' ? 'public' : 'intel'
 }
 
-/** The highest info tier present in a visible field list — the relationship
- * behind a non-intel view (the view itself carries no tier field). */
-function highestVisibleLevel(fields: readonly InfoField[]): InfoLevel {
-  let best: InfoLevel = 'public'
-  for (const field of fields) {
-    if (INFO_LEVEL_RANK[field.level] > INFO_LEVEL_RANK[best]) {
-      best = field.level
-    }
-  }
-  return best
-}
-
 /** The viewer level hoverInfoFor runs at: 'public' when the gate blocks,
  * the reveal tier for an intel view, else the relationship tier recovered
  * from the visible fields. */
@@ -200,7 +164,7 @@ function baseViewerLevelFor(gated: GatedView): InfoLevel {
   if (gated.shownFromIntel) {
     return revealInfoLevel(gated.intelLevel)
   }
-  return highestVisibleLevel(gated.visible)
+  return highestVisibleTier(gated.visible.map((field) => field.level))
 }
 
 /** Map the gate's visible fields onto the hover stat shape: one HoverStat per

@@ -61,10 +61,11 @@
  * freshness blocks.
  *
  * PURE module: every function derives only from its arguments — no
- * nondeterministic APIs, no module-level mutable state (the single rank table
- * holds primitives, so Object.freeze is total), no time-source reads (every
- * timestamp is an INPUT), no I/O. Identical inputs always produce identical
- * (deep-equal) output, and caller-provided objects are never mutated.
+ * nondeterministic APIs, no module-level mutable state (the shared tier-rank
+ * table in intel-ui holds primitives, so Object.freeze is total), no
+ * time-source reads (every timestamp is an INPUT), no I/O. Identical inputs
+ * always produce identical (deep-equal) output, and caller-provided objects
+ * are never mutated.
  */
 
 import { effectiveLevelFor } from './permissions'
@@ -76,6 +77,7 @@ import { INTEL_LEVELS, isIntelLevel } from './levels'
 import type { IntelLevel, TargetIntel } from './levels'
 import { projectInfo } from '../ui/info'
 import type { InfoField, InfoLevel, ObjectInfoContract } from '../ui/info'
+import { highestVisibleTier } from './intel-ui'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
 
 /** The two reasons a stranger receives NOTHING: no record in the store, or a
@@ -101,15 +103,6 @@ export interface PvpGatedViewInput {
   values: ReadonlyMap<string, string | number | null>
   at: number
 }
-
-/** The info-tier rank, used only to label a non-intel view in pvpSummary.
- * Values are primitives, so Object.freeze is total. */
-const INFO_LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
-  public: 0,
-  alliance: 1,
-  intel: 2,
-  owner: 3,
-})
 
 /** A minimal projection contract wrapping the gate's own contract fields.
  * projectInfo reads only the field list, so the kind and display schema here
@@ -301,18 +294,6 @@ export function pvpGatedView(input: PvpGatedViewInput): GatedView {
   }
 }
 
-/** The highest info tier present in a visible field list — the relationship
- * behind a non-intel view (the view itself carries no tier field). */
-function highestVisibleLevel(fields: readonly InfoField[]): InfoLevel {
-  let best: InfoLevel = 'public'
-  for (const field of fields) {
-    if (INFO_LEVEL_RANK[field.level] > INFO_LEVEL_RANK[best]) {
-      best = field.level
-    }
-  }
-  return best
-}
-
 /**
  * Deterministic one-line summary of a gated view. Blocked views render
  * 'Blocked: <reason>'; intel views render 'Intel view · <level> (<freshness>)
@@ -329,7 +310,7 @@ export function pvpSummary(view: GatedView): string {
   if (view.shownFromIntel) {
     return `Intel view · ${view.intelLevel} (${view.freshness}) — ${view.visible.length} fields`
   }
-  const tier = highestVisibleLevel(view.visible)
+  const tier = highestVisibleTier(view.visible.map((field) => field.level))
   if (tier === 'owner') {
     return `Owner view · ${view.intelLevel}`
   }

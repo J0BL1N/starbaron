@@ -52,6 +52,8 @@
 import { INTEL_LEVELS, INTEL_LEVEL_RANK, isIntelLevel } from './levels'
 import type { IntelLevel, TargetIntel } from './levels'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
+import { flooredAgeLabel } from './intel-ui'
+export { flooredAgeLabel } from './intel-ui'
 
 /** The freshness ladder: how old a report is. See the module docstring. */
 export type Freshness = 'fresh' | 'aging' | 'stale' | 'expired'
@@ -165,22 +167,6 @@ function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
-/** Compact deterministic age label: seconds / minutes / hours / days, floored.
- * A negative age (an `at` before lastUpdatedAt) clamps to '0s'. */
-function ageLabel(ageSeconds: number): string {
-  const clamped = Math.max(0, ageSeconds)
-  if (clamped < 60) {
-    return `${Math.floor(clamped)}s`
-  }
-  if (clamped < 60 * 60) {
-    return `${Math.floor(clamped / 60)}m`
-  }
-  if (clamped < 24 * 60 * 60) {
-    return `${Math.floor(clamped / 3600)}h`
-  }
-  return `${Math.floor(clamped / (24 * 60 * 60))}d`
-}
-
 /**
  * Deterministic one-line display summary. An expired report (or a never
  * updated one) is 'Expired — rescout needed'; otherwise
@@ -194,5 +180,5 @@ export function stalenessSummary(intel: TargetIntel, at: number): string {
     return 'Expired — rescout needed'
   }
   const ageSeconds = (at - intel.lastUpdatedAt) / 1000
-  return `${capitalize(freshness)} · ${intel.level} · updated ${ageLabel(ageSeconds)} ago`
+  return `${capitalize(freshness)} · ${intel.level} · updated ${flooredAgeLabel(ageSeconds)} ago`
 }
