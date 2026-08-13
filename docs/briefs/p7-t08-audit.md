@@ -8,7 +8,7 @@ READ LIST:
 - src/sim/player/protection.ts           (P2-T03: the LOCKED home-world predicate)
 - supabase/migrations/0014_home_world_protection.sql (the mirrored RLS style)
 
-AUTHORISED SCOPE: ONLY those four new files. AUDIT TARGET = COMMIT 7f2ab7d118ac675b8724649ff59367f40c5a5f1c (`git show --stat` adds exactly those four). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY those four new files. AUDIT TARGET = the CURRENT state of src/sim/combat/home-immunity.ts + tests/home-immunity.test.ts + supabase/migrations/0019_home_immunity.sql + supabase/tests/13_home_immunity.sql on staging (HEAD; the original feat 965a472 + the audit-fix amend cover exactly these four). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p7-t08-brief.md + master roadmap P7-T08):
 1. HomeImmunity { targetId, isHome, status immune|attackable, reason, attemptedAt } — homeImmunityFor DELEGATES the home-world truth to protection.ts (the LOCKED predicate); unowned (ownerPlayer null) → attackable.
