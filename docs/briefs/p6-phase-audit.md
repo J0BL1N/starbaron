@@ -14,7 +14,7 @@ READ LIST (all Phase 6 deliverables):
 - supabase/migrations/0018_intel.sql + supabase/tests/12_intel.sql (write-only)
 - Locked sources: ui/info.ts, ui/hover.ts, ui/validate.ts, fleet/* (ships, fleet, movement), planets/hash.ts, world/api.ts
 
-AUDIT TARGET: the whole Phase 6 feature set on staging (through the P6-T10 PASS state). Docs commits OUT OF SCOPE.
+AUDIT TARGET: the whole Phase 6 feature set on staging (through the P6-T10 PASS state, INCLUDING the phase-fix commit 5b33727 which addresses all 6 prior findings). Docs commits OUT OF SCOPE.
 
 BANNED COMMENT TOKENS (scan comments too — code AND tests): any, Math.random, Date.now, performance.now, localeCompare, locale, wall, clock, scene, Three.js, global state, shared mutable data, random.
 
