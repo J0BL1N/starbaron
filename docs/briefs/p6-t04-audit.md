@@ -15,7 +15,7 @@ TASK SPEC (docs/briefs/p6-t04-brief.md + master roadmap P6-T04):
 2. launchScoutMission: preflight canScout (else Error 'failed'); speed = fleet slowest-ship (movement.fleetTravelTime inverted) or override; status 'launched'.
 3. missionStatusAt: half-open windows (at==launchAt→traveling; at==arrivalAt→scanning; at==scanCompletesAt→reported); destroyed/failed short-circuit 'lost'.
 4. recordMissionIntel: REPORT step only from scanning/reported; returns promoted mission + TargetIntel delta (caller merges via recordIntel — documented); re-record promotes (never decreases). abortMission: launched/traveling/scanning→failed; terminal throws.
-5. Purity: no nondeterministic APIs/module mutable state/wall-clock; no `any`; imports ⊆ fleet/movement + intel/* + planets/hash + ui/validate + stdlib; banned comment tokens absent.
+5. Purity: no nondeterministic APIs/module mutable state/wall-clock; no `any`; imports ⊆ fleet/movement + fleet/ships + fleet/fleet (PURE — CONTRACT CORRECTION: FleetComposition/Fleet + SHIP_CLASSES are the composition source; type-or-value as needed) + intel/* + planets/hash + ui/validate + stdlib; banned comment tokens absent.
 
 CHECK:
 A. Purity + imports; no banned tokens in comments.

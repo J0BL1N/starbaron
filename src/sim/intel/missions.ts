@@ -385,22 +385,38 @@ export function recordMissionIntel(
 }
 
 /**
- * Aborts a mission: a 'launched', 'traveling' or 'scanning' mission becomes
- * 'failed'. A 'reported', 'destroyed' or already-'failed' mission cannot abort
- * (Error). `at` must be positive finite (assertPositiveAt — validated for the
- * transition convention). Returns a fresh mission; the input is never mutated.
+ * Aborts a mission: a stored 'launched', 'traveling' or 'scanning' mission
+ * becomes 'failed', provided `at` still projects to an abortable state. A
+ * stored terminal mission ('reported', 'destroyed', 'failed') cannot abort
+ * (Error). After the stored-status guard, the projected lifecycle is checked:
+ * missionStatusAt(mission, at) must be 'launched', 'traveling' or 'scanning' —
+ * aborting at or after scanCompletesAt (projected 'reported', terminal) throws
+ * an Error even when the stored status is 'launched'. `at` must be positive
+ * finite (assertPositiveAt). Returns a fresh mission; the input is never
+ * mutated.
  */
 export function abortMission(mission: ScoutMission, at: number): ScoutMission {
   assertMissionShape(mission)
   assertPositiveAt(at)
   if (
-    mission.status !== 'launched' &&
-    mission.status !== 'traveling' &&
-    mission.status !== 'scanning'
+    mission.status === 'reported' ||
+    mission.status === 'destroyed' ||
+    mission.status === 'failed'
   ) {
     throw new Error(
       `cannot abort mission ${mission.id}: only launched, traveling or ` +
         `scanning missions can abort, got '${mission.status}'`,
+    )
+  }
+  const projected = missionStatusAt(mission, at)
+  if (
+    projected.status !== 'launched' &&
+    projected.status !== 'traveling' &&
+    projected.status !== 'scanning'
+  ) {
+    throw new Error(
+      `cannot abort mission ${mission.id}: projected status ` +
+        `'${projected.status}' at ${at} is terminal`,
     )
   }
   return { ...mission, status: 'failed' }

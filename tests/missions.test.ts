@@ -426,6 +426,22 @@ describe('P6-T04 abortMission', () => {
     expect(() => abortMission(m, Number.NaN)).toThrow(RangeError)
     expect(JSON.stringify(m)).toBe(JSON.stringify(launchScoutMission(input())))
   })
+
+  it('rejects aborting at or after scanCompletesAt even when still launched', () => {
+    const m = launchScoutMission(input())
+    expect(() => abortMission(m, m.scanCompletesAt)).toThrow(Error)
+    expect(() => abortMission(m, m.scanCompletesAt + 30_000)).toThrow(Error)
+    expect(() => abortMission(m, 200_000)).toThrow(Error)
+  })
+
+  it('aborts within the scan window while the stored status is still launched', () => {
+    const m = launchScoutMission(input())
+    const aborted = abortMission(m, 150_000)
+    expect(aborted.status).toBe('failed')
+    expect(aborted.id).toBe(m.id)
+    expect(aborted.scanCompletesAt).toBe(m.scanCompletesAt)
+    expect(m.status).toBe('launched')
+  })
 })
 
 describe('P6-T04 determinism', () => {
