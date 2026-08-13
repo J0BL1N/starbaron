@@ -91,7 +91,7 @@
 | T02 Intel Levels | ✅ | Codex PASS (first round) — `src/sim/intel/levels.ts` + `tests/levels.test.ts` (32 tests): roadmap ladder (observed→full intelligence), promotion, coverage, HUD interop |
 | T03 Scout Ships | ✅ | Codex PASS (round 2) — `src/sim/intel/scouts.ts` + `tests/scouts.test.ts` (33 tests): scouting profile (power/range/detection/intel ceiling) over locked roster |
 | T04 Scout Missions | ✅ | Codex PASS (round 3) — `src/sim/intel/missions.ts` + `tests/missions.test.ts` (39 tests): lifecycle, projected status windows, promotion-only re-record, abort bounds |
-| T05 Intel Reports | ⬜ | |
+| T05 Intel Reports | ✅ | Codex PASS (first round) — `src/sim/intel/reports.ts` + `tests/reports.test.ts` (36 tests): reveal matrix, field projection via info contract, invariants |
 | T06 Intel Staleness | ⬜ | |
 | T07 PvP Information Gating | ⬜ | |
 | T08 Intel-Safe Backend | ⬜ | |
