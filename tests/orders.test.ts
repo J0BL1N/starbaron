@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ORDER_EXPIRED,
+  ORDER_MIN_AT,
+  ORDER_STATUSES,
+  ORDER_TYPES,
+  TARGET_KINDS,
+  TARGET_REQUIRED,
   activateNext,
   cancelOrder,
   completeOrder,
@@ -38,6 +44,81 @@ function issue(
     ...overrides,
   })
 }
+
+describe('module-level lookup tables are deep-frozen (finding 6)', () => {
+  it('the order lookup tables are frozen with their unions', () => {
+    expect(Object.isFrozen(ORDER_TYPES)).toBe(true)
+    expect(Object.isFrozen(ORDER_STATUSES)).toBe(true)
+    expect(Object.isFrozen(TARGET_KINDS)).toBe(true)
+    expect(Object.isFrozen(TARGET_REQUIRED)).toBe(true)
+    expect([...ORDER_TYPES]).toEqual(['move', 'attack', 'defend', 'return'])
+    expect([...ORDER_STATUSES]).toEqual(['issued', 'active', 'done', 'cancelled'])
+    expect([...TARGET_KINDS]).toEqual(['planet', 'system', 'body'])
+    expect([...TARGET_REQUIRED]).toEqual(['move', 'attack', 'defend'])
+  })
+
+  it('mutating a frozen table throws TypeError (runtime-immutable)', () => {
+    expect(() => {
+      ;(ORDER_TYPES as unknown as string[]).push('colonise')
+    }).toThrow(TypeError)
+  })
+})
+
+describe('ORDER_MIN_AT boundary contract (finding 3)', () => {
+  it('exports the boundary consts documenting the contract', () => {
+    expect(ORDER_MIN_AT).toBe('issuedAt')
+    expect(ORDER_EXPIRED).toBe('expired')
+  })
+
+  it('activates at exactly the order issuedAt (inclusive boundary)', () => {
+    const s = issue(freshState(), {})
+    const after = activateNext(s, s.orders[0].issuedAt)
+    expect(after.orders[0].status).toBe('active')
+    expect(after.activeOrderId).toBe(s.orders[0].id)
+  })
+
+  it('throws when activating just before the order issuedAt', () => {
+    const s = issue(freshState(), {})
+    expect(() => activateNext(s, s.orders[0].issuedAt - 1)).toThrow(RangeError)
+    expect(() => activateNext(s, s.orders[0].issuedAt - 1)).toThrow(/must be >= issuedAt/)
+  })
+
+  it('throws when activating an expired order (at >= expiresAt carries the expired token)', () => {
+    const s = issue(freshState(), { expiresAt: AT + 100, issuedAt: AT })
+    for (const at of [AT + 100, AT + 200]) {
+      expect(() => activateNext(s, at), String(at)).toThrow(ORDER_EXPIRED)
+      expect(() => activateNext(s, at), String(at)).toThrow(/expired/)
+    }
+  })
+
+  it('throws when completing or cancelling before the order issuedAt', () => {
+    let s = issue(freshState(), {})
+    s = activateNext(s, AT + 1)
+    expect(() =>
+      completeOrder(s, s.orders[0].id, s.orders[0].issuedAt - 1),
+    ).toThrow(RangeError)
+    const c = issue(freshState(), {})
+    expect(() =>
+      cancelOrder(c, c.orders[0].id, c.orders[0].issuedAt - 1),
+    ).toThrow(RangeError)
+  })
+
+  it('throws when completing or cancelling an expired active order', () => {
+    let s = issue(freshState(), { expiresAt: AT + 100, issuedAt: AT })
+    s = activateNext(s, AT + 50)
+    expect(s.orders[0].status).toBe('active')
+    expect(() => completeOrder(s, s.orders[0].id, AT + 100)).toThrow(ORDER_EXPIRED)
+    expect(() => cancelOrder(s, s.orders[0].id, AT + 150)).toThrow(/expired/)
+  })
+
+  it('does not affect the documented NO-OP paths', () => {
+    let s = issue(freshState(), {})
+    s = activateNext(s, AT + 1)
+    expect(activateNext(s, AT - 100)).toBe(s)
+    const empty = freshState()
+    expect(activateNext(empty, AT)).toBe(empty)
+  })
+})
 
 describe('issueOrder', () => {
   it("issues a 'move' order enqueued as 'issued' with target preserved", () => {

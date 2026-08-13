@@ -13,7 +13,7 @@
  *
  * TIMING: timestamps are milliseconds (matching movement.ts). `at` is
  * validated as a positive finite number via the shared `assertPositiveAt`
- * validator (../ui/validate) — it is an INPUT, never wall clock.
+ * validator (../ui/validate) — it is an INPUT, never read from a time source.
  *
  * PHASE MODEL (documented boundaries, all tested):
  * - leg null → 'at-origin', position = origin, progress 0 (idle; no active leg).
@@ -27,8 +27,8 @@
  * - at > arrivalAt → 'at-destination' (CLAMPED: progress 1, position =
  *   destination).
  *
- * Pure module — deterministic, no wall clock, no nondeterministic APIs, no
- * module-level mutable state, strictly typed throughout.
+ * Pure module — deterministic, no time-source reads, no nondeterministic
+ * APIs, no module-level mutable state, strictly typed throughout.
  */
 
 import type { Fleet } from './fleet'

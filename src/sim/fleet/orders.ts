@@ -24,24 +24,32 @@
  *   caller drives the lifecycle explicitly. This keeps the module pure and
  *   deterministic — no implicit side transitions.
  * - **Id:** `fnv1a(`${fleetId}|${type}|${issuedAt}|${index}`).toString(16)` —
- *   deterministic, no wall clock. `index` is the order's queue position at
- *   append time and defaults to `orders.length`; orders are only ever APPENDED
- *   (never removed), so positions are unique and ids do not collide unless a
- *   caller overrides `index` with a colliding value for identical
- *   fleetId|type|issuedAt (the caller's responsibility; `ordersInvariants`
- *   flags duplicate ids).
- * - **Timestamps are INPUTS** — no wall clock. `issuedAt`, `expiresAt` and the
- *   `at` of each transition are caller-supplied and validated finite/positive.
+ *   deterministic, no time-source reads. `index` is the order's queue
+ *   position at append time and defaults to `orders.length`; orders are only
+ *   ever APPENDED (never removed), so positions are unique and ids do not
+ *   collide unless a caller overrides `index` with a colliding value for
+ *   identical fleetId|type|issuedAt (the caller's responsibility;
+ *   `ordersInvariants` flags duplicate ids).
+ * - **Timestamps are INPUTS** — no time-source reads. `issuedAt`, `expiresAt`
+ *   and the `at` of each transition are caller-supplied and validated via
+ *   assertPositiveAt.
  * - **expiresAt** is null unless a duration limit is set; when present it must
  *   be finite and strictly after `issuedAt`. Return orders MAY have no expiry
  *   (returning to origin can be an open-ended trip) — expiry is per-order and
  *   optional for every type.
+ * - **ORDER_MIN_AT boundary (single transition contract, see the exported
+ *   const):** every lifecycle transition `at` must be >= the target order's
+ *   `issuedAt` (RangeError otherwise). A transition on an order whose
+ *   `expiresAt` is non-null at `at >= expiresAt` means the order is EXPIRED —
+ *   every transition on an expired order throws a RangeError carrying the
+ *   'expired' token (an expired order can neither activate nor be completed
+ *   nor cancelled).
  * - **Error taxonomy:** malformed VALUES (bad at/issuedAt/index/expiresAt/
  *   target shape) throw RangeError; semantic violations (target pairing
  *   mismatch, issuing while active, invalid lifecycle transitions) throw Error.
  *
- * Pure module — deterministic, no wall clock, no nondeterministic APIs, no
- * module-level mutable state, strictly typed.
+ * Pure module — deterministic, no time-source reads, no nondeterministic
+ * APIs, no module-level mutable state, strictly typed.
  */
 
 import { assertPositiveAt } from '../ui/validate'
@@ -82,18 +90,35 @@ export interface IssueOrderInput {
   expiresAt?: number | null
 }
 
-const ORDER_TYPES: readonly FleetOrderType[] = ['move', 'attack', 'defend', 'return']
+/** The FleetOrderType union as a deep-frozen lookup table (runtime-immutable). */
+export const ORDER_TYPES: readonly FleetOrderType[] = Object.freeze([
+  'move',
+  'attack',
+  'defend',
+  'return',
+])
 
-const ORDER_STATUSES: readonly FleetOrderStatus[] = [
+/** The FleetOrderStatus union as a deep-frozen lookup table (runtime-immutable). */
+export const ORDER_STATUSES: readonly FleetOrderStatus[] = Object.freeze([
   'issued',
   'active',
   'done',
   'cancelled',
-]
+])
 
-const TARGET_KINDS: readonly FleetOrderTargetKind[] = ['planet', 'system', 'body']
+/** The FleetOrderTargetKind union as a deep-frozen lookup table (runtime-immutable). */
+export const TARGET_KINDS: readonly FleetOrderTargetKind[] = Object.freeze([
+  'planet',
+  'system',
+  'body',
+])
 
-const TARGET_REQUIRED: readonly FleetOrderType[] = ['move', 'attack', 'defend']
+/** The target-bearing order types as a deep-frozen lookup table (runtime-immutable). */
+export const TARGET_REQUIRED: readonly FleetOrderType[] = Object.freeze([
+  'move',
+  'attack',
+  'defend',
+])
 
 function assertTarget(
   target: FleetOrderTarget | null,
@@ -129,6 +154,39 @@ function assertValidExpiry(
   if (!Number.isFinite(expiresAt) || expiresAt <= issuedAt) {
     throw new RangeError(
       `expiresAt must be a finite number strictly after issuedAt (${issuedAt}), got ${expiresAt}`,
+    )
+  }
+}
+
+/**
+ * ORDER_MIN_AT semantics — the single boundary contract for order lifecycle
+ * transitions. Every transition timestamp `at` (activateNext / completeOrder /
+ * cancelOrder) must be >= the target order's `issuedAt` (the order's minimum
+ * transition timestamp, inclusive); a RangeError otherwise. When the order has
+ * a non-null `expiresAt`, a transition at `at >= expiresAt` means the order is
+ * EXPIRED — every transition on an expired order throws a RangeError whose
+ * message carries the `ORDER_EXPIRED` token.
+ */
+export const ORDER_MIN_AT = 'issuedAt'
+
+/** The message token every expired-order transition RangeError carries. */
+export const ORDER_EXPIRED = 'expired'
+
+function assertTransitionBoundary(
+  order: FleetOrder,
+  at: number,
+  action: string,
+): void {
+  if (at < order.issuedAt) {
+    throw new RangeError(
+      `cannot ${action} order ${order.id}: at (${at}) must be >= issuedAt ` +
+        `(${order.issuedAt}) (${ORDER_MIN_AT} boundary)`,
+    )
+  }
+  if (order.expiresAt !== null && at >= order.expiresAt) {
+    throw new RangeError(
+      `cannot ${action} order ${order.id}: ${ORDER_EXPIRED} at ${at} ` +
+        `(expiresAt ${order.expiresAt}) — an expired order cannot transition`,
     )
   }
 }
@@ -192,7 +250,10 @@ export function issueOrder(
  * sets `activeOrderId` to its id. If an active order already exists it is a
  * NO-OP (the same state reference is returned); if the queue holds no 'issued'
  * order it is likewise a NO-OP. `at` must be positive finite (RangeError
- * otherwise). No auto-activation chain — one promotion per call.
+ * otherwise) and, when an order is promoted, must satisfy the ORDER_MIN_AT
+ * boundary: `at >= order.issuedAt`, and an order whose `expiresAt` is non-null
+ * and `at >= expiresAt` is EXPIRED and cannot activate (RangeError carrying the
+ * 'expired' token). No auto-activation chain — one promotion per call.
  */
 export function activateNext(state: FleetOrders, at: number): FleetOrders {
   assertPositiveAt(at)
@@ -200,6 +261,7 @@ export function activateNext(state: FleetOrders, at: number): FleetOrders {
   const index = state.orders.findIndex((o) => o.status === 'issued')
   if (index === -1) return state
   const order = state.orders[index]
+  assertTransitionBoundary(order, at, 'activate')
   const orders = state.orders.map((o) =>
     o === order ? { ...o, status: 'active' as const } : o,
   )
@@ -210,8 +272,11 @@ export function activateNext(state: FleetOrders, at: number): FleetOrders {
  * Completes the ACTIVE order with `orderId` ('active' → 'done') and clears
  * `activeOrderId`. Only active orders can complete — an 'issued', 'done' or
  * 'cancelled' order throws (Error), as does an unknown id. `at` must be
- * positive finite. Completion does NOT auto-activate the next queued order
- * (explicit lifecycle — the caller calls `activateNext`).
+ * positive finite and satisfy the ORDER_MIN_AT boundary: `at >=
+ * order.issuedAt`, and an expired order (non-null `expiresAt` with `at >=
+ * expiresAt`) cannot transition (RangeError carrying the 'expired' token).
+ * Completion does NOT auto-activate the next queued order (explicit lifecycle
+ * — the caller calls `activateNext`).
  */
 export function completeOrder(
   state: FleetOrders,
@@ -231,6 +296,7 @@ export function completeOrder(
         `got '${order.status}'`,
     )
   }
+  assertTransitionBoundary(order, at, 'complete')
   const orders = state.orders.map((o) =>
     o.id === orderId ? { ...o, status: 'done' as const } : o,
   )
@@ -242,8 +308,11 @@ export function completeOrder(
  * Cancelling the active order clears `activeOrderId`; cancelling a queued
  * 'issued' order leaves it untouched. A 'done' order — and an already
  * 'cancelled' order — cannot be cancelled (Error), as does an unknown id.
- * `at` must be positive finite. Cancellation does NOT auto-activate the next
- * queued order (explicit lifecycle).
+ * `at` must be positive finite and satisfy the ORDER_MIN_AT boundary: `at >=
+ * order.issuedAt`, and an expired order (non-null `expiresAt` with `at >=
+ * expiresAt`) cannot transition (RangeError carrying the 'expired' token).
+ * Cancellation does NOT auto-activate the next queued order (explicit
+ * lifecycle).
  */
 export function cancelOrder(
   state: FleetOrders,
@@ -263,6 +332,7 @@ export function cancelOrder(
         `cancelled, got '${order.status}'`,
     )
   }
+  assertTransitionBoundary(order, at, 'cancel')
   const orders = state.orders.map((o) =>
     o.id === orderId ? { ...o, status: 'cancelled' as const } : o,
   )

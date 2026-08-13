@@ -62,11 +62,12 @@ import { assertPositiveAt } from '../ui/validate'
 /** The total number of ships the renderer draws per fleet (LOD cap). */
 export const MAX_RENDERED_SHIPS = 60
 
-const PHASES: readonly FleetPosition['phase'][] = [
+/** The movement-phase union as a deep-frozen lookup table (runtime-immutable). */
+export const PHASES: readonly FleetPosition['phase'][] = Object.freeze([
   'at-origin',
   'traveling',
   'at-destination',
-]
+])
 
 /** One class's render entry: model count + LOD draw count. */
 export interface DrawClassEntry {

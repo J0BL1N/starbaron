@@ -29,13 +29,14 @@
  *   transitions to 'arrived' via `isArrived`/caller logic at the boundary —
  *   this module never mutates state (pure, no module-level mutable state).
  *
- * Pure module — deterministic, no wall clock (every timestamp is an INPUT), no
- * nondeterministic APIs, strictly typed.
+ * Pure module — deterministic, no time-source reads (every timestamp is an
+ * INPUT), no nondeterministic APIs, strictly typed.
  */
 
 import { SHIP_CLASSES, SHIP_CLASS_IDS } from './ships'
 import { fleetCompositionSize } from './fleet'
 import type { FleetComposition } from './fleet'
+import { assertPositiveAt } from '../ui/validate'
 
 /** A 3-D world position; coordinates are in parsecs (world units). */
 export interface Position {
@@ -76,7 +77,13 @@ export interface PlanTravelInput {
   departureAt: number
 }
 
-const TRAVEL_REF_KINDS: readonly TravelRefKind[] = ['planet', 'system']
+/**
+ * The TravelRefKind union as a deep-frozen lookup table (runtime-immutable).
+ */
+export const TRAVEL_REF_KINDS: readonly TravelRefKind[] = Object.freeze([
+  'planet',
+  'system',
+])
 
 function assertFinite(value: number, field: string): void {
   if (!Number.isFinite(value)) {
@@ -159,7 +166,7 @@ export function arrivalTime(
   distancePc: number,
   speedPcPerSec: number,
 ): number {
-  assertFinitePositive(departureAt, 'departureAt')
+  assertPositiveAt(departureAt)
   const durationMs = travelDuration(distancePc, speedPcPerSec) * 1000
   const arrivalAt = departureAt + durationMs
   if (!Number.isFinite(arrivalAt) || arrivalAt <= departureAt) {
@@ -227,10 +234,11 @@ export function fleetTravelTime(
 
 /**
  * Whether a leg has arrived at `at` (inclusive boundary: `at >= arrivalAt`).
- * Both `at` and the leg's `arrivalAt` must be finite (RangeError otherwise).
+ * Both `at` and the leg's `arrivalAt` must be positive finite numbers
+ * (RangeError otherwise — zero/negative `at` is rejected via assertPositiveAt).
  */
 export function isArrived(leg: TravelLeg, at: number): boolean {
-  assertFinite(at, 'at')
-  assertFinite(leg.arrivalAt, 'leg.arrivalAt')
+  assertPositiveAt(at)
+  assertPositiveAt(leg.arrivalAt)
   return at >= leg.arrivalAt
 }

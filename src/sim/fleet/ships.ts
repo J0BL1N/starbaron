@@ -16,8 +16,8 @@
  * append modifiers here (the roster is read-only at the type level; a tech
  * system would layer modifiers over these base stats, never mutate them).
  *
- * Pure module: deterministic, no wall clock, no nondeterministic APIs, no
- * module-level mutable state. All exported tables are deep-frozen.
+ * Pure module: deterministic, no time-source reads, no nondeterministic
+ * APIs, no module-level mutable state. All exported tables are deep-frozen.
  */
 export type ShipClassId =
   | 'scout'

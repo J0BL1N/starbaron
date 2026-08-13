@@ -5,9 +5,9 @@
  * exists here. Matches the P4 ui-contract pattern (planet-panel etc.).
  *
  * PURE module: every function derives only from its arguments — no
- * nondeterministic APIs, no module-level mutable state, no wall-clock. `at`
- * is a caller-supplied INPUT (positive finite milliseconds) validated via the
- * shared assertPositiveAt; it does not otherwise influence the output. The
+ * nondeterministic APIs, no module-level mutable state, no time-source reads.
+ * `at` is a caller-supplied INPUT (positive finite milliseconds) validated via
+ * the shared assertPositiveAt; it does not otherwise influence the output. The
  * same inputs always produce the same (deep-equal) output. Inputs are never
  * mutated.
  *

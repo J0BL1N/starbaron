@@ -29,17 +29,18 @@
  *   the four eligibility reasons throw Error with the reason embedded in the
  *   message (mirroring canBuildShips' outcome reasons).
  * - **Id:** `fnv1a(`${ownerId}|${name}|${at}`).toString(16)` — deterministic,
- *   no wall clock (`at` is an input), exactly the queues.ts id style.
+ *   no time-source reads (`at` is an input), exactly the queues.ts id style.
  * - **Wallet:** never debited here. `cost` is the reservation; the caller
  *   debits via transactions.ts after a successful createFleet.
  *
- * Pure module — deterministic, no wall clock, no nondeterministic APIs, no
- * module-level mutable state, strictly typed.
+ * Pure module — deterministic, no time-source reads, no nondeterministic
+ * APIs, no module-level mutable state, strictly typed.
  */
 
 import { SHIP_CLASSES, SHIP_CLASS_IDS } from './ships'
 import { shipyardStateFor } from './shipyard'
 import { fnv1a } from '../planets/hash'
+import { assertPositiveAt } from '../ui/validate'
 import type { WalletState } from '../player/types'
 
 export interface FleetComposition {
@@ -80,20 +81,24 @@ export interface FleetCreationRequest {
   location: FleetLocation
 }
 
-const FLEET_STATUSES: readonly FleetStatus[] = [
+/**
+ * The FleetStatus union as a deep-frozen lookup table (module-level lookup
+ * tables are runtime-immutable — treat as read-only).
+ */
+export const FLEET_STATUSES: readonly FleetStatus[] = Object.freeze([
   'idle',
   'traveling',
   'combat',
   'returning',
-]
+])
 
-const FLEET_LOCATION_KINDS: readonly FleetLocationKind[] = ['planet', 'system']
-
-function assertFinitePositive(value: number, field: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${field} must be a finite number > 0, got ${value}`)
-  }
-}
+/**
+ * The FleetLocationKind union as a deep-frozen lookup table (runtime-immutable).
+ */
+export const FLEET_LOCATION_KINDS: readonly FleetLocationKind[] = Object.freeze([
+  'planet',
+  'system',
+])
 
 function assertFiniteNonNegative(value: number, field: string): void {
   if (!Number.isFinite(value) || value < 0) {
@@ -174,9 +179,9 @@ export function fleetCompositionSize(composition: FleetComposition): number {
  *      credits → not-enough-credits; wallet short on alloys → not-enough-alloys.
  *
  * The fleet id is `fnv1a(`${ownerId}|${name}|${at}`).toString(16)`, its
- * `createdAt` is the request `at` (an input — no wall clock), and its status
- * starts 'idle'. The wallet is never debited — `cost` is the reservation.
- * Returns a fresh fleet; the request is never mutated.
+ * `createdAt` is the request `at` (an input — no time-source reads), and its
+ * status starts 'idle'. The wallet is never debited — `cost` is the
+ * reservation. Returns a fresh fleet; the request is never mutated.
  */
 export function createFleet(request: FleetCreationRequest): {
   fleet: Fleet
@@ -185,7 +190,7 @@ export function createFleet(request: FleetCreationRequest): {
   const { ownerId, name, composition, at, shipyardLevel, fleet, wallet, location } =
     request
 
-  assertFinitePositive(at, 'at')
+  assertPositiveAt(at)
   assertNonEmptyString(ownerId, 'ownerId')
   assertValidComposition(composition)
   assertValidLocation(location)

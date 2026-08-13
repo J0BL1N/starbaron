@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  TRAVEL_REF_KINDS,
   arrivalTime,
   distanceBetween,
   fleetTravelTime,
@@ -48,8 +49,20 @@ function legInput(
   }
 }
 
-describe('distanceBetween', () => {
-  it('hand-computed Euclidean distance: (0,0,0) to (3,4,0) = 5', () => {
+describe('module-level lookup tables are deep-frozen (finding 6)', () => {
+  it('TRAVEL_REF_KINDS and every element are frozen', () => {
+    expect(Object.isFrozen(TRAVEL_REF_KINDS)).toBe(true)
+    expect([...TRAVEL_REF_KINDS]).toEqual(['planet', 'system'])
+  })
+
+  it('mutating the frozen table throws TypeError (runtime-immutable)', () => {
+    expect(() => {
+      ;(TRAVEL_REF_KINDS as unknown as string[]).push('moon')
+    }).toThrow(TypeError)
+  })
+})
+
+describe('distanceBetween', () => {  it('hand-computed Euclidean distance: (0,0,0) to (3,4,0) = 5', () => {
     expect(distanceBetween(pos(0, 0, 0), pos(3, 4, 0))).toBe(5)
   })
 
@@ -235,5 +248,17 @@ describe('isArrived', () => {
     expect(() => isArrived({ ...leg, arrivalAt: NaN }, leg.arrivalAt)).toThrow(
       RangeError,
     )
+  })
+
+  it('rejects a zero or negative at (assertPositiveAt — finding 2)', () => {
+    for (const bad of [0, -1, -1_000]) {
+      expect(() => isArrived(leg, bad), String(bad)).toThrow(RangeError)
+    }
+    expect(() => isArrived({ ...leg, arrivalAt: 0 }, leg.arrivalAt)).toThrow(
+      RangeError,
+    )
+    expect(() =>
+      isArrived({ ...leg, arrivalAt: -5 }, leg.arrivalAt),
+    ).toThrow(RangeError)
   })
 })

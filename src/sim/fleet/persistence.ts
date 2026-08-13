@@ -66,10 +66,23 @@
  *   distancePc and totalDurationSec equals Σ travelDuration(leg.distancePc,
  *   leg.speedPcPerSec) — the EXACT accumulation planRoute performs, so
  *   planRoute-built routes always satisfy the checks.
+ * - **Route GEOMETRY checks (persistence finding 4) — legs must connect to
+ *   their waypoints:** per leg i, (a) leg[i].from equals waypoint[i].ref and
+ *   leg[i].to equals waypoint[i+1].ref (kind + bodyId); (b) leg[i].distancePc
+ *   equals `distanceBetween(waypoint[i].position, waypoint[i+1].position)`
+ *   within the RELATIVE epsilon `ROUTE_GEOMETRY_EPSILON` (1e-9 of the computed
+ *   distance); (c) leg[i].arrivalAt equals `movement.arrivalTime(leg[i]
+ *   .departureAt, leg[i].distancePc, leg[i].speedPcPerSec)` recomputed — EXACT
+ *   equality, since both the planRoute accumulation and this recomputation are
+ *   bit-deterministic on the same doubles. A route whose waypoints say A→B but
+ *   whose leg travels A→C now fails even when the totals agree. These checks
+ *   run inside snapshotInvariants (which serialize validates up-front and
+ *   deserialize re-runs after its deep parse), so both the serialize gate and
+ *   the deserialize path enforce the geometry contract.
  *
- * Pure module — deterministic, no wall clock (every timestamp is an INPUT),
- * no nondeterministic APIs, no module-level mutable state, strictly typed
- * (no untyped escapes).
+ * Pure module — deterministic, no time-source reads (every timestamp is an
+ * INPUT), no nondeterministic APIs, no module-level mutable state, strictly
+ * typed (no untyped escapes).
  */
 
 import { fleetInvariants } from './fleet'
@@ -77,7 +90,7 @@ import type { Fleet, FleetComposition, FleetLocation } from './fleet'
 import { ordersInvariants } from './orders'
 import type { FleetOrder, FleetOrders, FleetOrderTarget } from './orders'
 import type { TravelRoute, Waypoint } from './routes'
-import { travelDuration } from './movement'
+import { travelDuration, distanceBetween, arrivalTime } from './movement'
 import type { Position, TravelLeg, TravelRef } from './movement'
 
 /** A persistable fleet state: its fleet plus optional orders and routes. */
@@ -87,25 +100,58 @@ export interface FleetSnapshot {
   routes: TravelRoute[]
 }
 
-const FLEET_STATUSES: readonly string[] = [
+/**
+ * Relative epsilon for the route-geometry invariant: a leg's stored
+ * `distancePc` must match `distanceBetween(waypoint[i].position,
+ * waypoint[i+1].position)` within this RELATIVE tolerance (1e-9 of the
+ * computed distance). The recomputed arrival is compared EXACTLY — planRoute
+ * and the recomputation are bit-deterministic on the same doubles.
+ */
+export const ROUTE_GEOMETRY_EPSILON = 1e-9
+
+/** Deep-frozen lookup tables (module-level tables are runtime-immutable). */
+export const FLEET_STATUSES: readonly string[] = Object.freeze([
   'idle',
   'traveling',
   'combat',
   'returning',
-]
-const FLEET_LOCATION_KINDS: readonly string[] = ['planet', 'system']
-const ORDER_TYPES: readonly string[] = ['move', 'attack', 'defend', 'return']
-const ORDER_STATUSES: readonly string[] = ['issued', 'active', 'done', 'cancelled']
-const TARGET_KINDS: readonly string[] = ['planet', 'system', 'body']
-const TRAVEL_REF_KINDS: readonly string[] = ['planet', 'system']
-const TRAVEL_STATUSES: readonly string[] = ['traveling', 'arrived']
-const COMPOSITION_KEYS: readonly string[] = [
+])
+export const FLEET_LOCATION_KINDS: readonly string[] = Object.freeze([
+  'planet',
+  'system',
+])
+export const ORDER_TYPES: readonly string[] = Object.freeze([
+  'move',
+  'attack',
+  'defend',
+  'return',
+])
+export const ORDER_STATUSES: readonly string[] = Object.freeze([
+  'issued',
+  'active',
+  'done',
+  'cancelled',
+])
+export const TARGET_KINDS: readonly string[] = Object.freeze([
+  'planet',
+  'system',
+  'body',
+])
+export const TRAVEL_REF_KINDS: readonly string[] = Object.freeze([
+  'planet',
+  'system',
+])
+export const TRAVEL_STATUSES: readonly string[] = Object.freeze([
+  'traveling',
+  'arrived',
+])
+export const COMPOSITION_KEYS: readonly string[] = Object.freeze([
   'scout',
   'corvette',
   'frigate',
   'cruiser',
   'battleship',
-]
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -242,6 +288,25 @@ function refProblems(ref: TravelRef, path: string): string[] {
     problems.push(`${path}.bodyId must be a non-empty string`)
   }
   return problems
+}
+
+/** Defensively extracts a TravelRef from unknown — null when the shape is bad. */
+function asRef(value: unknown): TravelRef | null {
+  if (!isRecord(value)) return null
+  if (typeof value.kind !== 'string' || typeof value.bodyId !== 'string') {
+    return null
+  }
+  return { kind: value.kind as TravelRef['kind'], bodyId: value.bodyId }
+}
+
+/** Whether an unknown value is a position with finite x/y/z coordinates. */
+function isFinitePosition(value: unknown): value is Position {
+  return (
+    isRecord(value) &&
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    Number.isFinite(value.z)
+  )
 }
 
 /**
@@ -424,6 +489,94 @@ function routeInvariantProblems(route: TravelRoute, index: number): string[] {
           `${p}.totalDurationSec (${route.totalDurationSec}) must equal ` +
             `Σ travelDuration(leg.distancePc, leg.speedPcPerSec) (${sumDuration})`,
         )
+      }
+    }
+
+    // Route geometry: legs must connect to their waypoints. Defensive — never
+    // throws on garbage; shape problems above already flag malformed entries.
+    for (let i = 0; i < legs.length; i++) {
+      const leg = legs[i]
+      const wpA = waypoints[i]
+      const wpB = waypoints[i + 1]
+      const lp = `${p}.legs[${i}]`
+      const wpARecord = isRecord(wpA)
+      const wpBRecord = isRecord(wpB)
+      const legRecord = isRecord(leg)
+      if (!wpARecord || !wpBRecord || !legRecord) continue
+
+      const wpARef = asRef(wpA.ref)
+      const wpBRef = asRef(wpB.ref)
+      const legFromRef = asRef(leg.from)
+      const legToRef = asRef(leg.to)
+      if (wpARef !== null && wpBRef !== null && legFromRef !== null && legToRef !== null) {
+        if (legFromRef.kind !== wpARef.kind || legFromRef.bodyId !== wpARef.bodyId) {
+          problems.push(
+            `${lp}.from must equal waypoints[${i}].ref ` +
+              `(${wpARef.kind}/${wpARef.bodyId}), got ${legFromRef.kind}/${legFromRef.bodyId}`,
+          )
+        }
+        if (legToRef.kind !== wpBRef.kind || legToRef.bodyId !== wpBRef.bodyId) {
+          problems.push(
+            `${lp}.to must equal waypoints[${i + 1}].ref ` +
+              `(${wpBRef.kind}/${wpBRef.bodyId}), got ${legToRef.kind}/${legToRef.bodyId}`,
+          )
+        }
+      }
+
+      const posA = isFinitePosition(wpA.position)
+      const posB = isFinitePosition(wpB.position)
+      if (posA && posB) {
+        let computedDistance: number | null = null
+        try {
+          computedDistance = distanceBetween(wpA.position, wpB.position)
+        } catch {
+          computedDistance = null
+        }
+        if (computedDistance !== null) {
+          const stored = leg.distancePc
+          const tolerance = ROUTE_GEOMETRY_EPSILON * Math.abs(computedDistance)
+          if (
+            typeof stored !== 'number' ||
+            !Number.isFinite(stored) ||
+            Math.abs(stored - computedDistance) > tolerance
+          ) {
+            problems.push(
+              `${lp}.distancePc (${String(stored)}) must equal ` +
+                `distanceBetween(waypoints[${i}].position, waypoints[${i + 1}].position) ` +
+                `(${computedDistance}) within a relative epsilon of ${ROUTE_GEOMETRY_EPSILON}`,
+            )
+          }
+        }
+      }
+
+      const canRecomputeArrival =
+        typeof leg.departureAt === 'number' &&
+        Number.isFinite(leg.departureAt) &&
+        leg.departureAt > 0 &&
+        typeof leg.speedPcPerSec === 'number' &&
+        Number.isFinite(leg.speedPcPerSec) &&
+        leg.speedPcPerSec > 0 &&
+        typeof leg.distancePc === 'number' &&
+        Number.isFinite(leg.distancePc) &&
+        leg.distancePc > 0
+      if (canRecomputeArrival) {
+        let recomputedArrival: number | null = null
+        try {
+          recomputedArrival = arrivalTime(
+            leg.departureAt,
+            leg.distancePc,
+            leg.speedPcPerSec,
+          )
+        } catch {
+          recomputedArrival = null
+        }
+        if (recomputedArrival !== null && leg.arrivalAt !== recomputedArrival) {
+          problems.push(
+            `${lp}.arrivalAt (${String(leg.arrivalAt)}) must equal ` +
+              `arrivalTime(departureAt ${leg.departureAt}, distancePc ${leg.distancePc}, ` +
+              `speed ${leg.speedPcPerSec}) recomputed (${recomputedArrival})`,
+          )
+        }
       }
     }
   }

@@ -4,15 +4,23 @@ import { SHIP_CLASSES, SHIP_CLASS_IDS } from '../src/sim/fleet/ships'
 import type { ShipClass, ShipClassId } from '../src/sim/fleet/ships'
 import {
   canBuildShips,
+  completeShipJobs,
+  enqueueShipBuild,
   shipBuildCost,
+  shipJobsAt,
   shipyardStateFor,
 } from '../src/sim/fleet/shipyard'
-import type { ShipBuildOutcome, ShipBuildRequest } from '../src/sim/fleet/shipyard'
+import type {
+  ShipBuildOutcome,
+  ShipBuildRequest,
+  ShipyardQueue,
+} from '../src/sim/fleet/shipyard'
 import { STRUCTURES } from '../src/sim/structures/data'
 import { SHIPYARD_INCOME_PER_MIN, structureEffect } from '../src/sim/structures/effects'
 import { buildCost } from '../src/sim/structures/framework'
 import { effectiveLevel } from '../src/sim/planets/levels'
 import type { WalletState } from '../src/sim/player/types'
+import { fnv1a } from '../src/sim/planets/hash'
 
 const AT = 1_700_000_000_000
 
@@ -376,5 +384,136 @@ describe('canBuildShips determinism and purity', () => {
     expect(purse).toEqual(purseBefore)
     expect(a.cost).toEqual(b.cost)
     expect(a.cost).not.toBe(b.cost)
+  })
+})
+
+describe('shipyard construction queue (finding 7)', () => {
+  function emptyQueue(level = 1): ShipyardQueue {
+    return { shipyardLevel: level, jobs: [] }
+  }
+
+  it('enqueues a job with a deterministic id and FIFO sequential timing', () => {
+    const q = enqueueShipBuild(
+      emptyQueue(),
+      request({ shipClass: 'scout', count: 2 }),
+      0,
+    )
+    expect(q.jobs).toHaveLength(1)
+    const job = q.jobs[0]
+    expect(job.shipClass).toBe('scout')
+    expect(job.count).toBe(2)
+    expect(job.startedAt).toBe(AT)
+    expect(job.completesAt).toBe(AT + 15 * 1000)
+    expect(job.status).toBe('building')
+    expect(job.id).toBe(fnv1a('scout|2|1700000000000|0').toString(16))
+  })
+
+  it('id is deterministic and distinct across at/count/index', () => {
+    const a = enqueueShipBuild(emptyQueue(), request(), 0)
+    const b = enqueueShipBuild(emptyQueue(), request(), 0)
+    expect(a.jobs[0].id).toBe(b.jobs[0].id)
+    const c = enqueueShipBuild(emptyQueue(), request({ at: AT + 1 }), 0)
+    const d = enqueueShipBuild(emptyQueue(), request({ count: 2 }), 0)
+    expect(a.jobs[0].id).not.toBe(c.jobs[0].id)
+    expect(a.jobs[0].id).not.toBe(d.jobs[0].id)
+  })
+
+  it('sequences FIFO: a later job starts only when the previous completes', () => {
+    let q = enqueueShipBuild(emptyQueue(), request({ shipClass: 'scout' }), 0)
+    q = enqueueShipBuild(q, request({ shipClass: 'corvette' }), 0)
+    expect(q.jobs[0].completesAt).toBe(AT + 15_000)
+    expect(q.jobs[1].startedAt).toBe(AT + 15_000)
+    expect(q.jobs[1].completesAt).toBe(AT + 15_000 + 30_000)
+  })
+
+  it('enqueue ladder: no-shipyard fires first at level 0', () => {
+    expect(() => enqueueShipBuild(emptyQueue(0), request(), 0)).toThrow(
+      /no-shipyard/,
+    )
+  })
+
+  it('enqueue ladder: invalid-count fires before fleet-cap', () => {
+    expect(() => enqueueShipBuild(emptyQueue(), request({ count: 0 }), 0)).toThrow(
+      /invalid-count/,
+    )
+  })
+
+  it('enqueue ladder: fleet-cap accounts CURRENT ships + ALL in-flight counts', () => {
+    const q = enqueueShipBuild(emptyQueue(), request({ count: 5 }), 990)
+    expect(q.jobs[0].count).toBe(5)
+    expect(() => enqueueShipBuild(q, request({ count: 6 }), 990)).toThrow(
+      /fleet-cap/,
+    )
+    const fits = enqueueShipBuild(q, request({ count: 4 }), 990)
+    expect(fits.jobs).toHaveLength(2)
+  })
+
+  it('cap accounting drops reserved counts once a job completes', () => {
+    let q = enqueueShipBuild(emptyQueue(), request({ count: 5 }), 990)
+    q = enqueueShipBuild(q, request({ count: 4 }), 990)
+    expect(() => enqueueShipBuild(q, request({ count: 2 }), 990)).toThrow(
+      /fleet-cap/,
+    )
+    const advanced = completeShipJobs(q, AT + 15_000)
+    expect(advanced.completed).toHaveLength(1)
+    const more = enqueueShipBuild(advanced.queue, request({ count: 6 }), 990)
+    expect(more.jobs).toHaveLength(3)
+  })
+
+  it('throws RangeError for malformed values (level, at, fleet, unknown class)', () => {
+    expect(() => enqueueShipBuild(emptyQueue(-1), request(), 0)).toThrow(RangeError)
+    expect(() => enqueueShipBuild(emptyQueue(), request({ at: 0 }), 0)).toThrow(
+      RangeError,
+    )
+    expect(() => enqueueShipBuild(emptyQueue(), request(), -1)).toThrow(RangeError)
+    expect(() =>
+      enqueueShipBuild(
+        emptyQueue(),
+        request({ shipClass: 'dreadnought' as ShipClassId }),
+        0,
+      ),
+    ).toThrow(RangeError)
+  })
+
+  it('shipJobsAt returns the due jobs at the inclusive boundary, FIFO ordered', () => {
+    let q = enqueueShipBuild(emptyQueue(), request({ shipClass: 'scout' }), 0)
+    q = enqueueShipBuild(q, request({ shipClass: 'corvette' }), 0)
+    expect(shipJobsAt(q, AT + 15_000 - 1)).toEqual([])
+    expect(shipJobsAt(q, AT + 15_000).map((j) => j.id)).toEqual([q.jobs[0].id])
+    expect(shipJobsAt(q, AT + 45_000).map((j) => j.id)).toEqual([
+      q.jobs[0].id,
+      q.jobs[1].id,
+    ])
+    expect(() => shipJobsAt(q, 0)).toThrow(RangeError)
+  })
+
+  it('completeShipJobs is FIFO, idempotent and immutable', () => {
+    let q = enqueueShipBuild(emptyQueue(), request({ shipClass: 'scout' }), 0)
+    q = enqueueShipBuild(q, request({ shipClass: 'corvette' }), 0)
+    const first = completeShipJobs(q, AT + 15_000)
+    expect(first.completed.map((j) => j.id)).toEqual([q.jobs[0].id])
+    expect(first.queue.jobs[0].status).toBe('done')
+    expect(first.queue.jobs[1].status).toBe('building')
+    const again = completeShipJobs(first.queue, AT + 15_000)
+    expect(again.completed).toEqual([])
+    expect(again.queue).toEqual(first.queue)
+    const second = completeShipJobs(first.queue, AT + 45_000)
+    expect(second.completed.map((j) => j.id)).toEqual([q.jobs[1].id])
+    expect(second.queue.jobs.every((j) => j.status === 'done')).toBe(true)
+    expect(q.jobs[0].status).toBe('building')
+    expect(q.jobs[1].status).toBe('building')
+    expect(() => completeShipJobs(q, 0)).toThrow(RangeError)
+  })
+
+  it('enqueue is immutable: fresh queue returned, input never mutated', () => {
+    const q0 = emptyQueue()
+    const q1 = enqueueShipBuild(q0, request(), 0)
+    expect(q0.jobs).toHaveLength(0)
+    expect(q0.shipyardLevel).toBe(1)
+    expect(q1).not.toBe(q0)
+    expect(q1.jobs).not.toBe(q0.jobs)
+    const q2 = enqueueShipBuild(q1, request({ at: AT + 1 }), 0)
+    expect(q1.jobs).toHaveLength(1)
+    expect(q2.jobs).toHaveLength(2)
   })
 })

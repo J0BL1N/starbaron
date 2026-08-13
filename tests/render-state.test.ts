@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_RENDERED_SHIPS,
+  PHASES,
   fleetLabel,
   fleetRenderState,
 } from '../src/sim/fleet/render-state'
@@ -63,6 +64,19 @@ function input(
 function drawCounts(state: FleetRenderState): number[] {
   return state.draw.perClass.map((entry) => entry.drawCount)
 }
+
+describe('module-level lookup tables are deep-frozen (finding 6)', () => {
+  it('PHASES is frozen with the movement-phase union', () => {
+    expect(Object.isFrozen(PHASES)).toBe(true)
+    expect([...PHASES]).toEqual(['at-origin', 'traveling', 'at-destination'])
+  })
+
+  it('mutating the frozen PHASES table throws TypeError (runtime-immutable)', () => {
+    expect(() => {
+      ;(PHASES as unknown as string[]).push('combat')
+    }).toThrow(TypeError)
+  })
+})
 
 describe('fleetLabel', () => {
   it('labels with owner prefix: "Villains Fleet 01234567"', () => {
@@ -277,7 +291,7 @@ describe('fleetRenderState — determinism, immutability, at-input', () => {
     expect(JSON.stringify(pf)).toBe(JSON.stringify(positioned({ position: pos })))
   })
 
-  it('output is independent of `at` (validated input only, no wall clock)', () => {
+  it('output is independent of `at` (validated input only, no time-source reads)', () => {
     const a = fleetRenderState(input({ at: AT }))
     const b = fleetRenderState(input({ at: AT + 123_456 }))
     expect(a).toEqual(b)

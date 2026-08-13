@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { SHIP_CLASSES, SHIP_CLASS_IDS } from '../src/sim/fleet/ships'
 import {
+  FLEET_LOCATION_KINDS,
+  FLEET_STATUSES,
   createFleet,
   fleetCompositionCost,
   fleetCompositionSize,
@@ -34,6 +36,24 @@ function request(overrides: Partial<FleetCreationRequest> = {}): FleetCreationRe
     ...overrides,
   }
 }
+
+describe('module-level lookup tables are deep-frozen (finding 6)', () => {
+  it('FLEET_STATUSES and FLEET_LOCATION_KINDS are frozen with the unions', () => {
+    expect(Object.isFrozen(FLEET_STATUSES)).toBe(true)
+    expect(Object.isFrozen(FLEET_LOCATION_KINDS)).toBe(true)
+    expect([...FLEET_STATUSES]).toEqual(['idle', 'traveling', 'combat', 'returning'])
+    expect([...FLEET_LOCATION_KINDS]).toEqual(['planet', 'system'])
+  })
+
+  it('mutating a frozen table throws TypeError (runtime-immutable)', () => {
+    expect(() => {
+      ;(FLEET_STATUSES as unknown as string[]).push('flying')
+    }).toThrow(TypeError)
+    expect(() => {
+      ;(FLEET_LOCATION_KINDS as unknown as string[]).pop()
+    }).toThrow(TypeError)
+  })
+})
 
 describe('fleetCompositionCost', () => {
   it('empty composition costs 0 credits and 0 alloys', () => {

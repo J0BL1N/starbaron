@@ -37,8 +37,9 @@
  *   on the NEXT leg; at/after the route arrivalAt → `legs.length` (the
  *   documented 'route complete' sentinel).
  *
- * Pure module — deterministic, no wall clock (every timestamp is an INPUT), no
- * nondeterministic APIs, no module-level mutable state, strictly typed.
+ * Pure module — deterministic, no time-source reads (every timestamp is an
+ * INPUT), no nondeterministic APIs, no module-level mutable state, strictly
+ * typed.
  */
 
 import { planTravel, travelDuration } from './movement'
@@ -158,7 +159,7 @@ export function planRoute(input: PlanRouteInput): TravelRoute {
     assertFiniteCoordinate(waypoints[i].position, `waypoints[${i}].position`)
   }
   assertFinitePositive(speedPcPerSec, 'speedPcPerSec')
-  assertFinitePositive(departureAt, 'departureAt')
+  assertPositiveAt(departureAt)
 
   const legs: TravelLeg[] = []
   let legDepartureAt = departureAt
@@ -214,7 +215,7 @@ export function planRoute(input: PlanRouteInput): TravelRoute {
  * when leg i arrives).
  */
 function assertRouteShape(route: TravelRoute): void {
-  assertFinitePositive(route.departureAt, 'route.departureAt')
+  assertPositiveAt(route.departureAt)
   assertFinite(route.arrivalAt, 'route.arrivalAt')
   if (route.arrivalAt <= route.departureAt) {
     throw new RangeError(

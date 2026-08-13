@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  COMPOSITION_KEYS,
+  FLEET_LOCATION_KINDS,
+  FLEET_STATUSES,
+  ORDER_STATUSES,
+  ORDER_TYPES,
+  ROUTE_GEOMETRY_EPSILON,
+  TARGET_KINDS,
+  TRAVEL_REF_KINDS,
+  TRAVEL_STATUSES,
   deserializeFleetSnapshot,
   serializeFleetSnapshot,
   snapshotInvariants,
@@ -9,6 +18,7 @@ import { activateNext, issueOrder } from '../src/sim/fleet/orders'
 import type { FleetOrders } from '../src/sim/fleet/orders'
 import { planRoute } from '../src/sim/fleet/routes'
 import type { TravelRoute } from '../src/sim/fleet/routes'
+import { arrivalTime } from '../src/sim/fleet/movement'
 import type { Fleet } from '../src/sim/fleet/fleet'
 import type { Position, TravelRef } from '../src/sim/fleet/movement'
 
@@ -450,5 +460,130 @@ describe('snapshotInvariants', () => {
     const result = snapshotInvariants(garbage)
     expect(result.ok).toBe(false)
     expect(result.problems.length).toBeGreaterThan(0)
+  })
+})
+
+describe('module-level lookup tables are deep-frozen (finding 6)', () => {
+  it('every persistence lookup table is frozen', () => {
+    for (const table of [
+      FLEET_STATUSES,
+      FLEET_LOCATION_KINDS,
+      ORDER_TYPES,
+      ORDER_STATUSES,
+      TARGET_KINDS,
+      TRAVEL_REF_KINDS,
+      TRAVEL_STATUSES,
+      COMPOSITION_KEYS,
+    ]) {
+      expect(Object.isFrozen(table)).toBe(true)
+    }
+    expect(ROUTE_GEOMETRY_EPSILON).toBe(1e-9)
+  })
+
+  it('mutating a frozen table throws TypeError (runtime-immutable)', () => {
+    expect(() => {
+      ;(FLEET_STATUSES as unknown as string[]).push('flying')
+    }).toThrow(TypeError)
+    expect(() => {
+      ;(COMPOSITION_KEYS as unknown as string[]).push('dreadnought')
+    }).toThrow(TypeError)
+  })
+})
+
+describe('route geometry invariants (finding 4)', () => {
+  it('rejects a leg whose `to` ref points elsewhere than its waypoint (A→C leg on A→B waypoints)', () => {
+    const good = route()
+    const corrupt = {
+      ...good,
+      legs: good.legs.map((leg, i) =>
+        i === 0 ? { ...leg, to: ref('system', 'sys-beta') } : leg,
+      ),
+    }
+    const result = snapshotInvariants(snapshot({ routes: [corrupt] }))
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('; ')).toContain('must equal waypoints[1].ref')
+  })
+
+  it('rejects a leg whose `from` ref points elsewhere than its waypoint', () => {
+    const good = route()
+    const corrupt = {
+      ...good,
+      legs: good.legs.map((leg, i) =>
+        i === 0 ? { ...leg, from: ref('system', 'sys-gamma') } : leg,
+      ),
+    }
+    const result = snapshotInvariants(snapshot({ routes: [corrupt] }))
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('; ')).toContain('must equal waypoints[0].ref')
+  })
+
+  it('rejects a leg distance that contradicts the waypoint geometry even when the totals agree', () => {
+    const good = route()
+    const corrupt = {
+      ...good,
+      legs: good.legs.map((leg, i) =>
+        i === 0
+          ? { ...leg, distancePc: 4, arrivalAt: leg.departureAt + 4 * 1000 }
+          : leg,
+      ),
+      totalDistancePc: 4 + good.legs[1].distancePc,
+      totalDurationSec: 4 + good.legs[1].distancePc,
+    }
+    const result = snapshotInvariants(snapshot({ routes: [corrupt] }))
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('; ')).toContain('within a relative epsilon')
+  })
+
+  it('rejects an arrival timestamp that does not match the recomputed arrival', () => {
+    const good = route()
+    const leg0 = good.legs[0]
+    const leg1 = good.legs[1]
+    const corrupt = {
+      ...good,
+      legs: [
+        { ...leg0, arrivalAt: leg0.arrivalAt + 1 },
+        { ...leg1, departureAt: leg0.arrivalAt + 1, arrivalAt: leg1.arrivalAt + 1 },
+      ],
+      arrivalAt: good.arrivalAt + 1,
+    }
+    const result = snapshotInvariants(snapshot({ routes: [corrupt] }))
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('; ')).toContain('must equal arrivalTime')
+  })
+
+  it('keeps the epsilon relative: a tiny distance drift within 1e-9 passes', () => {
+    const good = route()
+    const leg0 = good.legs[0]
+    const leg1 = good.legs[1]
+    const drift = leg0.distancePc * (1 + ROUTE_GEOMETRY_EPSILON / 2)
+    const arrival0 = arrivalTime(leg0.departureAt, drift, leg0.speedPcPerSec)
+    const arrival1 = arrivalTime(arrival0, leg1.distancePc, leg1.speedPcPerSec)
+    const corrupt = {
+      ...good,
+      legs: [
+        { ...leg0, distancePc: drift, arrivalAt: arrival0 },
+        { ...leg1, departureAt: arrival0, arrivalAt: arrival1 },
+      ],
+      totalDistancePc: drift + leg1.distancePc,
+      totalDurationSec: drift + leg1.distancePc,
+      arrivalAt: arrival1,
+    }
+    const result = snapshotInvariants(snapshot({ routes: [corrupt] }))
+    expect(result.ok).toBe(true)
+  })
+
+  it('deserialize also rejects the corrupted A→C route geometry (deep pass re-runs the invariants)', () => {
+    const good = route()
+    const corrupt = {
+      ...good,
+      legs: good.legs.map((leg, i) =>
+        i === 0 ? { ...leg, to: ref('system', 'sys-beta') } : leg,
+      ),
+    }
+    const payload = { fleet: fleet(), orders: null, routes: [corrupt] }
+    expect(snapshotInvariants(payload).ok).toBe(false)
+    expect(() => deserializeFleetSnapshot(JSON.stringify(payload))).toThrow(
+      /invariant violation/,
+    )
   })
 })
