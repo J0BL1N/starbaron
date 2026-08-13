@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StarBaron — Build Map (Everything Passed)</title>
+<style>
+  :root { --bg:#0b0e14; --panel:#12161f; --panel2:#0f1320; --line:#232a3a; --txt:#dbe4f2; --dim:#8b97ab; --acc:#ff7a1a; --ok:#3ddc84; --warn:#ffc24b; --blk:#ff5c5c; --mono:'Cascadia Code',Consolas,monospace; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font-family:var(--mono); font-size:13px; padding:28px 20px 60px; }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:22px; letter-spacing:1px; }
+  h1 .dot { color:var(--acc); }
+  .sub { color:var(--dim); margin:6px 0 22px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:26px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+  .stat b { font-size:22px; display:block; color:var(--acc); }
+  .stat span { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+  .phase { background:var(--panel); border:1px solid var(--line); border-radius:10px; margin-bottom:14px; overflow:hidden; }
+  .phase-h { display:flex; align-items:center; gap:12px; padding:12px 16px; background:var(--panel2); border-bottom:1px solid var(--line); }
+  .phase-h h2 { font-size:15px; flex:1; }
+  .phase-h .meta { color:var(--dim); font-size:11px; white-space:nowrap; }
+  .bar { height:6px; background:#1a2130; border-radius:3px; overflow:hidden; margin:10px 16px 0; }
+  .bar i { display:block; height:100%; background:linear-gradient(90deg,#1d7a44,var(--ok)); }
+  .bar i.part { background:linear-gradient(90deg,#6b4f1a,var(--warn)); }
+  .phase-b { padding:10px 16px 14px; }
+  .tasks { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .chip { font-size:11px; padding:3px 9px; border-radius:12px; border:1px solid var(--line); background:#0e1219; color:var(--dim); }
+  .chip.pass { background:#123524; color:var(--ok); border-color:#1d5c38; }
+  .chip.q { color:#5d6a80; border-style:dashed; }
+  .chip.blk { background:#3a1414; color:var(--blk); border-color:#6b1f1f; }
+  .module-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; margin-top:10px; }
+  .mod { background:#0e1219; border:1px solid #1c2333; border-radius:6px; padding:7px 10px; font-size:11px; color:var(--dim); }
+  .mod b { color:var(--txt); font-weight:600; }
+  .mod .pass { color:var(--ok); }
+  .footer { margin-top:26px; color:var(--dim); font-size:11px; line-height:2; }
+  .badge { display:inline-block; background:#1c2333; border-radius:4px; padding:1px 7px; margin:1px 2px; font-size:10px; color:var(--dim); }
+  .legend { display:flex; gap:14px; margin-bottom:20px; font-size:11px; color:var(--dim); align-items:center; }
+  .legend .chip { cursor:default; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>STARBARON<span class="dot">.</span> BUILD MAP</h1>
+  <div class="sub">Everything that has PASSED the Codex audit loop · updated 2026-08-13 · repo @ staging</div>
+
+  <div class="stats">
+    <div class="stat"><b>91</b><span>sim modules</span></div>
+    <div class="stat"><b>106</b><span>test files</span></div>
+    <div class="stat"><b>2,912</b><span>test cases</span></div>
+    <div class="stat"><b>18</b><span>SQL migrations</span></div>
+    <div class="stat"><b>6+</b><span>phases done</span></div>
+    <div class="stat"><b>54</b><span>tasks PASSED</span></div>
+  </div>
+
+  <div class="legend">
+    <span class="chip pass">● PASSED (Codex)</span>
+    <span class="chip">task done</span>
+    <span class="chip q">queued</span>
+    <span class="chip blk">blocker finding</span>
+  </div>
+
+  <!-- P1 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 1 — Universe Foundation</h2><span class="meta">8/8 tasks · 523 tests</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 Identity</span><span class="chip pass">T02 Galaxy</span><span class="chip pass">T03 System/Body</span><span class="chip pass">T04 Catalogue</span>
+        <span class="chip pass">T05 Data</span><span class="chip pass">T06 Persistence</span><span class="chip pass">T07 Reconstruct</span><span class="chip pass">T08 World API</span>
+        <span class="chip blk">phase audit: Blocker #1 — api dedupe</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b>identity.ts</b> canonical ids</div><div class="mod"><b>galaxy.ts</b></div><div class="mod"><b>system.ts</b></div><div class="mod"><b>body.ts</b></div>
+        <div class="mod"><b>catalogue.ts</b> 4,746 real systems</div><div class="mod"><b>reconstruct.ts</b></div><div class="mod"><b>api.ts</b></div><div class="mod"><b>hash.ts · generator.ts</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P2 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 2 — Players &amp; Ownership</h2><span class="meta">8/8 tasks + phase audit PASS · 483 tests</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 Profile</span><span class="chip pass">T02 Home Assignment</span><span class="chip pass">T03 Protection</span><span class="chip pass">T04 Ownership+Audit</span>
+        <span class="chip pass">T05 Territory</span><span class="chip pass">T06 Colonisation</span><span class="chip pass">T07 Transfer/Conquest</span><span class="chip pass">T08 Onboarding</span>
+        <span class="chip pass">● phase audit PASS</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b>profile.ts</b></div><div class="mod"><b>assignment.ts</b> two-phase probing</div><div class="mod"><b>protection.ts</b></div><div class="mod"><b>ownership.ts</b></div>
+        <div class="mod"><b>territory.ts</b></div><div class="mod"><b>colonisation.ts</b></div><div class="mod"><b>transfer.ts</b> turrets always fall</div><div class="mod"><b>onboarding.ts</b></div>
+        <div class="mod"><b>0014-0016</b> RLS SQL</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P3 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 3 — Planet Economy &amp; Structures</h2><span class="meta">10/10 tasks + phase audit PASS · 415 tests</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 Credits</span><span class="chip pass">T02 Alloys</span><span class="chip pass">T03 Population</span><span class="chip pass">T04 Framework</span><span class="chip pass">T05 Housing</span>
+        <span class="chip pass">T06 Production</span><span class="chip pass">T07 Queues</span><span class="chip pass">T08 Offline</span><span class="chip pass">T09 Quirks</span><span class="chip pass">T10 Harness</span>
+        <span class="chip pass">● phase audit PASS</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b>transactions.ts</b></div><div class="mod"><b>alloys.ts</b></div><div class="mod"><b>ledger.ts</b></div><div class="mod"><b>population-model.ts</b></div>
+        <div class="mod"><b>framework.ts</b></div><div class="mod"><b>housing.ts</b></div><div class="mod"><b>production.ts</b></div><div class="mod"><b>queues.ts</b></div>
+        <div class="mod"><b>offline-model.ts</b> 8h bank</div><div class="mod"><b>quirk-model.ts</b></div><div class="mod"><b>harness.ts</b> found stall bug</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P4 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 4 — Core Game UI</h2><span class="meta">9/9 tasks · 397 tests</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 HUD</span><span class="chip pass">T02 Hover</span><span class="chip pass">T03 Info Contracts</span><span class="chip pass">T04 Planet Panel</span>
+        <span class="chip pass">T05 System Overview</span><span class="chip pass">T06 Empire Overview</span><span class="chip pass">T07 Notifications</span><span class="chip pass">T08 Layout/Touch</span><span class="chip pass">T09 Data Boundary</span>
+        <span class="chip blk">phase audit: Blocker #2 — sort comparator</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b>hud.ts</b></div><div class="mod"><b>hover.ts</b></div><div class="mod"><b>info.ts</b> owner-top</div><div class="mod"><b>planet-panel.ts</b></div>
+        <div class="mod"><b>system-overview.ts</b></div><div class="mod"><b>empire-overview.ts</b></div><div class="mod"><b>notifications.ts</b></div><div class="mod"><b>layout.ts</b></div>
+        <div class="mod"><b>data-sources.ts</b></div><div class="mod"><b>display.ts · validate.ts</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P5 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 5 — Fleets &amp; Space Travel</h2><span class="meta">10/10 tasks + phase audit PASS · 408 tests</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 Ships</span><span class="chip pass">T02 Shipyard</span><span class="chip pass">T03 Fleet</span><span class="chip pass">T04 Movement</span><span class="chip pass">T05 Positioning</span>
+        <span class="chip pass">T06 Render State</span><span class="chip pass">T07 Orders</span><span class="chip pass">T08 Fleet UI</span><span class="chip pass">T09 Routes</span><span class="chip pass">T10 Persistence</span>
+        <span class="chip pass">● phase audit PASS</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b>ships.ts</b> 5 classes</div><div class="mod"><b>shipyard.ts</b></div><div class="mod"><b>fleet.ts</b></div><div class="mod"><b>movement.ts</b> slowest-ship</div>
+        <div class="mod"><b>positioning.ts</b> timestamp</div><div class="mod"><b>render-state.ts</b> LOD</div><div class="mod"><b>orders.ts</b></div><div class="mod"><b>routes.ts</b></div>
+        <div class="mod"><b>persistence.ts</b></div><div class="mod"><b>fleet-panel.ts</b></div><div class="mod"><b>0017_fleets.sql</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P6 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 6 — Scouting, Sensors &amp; Intelligence</h2><span class="meta">10/10 tasks · 346 tests</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 Permissions</span><span class="chip pass">T02 Levels</span><span class="chip pass">T03 Scouts</span><span class="chip pass">T04 Missions</span><span class="chip pass">T05 Reports</span>
+        <span class="chip pass">T06 Staleness</span><span class="chip pass">T07 PvP Gate</span><span class="chip pass">T08 Store+SQL</span><span class="chip pass">T09 Hover Intel</span><span class="chip pass">T10 Sensors</span>
+        <span class="chip blk">phase audit: Blocker #3 — shared validator</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b>permissions.ts</b></div><div class="mod"><b>levels.ts</b> 6-rung ladder</div><div class="mod"><b>scouts.ts</b></div><div class="mod"><b>missions.ts</b></div>
+        <div class="mod"><b>reports.ts</b> no-leak matrix</div><div class="mod"><b>staleness.ts</b> read-only decay</div><div class="mod"><b>pvp-gate.ts</b></div><div class="mod"><b>store.ts</b></div>
+        <div class="mod"><b>server-gate.ts</b></div><div class="mod"><b>sensors.ts</b></div><div class="mod"><b>intel-ui.ts</b></div><div class="mod"><b>hover-intel.ts</b></div>
+        <div class="mod"><b>0018_intel.sql</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P7 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phase 7 — Combat &amp; Planet Conquest</h2><span class="meta">6/11 tasks PASSED · 208 tests</span></div>
+    <div class="bar"><i class="part" style="width:55%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip pass">T01 Attack Orders</span><span class="chip pass">T02 Invasion Fleet</span><span class="chip pass">T03 Combat Resolution</span><span class="chip pass">T04 Planet Defense</span>
+        <span class="chip pass">T05 Casualties</span><span class="chip pass">T06 Conquest Cost</span>
+        <span class="chip q">T07 Capture</span><span class="chip q">T08 Home Immunity</span><span class="chip q">T09 Combat Reports</span><span class="chip q">T10 Sim Harness</span><span class="chip q">T11 Notifications</span>
+      </div>
+      <div class="module-grid">
+        <div class="mod"><b class="pass">attack-orders.ts</b> <span class="pass">PASS</span></div>
+        <div class="mod"><b class="pass">invasion.ts</b> <span class="pass">PASS</span></div>
+        <div class="mod"><b class="pass">resolution.ts</b> <span class="pass">PASS</span></div>
+        <div class="mod"><b class="pass">defense.ts</b> <span class="pass">PASS</span></div>
+        <div class="mod"><b class="pass">casualties.ts</b> <span class="pass">PASS</span></div>
+        <div class="mod"><b class="pass">conquest-cost.ts</b> <span class="pass">PASS</span></div>
+        <div class="mod"><b>capture.ts</b> queued</div>
+        <div class="mod"><b>home-immunity.ts</b> on disk, uncommitted</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- P8-12 -->
+  <div class="phase">
+    <div class="phase-h"><h2>Phases 8–12</h2><span class="meta">Alliances · Trade · MMO · 4X · Visuals/Release</span></div>
+    <div class="bar"><i style="width:2%"></i></div>
+    <div class="phase-b">
+      <div class="tasks">
+        <span class="chip q">P8 Diplomacy &amp; Alliances</span><span class="chip q">P9 Trading &amp; Economy</span><span class="chip q">P10 Persistent MMO</span>
+        <span class="chip q">P11 4X Progression</span><span class="chip q">P12 Visuals · Release · Mobile</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="badge">pure TS</span><span class="badge">no Math.random</span><span class="badge">no wall-clock</span><span class="badge">no any</span><span class="badge">deep-frozen tables</span><span class="badge">fnv1a only hash</span><span class="badge">tsc -b clean</span><span class="badge">Codex-audited every module</span>
+    <br><br>
+    <b>BLOCKERS</b> (revisit pass after P12, 3 attempts each):
+    <span class="chip blk">#1 P1 — api.ts dedupe</span>
+    <span class="chip blk">#2 P4 — shared sort comparator</span>
+    <span class="chip blk">#3 P6 — shared TargetIntel validator</span>
+    <br><br>
+    Main-game look = the 3D universe showcase (planet→galaxy→universe continuous zoom) · UI spec from Jay · repo: <b>F:\VSC Projects\StarBaron</b> @ staging
+  </div>
+</div>
+</body>
+</html>
