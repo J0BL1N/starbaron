@@ -13,7 +13,7 @@ TASK SPEC (docs/briefs/p7-t04-brief.md + master roadmap P7-T04):
 1. DefenseState { planetName, turretLevels, population, garrison, defensePower, breakdown {turretPower (locked 500×effLevel), militiaPower (locked DP − turretPower — never negative/double-counted), garrisonPower (garrison × 0.1 draft)} }; total = locked defensePower + garrisonPower (composition documented — garrison = home defenders).
 2. readiness { garrisonCoverage = garrison/(garrison+fleet) clamped, vulnerable = coverage < 0.5 (exact half = defended), message } — fleet is an input; empty military → coverage 0.
 3. defenseSummary deterministic via the shared suffix formatter.
-4. Purity: no nondeterministic APIs/module mutable state/wall-clock; no `any`; imports ⊆ structures/effects + player/estimator (if needed) + ui/validate + ui/display (suffix formatter if used) + stdlib; banned comment tokens absent; tables frozen.
+4. Purity: no nondeterministic APIs/module mutable state/wall-clock; no `any`; imports ⊆ structures/effects + player/estimator (if needed) + ui/validate + ui/display (suffix formatter if used) + stdlib + (CONTRACT CORRECTION — pure modules): ../planets/levels (tier consts) + ../core/format (the locked suffix formatter); banned comment tokens absent; tables frozen.
 
 CHECK:
 A. Purity + imports; no banned tokens in comments.
