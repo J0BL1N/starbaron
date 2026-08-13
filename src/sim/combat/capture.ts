@@ -62,7 +62,10 @@
  * ledger must
  * describe the SAME battle (attackerId / targetId / battleId / resolvedAt /
  * result / survivors / defender losses all agree), so a victory can never
- * ride on a ledger from a different engagement; the cost is well-formed
+ * ride on a ledger from a different engagement, and the capture's own
+ * attackerId / targetId must name the SAME battle the outcome and the cost
+ * describe (a handover can never ride on an independently supplied
+ * identity); the cost is well-formed
  * (tier integer >= 1, finite non-negative totals); targetCurrent population
  * and garrison finite non-negative with finite non-negative structure
  * levels; previousHistory an array; the targetOwnership record must name the
@@ -227,6 +230,41 @@ function assertConsistent(outcome: BattleOutcome, ledger: CasualtyLedger): void 
           'describe the same battle',
       )
     }
+  }
+}
+
+/**
+ * The capture must name the SAME battle the outcome and the cost do — the
+ * handover derives its toOwnerId and its body anchor from the INDEPENDENTLY
+ * supplied capture attackerId / targetId, so a valid victory + ledger for one
+ * engagement must never authorise a transfer of ANOTHER target to ANOTHER
+ * attacker. Rejected (RangeError, descriptive messages) unless
+ * outcome.attackerId === attackerId, outcome.targetId === targetId and
+ * cost.targetId === targetId.
+ */
+function assertBattleIdentity(
+  attackerId: string,
+  targetId: string,
+  outcome: BattleOutcome,
+  cost: ConquestCost,
+): void {
+  if (outcome.attackerId !== attackerId) {
+    throw new RangeError(
+      `outcome.attackerId (${outcome.attackerId}) disagrees with the capture ` +
+        `attackerId (${attackerId}) — the outcome must describe the capture attacker`,
+    )
+  }
+  if (outcome.targetId !== targetId) {
+    throw new RangeError(
+      `outcome.targetId (${outcome.targetId}) disagrees with the capture ` +
+        `targetId (${targetId}) — the outcome must describe the capture target`,
+    )
+  }
+  if (cost.targetId !== targetId) {
+    throw new RangeError(
+      `cost.targetId (${cost.targetId}) disagrees with the capture targetId ` +
+        `(${targetId}) — the cost must be paid for the capture target`,
+    )
   }
 }
 
@@ -403,6 +441,7 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
   assertConsistent(input.outcome, input.casualties)
   assertCaptureOrdering(input.capturedAt, input.outcome.resolvedAt)
   assertCost(input.cost)
+  assertBattleIdentity(attackerId, targetId, input.outcome, input.cost)
   assertTargetCurrent(input.targetCurrent)
   assertPreviousHistory(input.previousHistory)
 

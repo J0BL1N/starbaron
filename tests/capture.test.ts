@@ -330,8 +330,14 @@ describe('P7-T07 capturePlanet — repelled paths (defeat / stalemate)', () => {
   })
 
   it('a victory onto an impossible handover (self-transfer) throws Error', () => {
-    expect(() => capturePlanet(input({ attackerId: DEFENDER }))).toThrow(Error)
-    expect(() => capturePlanet(input({ attackerId: DEFENDER }))).not.toThrow(RangeError)
+    const selfBattle = outcome({ attackerId: DEFENDER })
+    const selfCapture = input({
+      attackerId: DEFENDER,
+      outcome: selfBattle,
+      casualties: ledgerFor(selfBattle),
+    })
+    expect(() => capturePlanet(selfCapture)).toThrow(Error)
+    expect(() => capturePlanet(selfCapture)).not.toThrow(RangeError)
   })
 
   it('a victory onto a protected home world is refused (the T08 guard reaches the locked refusal path)', () => {
@@ -362,7 +368,16 @@ describe('P7-T07 captureId — determinism and identity', () => {
   it('changes when the capture time or the attacker changes', () => {
     const base = capturePlanet(input()).captureId
     expect(capturePlanet(input({ capturedAt: AT + 1 })).captureId).not.toBe(base)
-    expect(capturePlanet(input({ attackerId: 'attacker-2' })).captureId).not.toBe(base)
+    const otherBattle = outcome({ attackerId: 'attacker-2' })
+    expect(
+      capturePlanet(
+        input({
+          attackerId: 'attacker-2',
+          outcome: otherBattle,
+          casualties: ledgerFor(otherBattle),
+        }),
+      ).captureId,
+    ).not.toBe(base)
   })
 })
 
@@ -484,15 +499,28 @@ describe('P7-T07 capturePlanet — validation', () => {
 
   it('rejects a target not present in the universe or not a valid body id', () => {
     const elsewhere = bodyId(systemId(SLUG, 'beta'), 'planet', 0)
+    const elsewhereBattle = outcome({ targetId: elsewhere })
     expect(() =>
       capturePlanet(
         input({
           targetId: elsewhere,
+          outcome: elsewhereBattle,
+          casualties: ledgerFor(elsewhereBattle),
           cost: conquestCostFor({ targetId: elsewhere, tier: TIER, attackerConquests: 3 }),
         }),
       ),
     ).toThrow(/not present/)
-    expect(() => capturePlanet(input({ targetId: 'not-a-body' }))).toThrow(/valid body id/)
+    const invalidBattle = outcome({ targetId: 'not-a-body' })
+    expect(() =>
+      capturePlanet(
+        input({
+          targetId: 'not-a-body',
+          outcome: invalidBattle,
+          casualties: ledgerFor(invalidBattle),
+          cost: { ...costFor(), targetId: 'not-a-body' },
+        }),
+      ),
+    ).toThrow(/valid body id/)
   })
 
   it('rejects a targetOwnership naming a different body than the capture target', () => {
@@ -569,6 +597,29 @@ describe('P7-T07 capturePlanet — validation', () => {
         }),
       ),
     ).toThrow(/describe the same battle/)
+  })
+
+  it('REJECTS an outcome naming a DIFFERENT attacker than the capture attackerId', () => {
+    expect(() => capturePlanet(input({ attackerId: 'attacker-2' }))).toThrow(
+      /outcome\.attackerId/,
+    )
+    expect(() => capturePlanet(input({ attackerId: 'attacker-2' }))).toThrow(RangeError)
+  })
+
+  it('REJECTS an outcome naming a DIFFERENT target than the capture targetId', () => {
+    const other = bodyId(systemId(SLUG, 'beta'), 'planet', 0)
+    expect(() => capturePlanet(input({ targetId: other }))).toThrow(/outcome\.targetId/)
+    expect(() => capturePlanet(input({ targetId: other }))).toThrow(RangeError)
+  })
+
+  it('REJECTS a cost paid for a DIFFERENT target than the capture targetId', () => {
+    const other = bodyId(systemId(SLUG, 'beta'), 'planet', 0)
+    expect(() =>
+      capturePlanet(input({ cost: { ...costFor(), targetId: other } })),
+    ).toThrow(/cost\.targetId/)
+    expect(() =>
+      capturePlanet(input({ cost: { ...costFor(), targetId: other } })),
+    ).toThrow(RangeError)
   })
 
   it('rejects a malformed targetCurrent (negative / non-finite counts, bad structure level)', () => {
