@@ -110,7 +110,7 @@
 | T05 Population Casualties | ✅ | Codex PASS (round 2) — `src/sim/combat/casualties.ts` + `tests/casualties.test.ts` (38 tests): outcome delegation, DESIGN committed-loss, garrison mapping (victory wipe / 20% / 0) |
 | T06 Conquest Cost | ✅ | Codex PASS (first round) — `src/sim/combat/conquest-cost.ts` + `tests/conquest-cost.test.ts` (38 tests): escalating curve, empire multiplier cap ×2.0, summary |
 | T07 Planet Capture | ⬜ | |
-| T08 Home-World Immunity | ⬜ | |
+| T08 Home-World Immunity | ✅ | Codex PASS (round 2) — `src/sim/combat/home-immunity.ts` + `tests/home-immunity.test.ts` (26 tests) + write-only `0019_home_immunity.sql`/13: launch + conquest guards over locked protection, RLS SQL |
 | T09 Combat Reports | ⬜ | |
 | T10 Combat Simulation Harness | ⬜ | |
 | T11 Attack Notifications | ⬜ | |
