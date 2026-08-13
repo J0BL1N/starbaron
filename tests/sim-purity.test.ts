@@ -27,6 +27,90 @@ function importSources(source: string): string[] {
     .map((match) => match[1])
 }
 
+// Removes comment and string-literal content so the DOM-global scan only sees
+// real code references. Prose that merely mentions a colliding word ("tick
+// window", "location ref", error strings) is not a DOM-API usage. Code inside
+// template-literal `${...}` interpolation is preserved so genuine references
+// there are still caught.
+function stripCommentsAndStrings(source: string): string {
+  let out = ''
+  let i = 0
+  const n = source.length
+  while (i < n) {
+    const ch = source[i]
+    const next = source[i + 1]
+    if (ch === '/' && next === '/') {
+      while (i < n && source[i] !== '\n') i++
+    } else if (ch === '/' && next === '*') {
+      i += 2
+      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) i++
+      i += 2
+    } else if (ch === "'" || ch === '"') {
+      const quote = ch
+      i++
+      while (i < n && source[i] !== quote) {
+        if (source[i] === '\\') i++
+        i++
+      }
+      if (i < n) i++
+    } else if (ch === '`') {
+      i++
+      while (i < n && source[i] !== '`') {
+        if (source[i] === '\\') {
+          i += 2
+          continue
+        }
+        if (source[i] === '$' && source[i + 1] === '{') {
+          let depth = 1
+          i += 2
+          while (i < n && depth > 0) {
+            const c = source[i]
+            if (c === '`') {
+              i++
+              while (i < n && source[i] !== '`') {
+                if (source[i] === '\\') i++
+                i++
+              }
+              if (i < n) i++
+              continue
+            }
+            if (c === "'" || c === '"') {
+              const q = c
+              i++
+              while (i < n && source[i] !== q) {
+                if (source[i] === '\\') i++
+                i++
+              }
+              if (i < n) i++
+              continue
+            }
+            if (c === '{') depth++
+            else if (c === '}') depth--
+            i++
+          }
+          continue
+        }
+        i++
+      }
+      if (i < n) i++
+    } else {
+      out += ch
+      i++
+    }
+  }
+  return out
+}
+
+// DOM environment globals are banned as code references. `window`, `document`,
+// `localStorage`, `sessionStorage`, `navigator` and `HTMLElement` stay banned
+// outright. `location` is only flagged as property access on a DOM/global
+// object (`window.location` / `document.location` / `globalThis.location`):
+// as a bare identifier the P3/P5 modules legitimately use it as a domain
+// field/local variable (OwnedPlanet refs, fleet location refs), which a
+// word-boundary match cannot distinguish from the DOM global.
+const DOM_GLOBAL_RE =
+  /\b(?:document|window|localStorage|sessionStorage|navigator|HTMLElement|(?:window|document|globalThis)\.location)\b/
+
 const simFiles = listTsFiles(SIM_DIR)
 
 describe('P1-T03-C src/sim purity — no React/DOM leaks', () => {
@@ -45,11 +129,8 @@ describe('P1-T03-C src/sim purity — no React/DOM leaks', () => {
   })
 
   it.each(simFiles)('references no DOM environment globals in %s', (file) => {
-    const source = readFileSync(file, 'utf8')
-    const leak =
-      /\b(document|window|localStorage|sessionStorage|navigator|HTMLElement|location)\b/.exec(
-        source,
-      )
+    const source = stripCommentsAndStrings(readFileSync(file, 'utf8'))
+    const leak = DOM_GLOBAL_RE.exec(source)
     expect(leak).toBeNull()
   })
 })

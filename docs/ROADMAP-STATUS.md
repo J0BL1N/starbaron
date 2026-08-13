@@ -87,7 +87,7 @@
 
 | Task | Status | Verdict / evidence |
 |---|---|---|
-| T01 Intel Permission Model | ⬜ | |
+| T01 Intel Permission Model | ✅ | Codex PASS (round 2) — `src/sim/intel/permissions.ts` + `tests/permissions.test.ts` (36 tests): relationship-exclusive granted sets (owner/alliance/stranger/unowned), validation |
 | T02 Intel Levels | ⬜ | |
 | T03 Scout Ships | ⬜ | |
 | T04 Scout Missions | ⬜ | |
