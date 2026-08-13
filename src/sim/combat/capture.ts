@@ -21,12 +21,13 @@
  *
  * DELEGATION: on a victory, `capturePlanet` builds the P2-T07
  * conquestTransfer input from the capture inputs and the world state, then
- * hands the transfer to the locked function. The `record` is the defender's
- * colony record (the defender owns the target; non-home, ownership parity
- * held). The prior acquisition method is 'colonisation' — the standard way a
- * non-home world is gained — and the previous history is empty: the caller
- * persists the audit trail, mirroring the P2 convention ("the pure model
- * reports; the caller persists").
+ * hands the transfer to the locked function. The `record` is the
+ * caller-supplied `targetOwnership` — the DEFENDER'S STORED ownership record
+ * of the target — received UNCHANGED and delegated UNCHANGED (never
+ * fabricated here), so a protected home world (isHome && unconquerable)
+ * reaches the locked refusal path exactly as stored. The previous history is
+ * empty: the caller persists the audit trail, mirroring the P2 convention
+ * ("the pure model reports; the caller persists").
  *
  * SURVIVAL — THE APPLICATION OF T05 ONTO OWNERSHIP: the transfer's
  * structureSurvival is the capture input applied to the structure grid (the
@@ -70,8 +71,7 @@ import type { BodyId } from '../world/identity'
 import type { UniverseState } from '../world/reconstruct'
 import { STRUCTURE_IDS } from '../structures/data'
 import { conquestTransfer } from '../player/transfer'
-import type { TransferOutcome } from '../player/transfer'
-import { ownershipFor } from '../player/ownership'
+import type { OwnershipEvent, OwnershipRecord } from '../player/ownership'
 import { BATTLE_RESULTS } from './resolution'
 import type { BattleOutcome } from './resolution'
 import { casualtyLedgerInvariants } from './casualties'
@@ -103,10 +103,13 @@ export interface CaptureSettlement {
 }
 
 /**
- * The full capture record. `transfer` is the P2-T07 TransferOutcome (the
- * locked handover — its `.event` is the OwnershipEvent; the brief's
- * "TransferEvent" maps onto it). cost and casualties are present in both
- * outcomes: the price was paid whether the world fell or held.
+ * The full capture record. `transfer` is the locked handover's OwnershipEvent
+ * (the brief's "TransferEvent" — the event the P2-T07 conquestTransfer
+ * produced); `survivingStructures` carries the delegate's survivor grid
+ * separately, so the result contract's `transfer` stays the event while the
+ * structure consequence (turrets destroyed, DESIGN §5) stays observable.
+ * cost and casualties are present in both outcomes: the price was paid
+ * whether the world fell or held.
  */
 export interface CaptureResult {
   captureId: string
@@ -115,7 +118,8 @@ export interface CaptureResult {
   targetId: string
   capturedAt: number
   outcome: CaptureOutcome
-  transfer: TransferOutcome | null
+  transfer: OwnershipEvent | null
+  survivingStructures: StructureGrid | null
   cost: ConquestCost | null
   casualties: CasualtyLedger | null
 }
@@ -130,6 +134,13 @@ export interface CaptureInput {
   structureSurvival: number
   capturedAt: number
   universe: UniverseState
+  /**
+   * The DEFENDER'S STORED ownership record of the target — delegated UNCHANGED
+   * to the locked conquestTransfer (never fabricated here), so a protected
+   * home world (isHome && unconquerable) reaches the locked refusal path
+   * exactly as stored.
+   */
+  targetOwnership: OwnershipRecord
 }
 
 const SETTLEMENT_VERSION = 'capture-settlement-v1'
@@ -264,9 +275,10 @@ export function survivalFor(
 /**
  * Capture a planet from a resolved battle (P7-T07). victory → the handover is
  * DELEGATED to the locked `conquestTransfer` (the attacker becomes the new
- * owner, the capture's structureSurvival and the T05-derived population/
- * garrison survival are applied, the world anchors on the universe's target
- * body) and the result is 'captured' with the transfer. defeat/stalemate →
+ * owner, the caller-supplied `targetOwnership` is delegated UNCHANGED, the
+ * capture's structureSurvival and the T05-derived population/garrison
+ * survival are applied, the world anchors on the universe's target body) and
+ * the result is 'captured' with the transfer EVENT. defeat/stalemate →
  * 'repelled' with transfer null; the cost and the casualty ledger are still
  * recorded — the price was paid. captureId =
  * fnv1a(`${attackerId}|${targetId}|${capturedAt}`).toString(16), deterministic
@@ -296,6 +308,7 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
       capturedAt,
       outcome: 'repelled',
       transfer: null,
+      survivingStructures: null,
       cost: input.cost,
       casualties: input.casualties,
     }
@@ -303,15 +316,7 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
 
   const settlement = settlementFor(bodyId)
   const transfer = conquestTransfer({
-    record: ownershipFor(
-      bodyId,
-      defenderId,
-      null,
-      capturedAt,
-      'colonisation',
-      false,
-      false,
-    ),
+    record: input.targetOwnership,
     toOwnerId: attackerId,
     at: capturedAt,
     survival: {
@@ -338,7 +343,8 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
     targetId,
     capturedAt,
     outcome: 'captured',
-    transfer,
+    transfer: transfer.event,
+    survivingStructures: transfer.structures,
     cost: input.cost,
     casualties: input.casualties,
   }
@@ -363,11 +369,11 @@ function formatInteger(value: number): string {
  * formula fnv1a(`${attackerId}|${targetId}|${capturedAt}`).toString(16);
  * attackerId / defenderId / targetId non-empty; capturedAt positive finite;
  * outcome in the frozen union; cost and casualties PRESENT in both outcomes
- * (the price was paid on every attempt); captured ⇒ transfer non-null with
- * record.ownerId and event.toOwnerId equal to the attacker, event method
- * 'conquest', event bodyId/at anchored on the target/capturedAt, and the
- * defense turret ABSENT from the surviving structures (DESIGN §5 — the
- * delegate's contract); repelled ⇒ transfer null.
+ * (the price was paid on every attempt); captured ⇒ transfer non-null (the
+ * OwnershipEvent naming the attacker as toOwnerId, method 'conquest', bodyId/
+ * at anchored on the target/capturedAt) and survivingStructures non-null with
+ * the defense turret ABSENT (DESIGN §5 — the delegate's contract); repelled
+ * ⇒ transfer null and survivingStructures null.
  */
 export function captureInvariants(result: CaptureResult): {
   ok: boolean
@@ -418,43 +424,48 @@ export function captureInvariants(result: CaptureResult): {
         'a captured world must carry the locked transfer (transfer non-null)',
       )
     } else {
-      if (result.transfer.record.ownerId !== result.attackerId) {
+      if (result.transfer.toOwnerId !== result.attackerId) {
         problems.push(
           `the transfer must hand the world to the attacker ${result.attackerId}, ` +
-            `got owner ${result.transfer.record.ownerId}`,
+            `got toOwnerId ${result.transfer.toOwnerId}`,
         )
       }
-      if (result.transfer.event.toOwnerId !== result.attackerId) {
+      if (result.transfer.method !== 'conquest') {
         problems.push(
-          `the transfer event must name the attacker ${result.attackerId} as toOwnerId, ` +
-            `got ${result.transfer.event.toOwnerId}`,
+          `the transfer event must record method 'conquest', got ${result.transfer.method}`,
         )
       }
-      if (result.transfer.event.method !== 'conquest') {
-        problems.push(
-          `the transfer event must record method 'conquest', got ${result.transfer.event.method}`,
-        )
-      }
-      if (result.transfer.event.bodyId !== result.targetId) {
+      if (result.transfer.bodyId !== result.targetId) {
         problems.push(
           `the transfer event must anchor on the target ${result.targetId}, ` +
-            `got ${result.transfer.event.bodyId}`,
+            `got ${result.transfer.bodyId}`,
         )
       }
-      if (result.transfer.event.at !== result.capturedAt) {
+      if (result.transfer.at !== result.capturedAt) {
         problems.push(
           `the transfer event must carry the capture time ${result.capturedAt}, ` +
-            `got ${result.transfer.event.at}`,
-        )
-      }
-      if (result.transfer.structures.defenseTurret !== undefined) {
-        problems.push(
-          'the transfer must destroy the defense turrets (DESIGN §5 — turret absent)',
+            `got ${result.transfer.at}`,
         )
       }
     }
-  } else if (result.transfer !== null) {
-    problems.push('a repelled capture must carry no transfer (transfer null)')
+    if (result.survivingStructures === null) {
+      problems.push(
+        'a captured world must carry the surviving structures (survivingStructures non-null)',
+      )
+    } else if (result.survivingStructures.defenseTurret !== undefined) {
+      problems.push(
+        'the transfer must destroy the defense turrets (DESIGN §5 — turret absent)',
+      )
+    }
+  } else {
+    if (result.transfer !== null) {
+      problems.push('a repelled capture must carry no transfer (transfer null)')
+    }
+    if (result.survivingStructures !== null) {
+      problems.push(
+        'a repelled capture must carry no surviving structures (survivingStructures null)',
+      )
+    }
   }
 
   return { ok: problems.length === 0, problems }
@@ -482,8 +493,8 @@ export function captureSummary(result: CaptureResult): string {
   }
 
   const cost = result.cost as ConquestCost
-  const transfer = result.transfer as TransferOutcome
-  const survived = Object.values(transfer.structures).filter(
+  const survivors = result.survivingStructures as StructureGrid
+  const survived = Object.values(survivors).filter(
     (level) => level > 0,
   ).length
   return (

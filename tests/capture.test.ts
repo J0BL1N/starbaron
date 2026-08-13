@@ -14,6 +14,7 @@ import { conquestCostFor } from '../src/sim/combat/conquest-cost'
 import type { ConquestCost } from '../src/sim/combat/conquest-cost'
 import type { BattleOutcome } from '../src/sim/combat/resolution'
 import { conquestTransfer, structureSurvivors } from '../src/sim/player/transfer'
+import type { ConquestTransferResult, TransferOutcome } from '../src/sim/player/transfer'
 import { ownershipFor } from '../src/sim/player/ownership'
 import { buildBodyRecord } from '../src/sim/world/body'
 import type { BodyRecord } from '../src/sim/world/body'
@@ -88,8 +89,24 @@ function input(overrides: Partial<CaptureInput> = {}): CaptureInput {
     structureSurvival: SURVIVAL,
     capturedAt: AT,
     universe: buildFixture(),
+    targetOwnership: ownershipFor(
+      TARGET,
+      DEFENDER,
+      null,
+      AT,
+      'colonisation',
+      false,
+      false,
+    ),
     ...overrides,
   }
+}
+
+function asTransferOutcome(result: ConquestTransferResult): TransferOutcome {
+  if ('ok' in result) {
+    throw new Error(`unexpected conquest transfer rejection: ${result.reason}`)
+  }
+  return result
 }
 
 describe('P7-T07 capturePlanet — victory hands the world over', () => {
@@ -97,16 +114,15 @@ describe('P7-T07 capturePlanet — victory hands the world over', () => {
     const result = capturePlanet(input())
     expect(result.outcome).toBe('captured')
     expect(result.transfer).not.toBeNull()
-    expect(result.transfer!.record.ownerId).toBe(ATTACKER)
-    expect(result.transfer!.record.previousOwnerId).toBe(DEFENDER)
-    expect(result.transfer!.event.toOwnerId).toBe(ATTACKER)
-    expect(result.transfer!.event.fromOwnerId).toBe(DEFENDER)
-    expect(result.transfer!.event.method).toBe('conquest')
-    expect(result.transfer!.event.bodyId).toBe(TARGET)
-    expect(result.transfer!.event.at).toBe(AT)
+    expect(result.transfer!.toOwnerId).toBe(ATTACKER)
+    expect(result.transfer!.fromOwnerId).toBe(DEFENDER)
+    expect(result.transfer!.method).toBe('conquest')
+    expect(result.transfer!.bodyId).toBe(TARGET)
+    expect(result.transfer!.at).toBe(AT)
+    expect(result.survivingStructures).not.toBeNull()
   })
 
-  it('DELEGATES the handover to the locked conquestTransfer (deep-equal to a direct call)', () => {
+  it('DELEGATES the handover to the locked conquestTransfer (event + survivors deep-equal to a direct call)', () => {
     const result = capturePlanet(input())
     const settlement = settlementFor(TARGET)
     const ledger = ledgerFor()
@@ -123,7 +139,8 @@ describe('P7-T07 capturePlanet — victory hands the world over', () => {
       previousHistory: [],
       current: { population: settlement.population, garrison: settlement.garrison },
     })
-    expect(result.transfer).toEqual(expected)
+    expect(result.transfer).toEqual(asTransferOutcome(expected).event)
+    expect(result.survivingStructures).toEqual(asTransferOutcome(expected).structures)
   })
 
   it('applies the T05-derived population/garrison survival onto the transfer', () => {
@@ -131,10 +148,25 @@ describe('P7-T07 capturePlanet — victory hands the world over', () => {
     const settlement = settlementFor(TARGET)
     const ledger = ledgerFor()
     const survival = survivalFor(settlement, ledger)
-    expect(result.transfer!.survivors.population).toBe(
+    const envelope = conquestTransfer({
+      record: input().targetOwnership,
+      toOwnerId: ATTACKER,
+      at: AT,
+      survival: {
+        populationSurvival: survival.populationSurvival,
+        structureSurvival: SURVIVAL,
+        garrisonSurvival: survival.garrisonSurvival,
+      },
+      structures: settlement.structures,
+      previousHistory: [],
+      current: { population: settlement.population, garrison: settlement.garrison },
+    })
+    const outcome = asTransferOutcome(envelope)
+    expect(result.transfer).toEqual(outcome.event)
+    expect(outcome.survivors.population).toBe(
       Math.round(settlement.population * survival.populationSurvival),
     )
-    expect(result.transfer!.survivors.garrison).toBe(
+    expect(outcome.survivors.garrison).toBe(
       Math.round(settlement.garrison * survival.garrisonSurvival),
     )
   })
@@ -149,19 +181,19 @@ describe('P7-T07 capturePlanet — victory hands the world over', () => {
 
 describe('P7-T07 capturePlanet — structure consequences (via the locked transfer)', () => {
   it('the defense turret is ALWAYS destroyed (DESIGN §5 — absent in the survivors)', () => {
-    expect(capturePlanet(input()).transfer!.structures.defenseTurret).toBeUndefined()
+    expect(capturePlanet(input()).survivingStructures!.defenseTurret).toBeUndefined()
   })
 
   it('every other structure survives by the survival fraction (floored by the delegate)', () => {
     const settlement = settlementFor(TARGET)
-    expect(capturePlanet(input()).transfer!.structures).toEqual(
+    expect(capturePlanet(input()).survivingStructures).toEqual(
       structureSurvivors(settlement.structures, SURVIVAL),
     )
     const full = capturePlanet(input({ structureSurvival: 1 }))
-    expect(full.transfer!.structures).toEqual(structureSurvivors(settlement.structures, 1))
+    expect(full.survivingStructures).toEqual(structureSurvivors(settlement.structures, 1))
     const none = capturePlanet(input({ structureSurvival: 0 }))
-    expect(none.transfer!.structures).toEqual(structureSurvivors(settlement.structures, 0))
-    expect(Object.values(none.transfer!.structures).every((level) => level === 0)).toBe(true)
+    expect(none.survivingStructures).toEqual(structureSurvivors(settlement.structures, 0))
+    expect(Object.values(none.survivingStructures!).every((level) => level === 0)).toBe(true)
   })
 
   it('the settlement draft guarantees a turret and housing so the contract is observable', () => {
@@ -180,11 +212,13 @@ describe('P7-T07 capturePlanet — repelled paths (defeat / stalemate)', () => {
     )
     expect(repelled.outcome).toBe('repelled')
     expect(repelled.transfer).toBeNull()
+    expect(repelled.survivingStructures).toBeNull()
     const held = capturePlanet(
       input({ outcome: stalemate, casualties: ledgerFor(stalemate) }),
     )
     expect(held.outcome).toBe('repelled')
     expect(held.transfer).toBeNull()
+    expect(held.survivingStructures).toBeNull()
   })
 
   it('a repelled capture still records the cost and the casualty ledger (the price was paid)', () => {
@@ -207,6 +241,22 @@ describe('P7-T07 capturePlanet — repelled paths (defeat / stalemate)', () => {
   it('a victory onto an impossible handover (self-transfer) throws Error', () => {
     expect(() => capturePlanet(input({ attackerId: DEFENDER }))).toThrow(Error)
     expect(() => capturePlanet(input({ attackerId: DEFENDER }))).not.toThrow(RangeError)
+  })
+
+  it('a victory onto a protected home world is refused (the T08 guard reaches the locked refusal path)', () => {
+    const protectedHome = ownershipFor(
+      TARGET,
+      DEFENDER,
+      null,
+      AT,
+      'home-assignment',
+      true,
+      true,
+    )
+    expect(() => capturePlanet(input({ targetOwnership: protectedHome }))).toThrow(Error)
+    expect(() => capturePlanet(input({ targetOwnership: protectedHome }))).not.toThrow(
+      RangeError,
+    )
   })
 })
 
@@ -234,16 +284,28 @@ describe('P7-T07 capturePlanet — determinism and immutability', () => {
     expect(first.transfer).not.toBe(second.transfer)
   })
 
-  it('never mutates the outcome, cost, casualties or universe inputs', () => {
+  it('never mutates the outcome, cost, casualties, universe or target ownership inputs', () => {
     const battle = outcome()
     const cost = costFor()
     const casualties = ledgerFor()
     const universe = buildFixture()
-    capturePlanet(input({ outcome: battle, cost, casualties, universe }))
+    const targetOwnership = ownershipFor(
+      TARGET,
+      DEFENDER,
+      null,
+      AT,
+      'colonisation',
+      false,
+      false,
+    )
+    capturePlanet(input({ outcome: battle, cost, casualties, universe, targetOwnership }))
     expect(battle).toEqual(outcome())
     expect(cost).toEqual(costFor())
     expect(casualties).toEqual(ledgerFor())
     expect(universe).toEqual(buildFixture())
+    expect(targetOwnership).toEqual(
+      ownershipFor(TARGET, DEFENDER, null, AT, 'colonisation', false, false),
+    )
   })
 })
 
@@ -332,23 +394,33 @@ describe('P7-T07 captureInvariants — malformed results are reported', () => {
     const good = capturePlanet(input())
     const wrongOwner: CaptureResult = {
       ...good,
-      transfer: {
-        ...good.transfer!,
-        record: { ...good.transfer!.record, ownerId: 'intruder' },
-      },
+      transfer: { ...good.transfer!, toOwnerId: 'intruder' },
     }
     expect(captureInvariants(wrongOwner).ok).toBe(false)
     const keptTurret: CaptureResult = {
       ...good,
-      transfer: {
-        ...good.transfer!,
-        structures: { ...good.transfer!.structures, defenseTurret: 3 },
-      },
+      survivingStructures: { ...good.survivingStructures!, defenseTurret: 3 },
     }
     expect(captureInvariants(keptTurret).ok).toBe(false)
     expect(captureInvariants(keptTurret).problems.some((p) => /turret absent/.test(p))).toBe(
       true,
     )
+  })
+
+  it('flags a captured result missing its surviving structures and a repelled one carrying them', () => {
+    const good = capturePlanet(input())
+    expect(captureInvariants({ ...good, survivingStructures: null }).ok).toBe(false)
+    const defeated = outcome({ result: 'defeat', victory: false, survivingTroops: 0 })
+    const repelled = capturePlanet(
+      input({ outcome: defeated, casualties: ledgerFor(defeated) }),
+    )
+    expect(captureInvariants({ ...repelled, survivingStructures: good.survivingStructures }).ok).toBe(
+      false,
+    )
+    expect(
+      captureInvariants({ ...repelled, survivingStructures: good.survivingStructures })
+        .problems.some((p) => /no surviving structures/.test(p)),
+    ).toBe(true)
   })
 
   it('flags missing cost or casualties', () => {
