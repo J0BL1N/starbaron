@@ -10,7 +10,7 @@ READ LIST:
 - supabase/tests/12_intel.sql          (NEW — write-only, under audit)
 - supabase/migrations/0017_fleets.sql (conventions: players(id) uuid FK, text+CHECK, numeric ms, RLS owner-gate)
 
-AUTHORISED SCOPE: ONLY the four new files. AUDIT TARGET = COMMIT 3be45a31aa319a829468d0586361e7397e43da4f (`git show --stat` adds exactly those four). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the four new files. AUDIT TARGET = COMMIT 5ef9a3a2eb66798bfc66ef4268eb5c6312ab3f0b (`git show --stat` adds exactly those four). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p6-t08-brief.md + master roadmap P6-T08):
 1. TS store: IntelStore { ownerId, records map }; storeRecord (upsert via recordIntel semantics — promote + source dedup); storeApplyDecay (applyDecay over all, expired dropped); storeQuery; storeRescoutNeeded (targetId ascending); storeInvariants (map-key uniqueness, record validity, ownerId non-empty).
