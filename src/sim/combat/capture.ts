@@ -57,7 +57,10 @@
  * terminal battle result with a consistent victory flag; structureSurvival a
  * finite fraction in [0,1]; the casualty ledger satisfies its locked
  * invariants; the cost is well-formed (tier integer >= 1, finite
- * non-negative totals). A victory whose handover the locked transfer REJECTS
+ * non-negative totals); the targetOwnership record must name the capture
+ * target as its bodyId and the defender as its ownerId (a mismatched record
+ * would forge the handover event onto the wrong body or name the wrong
+ * previous owner). A victory whose handover the locked transfer REJECTS
  * (protected or self-transfer) is an impossible capture — capturePlanet
  * throws Error (the home-world guard is P7-T08, which refuses such battles
  * before this module is reached).
@@ -138,7 +141,8 @@ export interface CaptureInput {
    * The DEFENDER'S STORED ownership record of the target — delegated UNCHANGED
    * to the locked conquestTransfer (never fabricated here), so a protected
    * home world (isHome && unconquerable) reaches the locked refusal path
-   * exactly as stored.
+   * exactly as stored. Must name the capture target as its bodyId and the
+   * defender as its ownerId (RangeError otherwise).
    */
   targetOwnership: OwnershipRecord
 }
@@ -210,6 +214,30 @@ function resolveTargetBody(universe: UniverseState, targetId: string): BodyId {
     )
   }
   return parsed.id
+}
+
+/**
+ * The caller-supplied ownership record MUST be the defender's stored record of
+ * the capture target: a mismatched record would delegate a handover event that
+ * targets another body or names a different previous owner than the battle
+ * actually decided. Rejected with a descriptive RangeError before the locked
+ * transfer is reached.
+ */
+function assertOwnershipMatches(
+  targetOwnership: OwnershipRecord,
+  targetId: BodyId,
+  defenderId: string,
+): void {
+  if (targetOwnership.bodyId !== targetId) {
+    throw new RangeError(
+      `targetOwnership.bodyId must be the capture target ${targetId}, got ${targetOwnership.bodyId}`,
+    )
+  }
+  if (targetOwnership.ownerId !== defenderId) {
+    throw new RangeError(
+      `targetOwnership.ownerId must be the defender ${defenderId}, got ${targetOwnership.ownerId}`,
+    )
+  }
 }
 
 function clampFraction(value: number): number {
@@ -315,6 +343,7 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
   }
 
   const settlement = settlementFor(bodyId)
+  assertOwnershipMatches(input.targetOwnership, bodyId, defenderId)
   const transfer = conquestTransfer({
     record: input.targetOwnership,
     toOwnerId: attackerId,

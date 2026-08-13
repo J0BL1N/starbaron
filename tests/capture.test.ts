@@ -370,6 +370,43 @@ describe('P7-T07 capturePlanet — validation', () => {
     ).toThrow(/not present/)
     expect(() => capturePlanet(input({ targetId: 'not-a-body' }))).toThrow(/valid body id/)
   })
+
+  it('rejects a targetOwnership naming a different body than the capture target', () => {
+    const other = bodyId(systemId(SLUG, 'beta'), 'planet', 0)
+    expect(() =>
+      capturePlanet(
+        input({
+          targetOwnership: ownershipFor(
+            other,
+            DEFENDER,
+            null,
+            AT,
+            'colonisation',
+            false,
+            false,
+          ),
+        }),
+      ),
+    ).toThrow(/targetOwnership\.bodyId/)
+  })
+
+  it('rejects a targetOwnership owned by anyone other than the defender', () => {
+    expect(() =>
+      capturePlanet(
+        input({
+          targetOwnership: ownershipFor(
+            TARGET,
+            'intruder',
+            null,
+            AT,
+            'colonisation',
+            false,
+            false,
+          ),
+        }),
+      ),
+    ).toThrow(/targetOwnership\.ownerId/)
+  })
 })
 
 describe('P7-T07 captureInvariants — malformed results are reported', () => {
