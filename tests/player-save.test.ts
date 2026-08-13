@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PLANETS } from '../src/sim/data/planets'
 import { claimColony, claimHomePlanet } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import type { OwnedPlanet } from '../src/sim/player'
 import {
   loadSave,
@@ -21,6 +23,9 @@ import {
 import type { StructureId } from '../src/sim/structures/types'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 function makeV1(overrides: Partial<SaveGameV1> = {}): SaveGameV1 {
   const base: SaveGameV1 = {
@@ -103,7 +108,7 @@ describe('P2-T04-B save migration v1->v3 (multi-hop)', () => {
     const migrated = migrateSave(v1) as unknown as {
       player: { playerId: string; homePlanet: { name: string; tier: number; baselineIncomePerSec: number } }
     }
-    const expected = claimHomePlanet(migrated.player.playerId, NOW)
+    const expected = claimHomePlanet(migrated.player.playerId, NOW, ELIGIBLE, NO_TAKEN)
     expect(migrated.player.homePlanet.name).toBe(expected.name)
     expect(migrated.player.homePlanet.tier).toBe(expected.tier)
     expect(migrated.player.homePlanet.baselineIncomePerSec).toBe(
@@ -159,7 +164,7 @@ describe('P2-T04-B save migration v1->v3 (multi-hop)', () => {
       expect(b.save.player.playerId).toBe(a.save.player.playerId)
       expect(b.save.player.homePlanet.name).toBe(a.save.player.homePlanet.name)
       expect(b.save.player.homePlanet.name).toBe(
-        claimHomePlanet(a.save.player.playerId, NOW).name,
+        claimHomePlanet(a.save.player.playerId, NOW, ELIGIBLE, NO_TAKEN).name,
       )
     }
   })
@@ -194,7 +199,7 @@ describe('P2-T04-B save migration v1->v3 (multi-hop)', () => {
     const result = loadSave(storage)
     expect(result.kind).toBe('ok')
     if (result.kind === 'ok') {
-      const expected = claimHomePlanet(result.save.player.playerId, NOW)
+      const expected = claimHomePlanet(result.save.player.playerId, NOW, ELIGIBLE, NO_TAKEN)
       expect(result.save.player.homePlanet.name).toBe(expected.name)
       expect(result.save.player.homePlanet.tier).toBe(expected.tier)
       expect(result.save.player.homePlanet.isHome).toBe(true)
@@ -205,7 +210,7 @@ describe('P2-T04-B save migration v1->v3 (multi-hop)', () => {
   it('repairs a fabricated home planet to the deterministic claim on load and persists the repair', () => {
     const storage = new MemoryStorage()
     const playerId = 'fabricated-player'
-    const expected = claimHomePlanet(playerId, NOW)
+    const expected = claimHomePlanet(playerId, NOW, ELIGIBLE, NO_TAKEN)
     const otherEntry = PLANETS.find((entry) => entry.name !== expected.name)!
     const fabricatedHome: OwnedPlanet = {
       ...claimColony(otherEntry, NOW),
@@ -276,7 +281,7 @@ describe('P2-T04-B save v3 — key-per-version and tombstoning', () => {
 
 describe('P2-T04-B save v3 — claims round-trip', () => {
   it('a seeded save with colonies round-trips identical claims through save/load', () => {
-    const home = claimHomePlanet('colony-player', NOW)
+    const home = claimHomePlanet('colony-player', NOW, ELIGIBLE, NO_TAKEN)
     const colony = claimColony(
       PLANETS.find((entry) => entry.name !== home.name)!,
       NOW,

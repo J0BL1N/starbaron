@@ -6,6 +6,8 @@ import {
   emptyStructureLevels,
 } from '../src/sim/player'
 import type { StructureGrid } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   loadSave,
   MIGRATIONS,
@@ -21,6 +23,9 @@ import { makeSave, MemoryStorage } from './saveHelpers'
 import type { StructureId } from '../src/sim/structures/types'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 function rawV1(overrides: { game?: unknown } = {}): SaveGameV1 {
   return {
@@ -43,7 +48,7 @@ function rawV1(overrides: { game?: unknown } = {}): SaveGameV1 {
 }
 
 function rawV2(): SaveGameV2 {
-  const home = claimHomePlanet('v2-player', NOW)
+  const home = claimHomePlanet('v2-player', NOW, ELIGIBLE, NO_TAKEN)
   const colonyEntry = PLANETS.find((entry) => entry.name !== home.name)!
   const colony = claimColony(colonyEntry, NOW)
   return {
@@ -114,7 +119,7 @@ describe('P2-T04-B migration v2 -> v3', () => {
 
 describe('P2-T04-B v3 save round-trip', () => {
   it('saveGame writes the v3 key and loadSave restores per-planet grids, per-planet pop, and the wallet', () => {
-    const home = claimHomePlanet('roundtrip-player', NOW)
+    const home = claimHomePlanet('roundtrip-player', NOW, ELIGIBLE, NO_TAKEN)
     const colonyEntry = PLANETS.find((entry) => entry.name !== home.name)!
     const colony = claimColony(colonyEntry, NOW)
     const save = makeSave({
@@ -244,7 +249,7 @@ describe('P2-T04-B v3 corrupt matrix', () => {
   })
 
   it('a missing grid for an owned colony is lenient: defaulted to an empty grid, still ok', () => {
-    const home = claimHomePlanet('lenient-player', NOW)
+    const home = claimHomePlanet('lenient-player', NOW, ELIGIBLE, NO_TAKEN)
     const colonyEntry = PLANETS.find((entry) => entry.name !== home.name)!
     const colony = claimColony(colonyEntry, NOW)
     const save = makeSave({

@@ -4,6 +4,7 @@ import {
   calculateOfflineEarnings,
   MAX_OFFLINE_BANK_SECONDS,
 } from '../sim/core/offline'
+import { PLANETS } from '../sim/data/planets'
 import {
   accruePlayer,
   buildStructure,
@@ -18,6 +19,9 @@ import {
   walletSpend,
 } from '../sim/player'
 import { createPlayer } from '../sim/player'
+import { eligibleHomeWorlds } from '../sim/player/claim'
+import type { ColoniseOverlay } from '../sim/player/claim'
+import type { BodyId } from '../sim/world/identity'
 import type { OwnedPlanet, PlayerState } from '../sim/player'
 import type { PlanetIdentity } from '../sim/planets/types'
 import { STRUCTURES } from '../sim/structures/data'
@@ -37,6 +41,13 @@ export const AUTOSAVE_DEBOUNCE_MS = 5_000
 const OFFLINE_CAP_MS = MAX_OFFLINE_BANK_SECONDS * 1_000
 
 export const COLONISE_COST_CREDITS = 1_000
+
+const ELIGIBLE_HOME_WORLDS = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN_HOME_WORLDS: ReadonlySet<BodyId> = new Set<BodyId>()
+const LEGACY_COLONISE_OVERLAY: ColoniseOverlay = {
+  globalOwners: new Set<BodyId>(),
+  requirements: { hasFleet: true, hasTravel: true },
+}
 
 export interface GameState {
   tier: number
@@ -111,7 +122,12 @@ export interface UseGameStateReturn {
 }
 
 function initialPlayer(now: number): PlayerState {
-  return createPlayer(generatePlayerId(), now)
+  return createPlayer(
+    generatePlayerId(),
+    now,
+    ELIGIBLE_HOME_WORLDS,
+    NO_TAKEN_HOME_WORLDS,
+  )
 }
 
 function project(player: PlayerState, selectedName: string): GameState {
@@ -328,7 +344,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     try {
       bankElapsed()
       const current = ref.current
-      if (firstUnclaimedByIndex(current) === null) {
+      if (firstUnclaimedByIndex(PLANETS, current) === null) {
         setColoniseError('No unclaimed planets left to colonise.')
         return
       }
@@ -336,7 +352,12 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         setColoniseError('Insufficient credits to colonise.')
         return
       }
-      const { player, colony } = coloniseFirstUnclaimed(current, nowRef.current())
+      const { player, colony } = coloniseFirstUnclaimed(
+        PLANETS,
+        current,
+        nowRef.current(),
+        LEGACY_COLONISE_OVERLAY,
+      )
       ref.current = {
         ...player,
         wallet: walletSpend(player.wallet, COLONISE_COST_CREDITS, 0),
@@ -394,7 +415,12 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     const result = loadSave(storageRef.current)
 
     if (result.kind === 'absent') {
-      ref.current = createPlayer(generatePlayerId(), now)
+      ref.current = createPlayer(
+        generatePlayerId(),
+        now,
+        ELIGIBLE_HOME_WORLDS,
+        NO_TAKEN_HOME_WORLDS,
+      )
       selectedRef.current = ref.current.homePlanet.name
       setSelectedPlanetName(selectedRef.current)
       tutorialRef.current = { step: 0, done: false, skipped: false }
@@ -404,7 +430,12 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     }
 
     if (result.kind === 'corrupt' || result.kind === 'future') {
-      ref.current = createPlayer(generatePlayerId(), now)
+      ref.current = createPlayer(
+        generatePlayerId(),
+        now,
+        ELIGIBLE_HOME_WORLDS,
+        NO_TAKEN_HOME_WORLDS,
+      )
       selectedRef.current = ref.current.homePlanet.name
       setSelectedPlanetName(selectedRef.current)
       tutorialRef.current = { step: 0, done: false, skipped: false }
@@ -504,7 +535,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     colonise,
     coloniseBusy,
     coloniseError,
-    canColonise: firstUnclaimedByIndex(ref.current) !== null,
+    canColonise: firstUnclaimedByIndex(PLANETS, ref.current) !== null,
     bankElapsed,
     offlineGain,
     dismissOffline,

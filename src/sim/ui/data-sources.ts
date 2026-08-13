@@ -49,7 +49,7 @@
 import type { PlanetCatalogueEntry } from '../data/planets'
 import { PLANETS } from '../data/planets'
 import { fnv1a } from '../planets/hash'
-import { claimColony } from '../player/claim'
+import { claimColony, eligibleHomeWorlds } from '../player/claim'
 import { emptyStructureLevels } from '../player/grid'
 import { createPlayer } from '../player/player'
 import type { OwnedPlanet, PlayerState, StructureGrid } from '../player/types'
@@ -58,7 +58,11 @@ import { buildBodyRecord } from '../world/body'
 import { buildGalaxyRecord, registerSystem } from '../world/galaxy'
 import type { UniverseState } from '../world/reconstruct'
 import { buildSystemRecord, registerBody } from '../world/system'
+import type { BodyId } from '../world/identity'
 import { assertNonEmptyString, assertPositiveAt } from './validate'
+
+const ELIGIBLE_HOME_WORLDS = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN_HOME_WORLDS: ReadonlySet<BodyId> = new Set<BodyId>()
 
 /** The mock/real tag: 'mock' = demo/dummy data, 'real' = live sim/persistence. */
 export type DataSourceKind = 'mock' | 'real'
@@ -126,7 +130,12 @@ function colonyEntriesFor(homeName: string): PlanetCatalogueEntry[] {
  */
 function buildMockPlayer(label: string, seed: string): PlayerState {
   const playerId = mockPlayerId(label, seed)
-  const player = createPlayer(playerId, MOCK_FIXTURE_AT)
+  const player = createPlayer(
+    playerId,
+    MOCK_FIXTURE_AT,
+    ELIGIBLE_HOME_WORLDS,
+    NO_TAKEN_HOME_WORLDS,
+  )
   const colonies = colonyEntriesFor(player.homePlanet.name).map((entry) =>
     claimColony(entry, MOCK_FIXTURE_AT),
   )

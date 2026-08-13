@@ -12,16 +12,34 @@ import {
   createPlayer,
   firstUnclaimedByIndex,
 } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { ColoniseOverlay } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
+import type { PlayerState } from '../src/sim/player'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+const COLONISE_OVERLAY: ColoniseOverlay = {
+  globalOwners: new Set<BodyId>(),
+  requirements: { hasFleet: true, hasTravel: true },
+}
+
+function fundedPlayer(playerId: string): PlayerState {
+  return {
+    ...createPlayer(playerId, NOW, ELIGIBLE, NO_TAKEN),
+    wallet: { credits: 1_000, alloys: 200 },
+  }
+}
 
 describe('P2-T03-C claim determinism — deep', () => {
   it('the same playerId maps to the same home planet across 100 repeated calls', () => {
     const id = 'determinism-deep-100'
-    const name = claimHomePlanet(id, NOW).name
+    const name = claimHomePlanet(id, NOW, ELIGIBLE, NO_TAKEN).name
     for (let i = 0; i < 100; i += 1) {
-      expect(claimHomePlanet(id, NOW + i).name).toBe(name)
-      expect(claimIndexForPlayer(id)).toBe(claimIndexForPlayer(id))
+      expect(claimHomePlanet(id, NOW + i, ELIGIBLE, NO_TAKEN).name).toBe(name)
+      expect(claimIndexForPlayer(PLANETS, id)).toBe(claimIndexForPlayer(PLANETS, id))
     }
   })
 
@@ -55,12 +73,12 @@ describe('P2-T03-C claim determinism — deep', () => {
       'casesensitive',
     ]
     for (const id of edgeIds) {
-      const index = claimIndexForPlayer(id)
+      const index = claimIndexForPlayer(PLANETS, id)
       expect(index, id).toBeGreaterThanOrEqual(0)
       expect(index, id).toBeLessThan(PLANETS.length)
-      expect(claimIndexForPlayer(id), id).toBe(index)
-      expect(claimHomePlanet(id, NOW).name, id).toBe(
-        PLANETS[claimIndexForPlayer(id)].name,
+      expect(claimIndexForPlayer(PLANETS, id), id).toBe(index)
+      expect(claimHomePlanet(id, NOW, ELIGIBLE, NO_TAKEN).name, id).toBe(
+        PLANETS[claimIndexForPlayer(PLANETS, id)].name,
       )
     }
   })
@@ -68,18 +86,18 @@ describe('P2-T03-C claim determinism — deep', () => {
   it('rejects empty and non-string playerIds with a RangeError, never crashing', () => {
     for (const bad of ['', null, undefined, 42, {}, [], NaN]) {
       expect(
-        () => claimIndexForPlayer(bad as unknown as string),
+        () => claimIndexForPlayer(PLANETS, bad as unknown as string),
         String(bad),
       ).toThrow(RangeError)
     }
-    expect(() => claimIndexForPlayer('')).toThrow(/non-empty/)
+    expect(() => claimIndexForPlayer(PLANETS, '')).toThrow(/non-empty/)
   })
 
   it('pins the bounded fixture spread as a stable set, not a uniqueness guarantee', () => {
     const fixture = (): string[] => {
       const names: string[] = []
       for (let i = 0; i < 50; i += 1) {
-        names.push(claimHomePlanet(`fixture-deep-${i}`, NOW).name)
+        names.push(claimHomePlanet(`fixture-deep-${i}`, NOW, ELIGIBLE, NO_TAKEN).name)
       }
       return names.sort()
     }
@@ -92,41 +110,43 @@ describe('P2-T03-C claim determinism — deep', () => {
 
 describe('P2-T03-C claim idempotency', () => {
   it('claimHomePlanet never re-assigns: repeated createPlayer/claim calls keep the same home', () => {
-    const a = createPlayer('idem-player', NOW)
-    const b = createPlayer('idem-player', NOW + 10_000)
+    const a = createPlayer('idem-player', NOW, ELIGIBLE, NO_TAKEN)
+    const b = createPlayer('idem-player', NOW + 10_000, ELIGIBLE, NO_TAKEN)
     expect(b.homePlanet.name).toBe(a.homePlanet.name)
     expect(b.homePlanet.entry).toEqual(a.homePlanet.entry)
     expect(b.colonies).toEqual([])
 
-    const re = claimHomePlanet('idem-player', NOW + 99_999)
+    const re = claimHomePlanet('idem-player', NOW + 99_999, ELIGIBLE, NO_TAKEN)
     expect(re.name).toBe(a.homePlanet.name)
     expect(re.tier).toBe(a.homePlanet.tier)
     expect(re.claimedAt).toBe(NOW + 99_999)
   })
 
   it('claimColony double-claim prevention: same entry rejected and the state stays unchanged', () => {
-    const player = createPlayer('double-colony-deep', NOW)
-    const target = firstUnclaimedByIndex(player)!
-    const next = colonise(player, target.name, NOW)
+    const player = fundedPlayer('double-colony-deep')
+    const target = firstUnclaimedByIndex(PLANETS, player)!
+    const next = colonise(PLANETS, player, target.name, NOW, COLONISE_OVERLAY)
     expect(next.colonies).toHaveLength(1)
 
-    expect(() => colonise(next, target.name, NOW)).toThrow(/already claimed/)
-    expect(() => colonise(next, player.homePlanet.name, NOW)).toThrow(
-      /already claimed/,
-    )
-    expect(() => colonise(player, player.homePlanet.name, NOW)).toThrow(
-      /already claimed/,
-    )
+    expect(() =>
+      colonise(PLANETS, next, target.name, NOW, COLONISE_OVERLAY),
+    ).toThrow(/already claimed/)
+    expect(() =>
+      colonise(PLANETS, next, player.homePlanet.name, NOW, COLONISE_OVERLAY),
+    ).toThrow(/already claimed/)
+    expect(() =>
+      colonise(PLANETS, player, player.homePlanet.name, NOW, COLONISE_OVERLAY),
+    ).toThrow(/already claimed/)
     expect(next.colonies).toHaveLength(1)
   })
 })
 
 describe('P2-T03-C home safety flags', () => {
   it('home is unconquerable, every colony is conquerable, and isHome stays consistent', () => {
-    const player = createPlayer('home-safety-deep', NOW)
+    const player = fundedPlayer('home-safety-deep')
     let current = player
     for (let i = 0; i < 3; i += 1) {
-      current = coloniseFirstUnclaimed(current, NOW).player
+      current = coloniseFirstUnclaimed(PLANETS, current, NOW, COLONISE_OVERLAY).player
     }
 
     expect(current.homePlanet.isHome).toBe(true)

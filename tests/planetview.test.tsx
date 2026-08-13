@@ -14,8 +14,13 @@ import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { PLANETS } from '../src/sim/data/planets'
 import { claimColony, claimHomePlanet } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import type { StructureId } from '../src/sim/structures/types'
 import { makeSave, seedLocalStorageGap, seedSave } from './saveHelpers'
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 afterEach(() => {
   cleanup()
@@ -162,7 +167,7 @@ describe('P2-T04-B planet selector', () => {
   function seededTwoPlanetSave() {
     vi.useFakeTimers()
     const clock = Date.now()
-    const home = claimHomePlanet('selector-player', clock)
+    const home = claimHomePlanet('selector-player', clock, ELIGIBLE, NO_TAKEN)
     const colonyEntry = PLANETS.find((entry) => entry.name !== home.name)!
     const colony = claimColony(colonyEntry, clock)
     const save = makeSave({

@@ -19,9 +19,14 @@ import {
   createPlayer,
   firstUnclaimedByIndex,
 } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { makeSave, MemoryStorage, readSave, seedSave } from './saveHelpers'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 afterEach(() => {
   cleanup()
@@ -37,7 +42,7 @@ function singlePlanetSave(credits = 1_000): MemoryStorage {
     makeSave({
       player: {
         playerId: 'fixture-player',
-        wallet: { credits, alloys: 0 },
+        wallet: { credits, alloys: 200 },
         lastTickAt: NOW,
       },
     }),
@@ -47,7 +52,7 @@ function singlePlanetSave(credits = 1_000): MemoryStorage {
 
 function exhaustedSave(): MemoryStorage {
   vi.useFakeTimers()
-  const home = claimHomePlanet('fixture-player', NOW)
+  const home = claimHomePlanet('fixture-player', NOW, ELIGIBLE, NO_TAKEN)
   const colonies = PLANETS.filter((entry) => entry.name !== home.name).map(
     (entry) => claimColony(entry, NOW),
   )
@@ -99,7 +104,8 @@ describe('P2-T04-C colonise flow', () => {
     vi.useFakeTimers()
     const storage = singlePlanetSave()
     const expectedColony = firstUnclaimedByIndex(
-      createPlayer('fixture-player', NOW),
+      PLANETS,
+      createPlayer('fixture-player', NOW, ELIGIBLE, NO_TAKEN),
     )!.name
     renderPlanet(storage)
 

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
+import { PLANETS } from '../src/sim/data/planets'
 import { createPlayer } from '../src/sim/player'
 import type { PlayerState } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   MOCK_COLONY_COUNT,
   MOCK_FIXTURE_AT,
@@ -15,9 +18,12 @@ import type { UniverseState } from '../src/sim/world/reconstruct'
 
 const AT = MOCK_FIXTURE_AT
 
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+
 function makeReal(label: string): UiDataSource {
   return realDataSource(
-    (at: number): PlayerState => createPlayer(`live-${label}-${at}`, at),
+    (at: number): PlayerState => createPlayer(`live-${label}-${at}`, at, ELIGIBLE, NO_TAKEN),
     (at: number): UniverseState =>
       buildUniverseState({ seed: `live-${label}-${at}`, includeCatalogue: false }),
   )
@@ -180,7 +186,7 @@ describe('P4-T09 realDataSource — delegation', () => {
   })
 
   it('playerAt delegates to the getter with the exact at', () => {
-    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at))
+    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at, ELIGIBLE, NO_TAKEN))
     const source = realDataSource(
       getPlayer,
       (): UniverseState => buildUniverseState({ seed: 'x', includeCatalogue: false }),
@@ -197,7 +203,7 @@ describe('P4-T09 realDataSource — delegation', () => {
         buildUniverseState({ seed: `live-${at}`, includeCatalogue: false }),
     )
     const source = realDataSource(
-      (at: number): PlayerState => createPlayer('live', at),
+      (at: number): PlayerState => createPlayer('live', at, ELIGIBLE, NO_TAKEN),
       getUniverse,
     )
     const universe = source.universeAt(7)
@@ -207,7 +213,7 @@ describe('P4-T09 realDataSource — delegation', () => {
   })
 
   it('forwards every at through and never caches (distinct values per call)', () => {
-    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at))
+    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at, ELIGIBLE, NO_TAKEN))
     const getUniverse = vi.fn(
       (at: number): UniverseState =>
         buildUniverseState({ seed: `live-${at}`, includeCatalogue: false }),
@@ -230,7 +236,7 @@ describe('P4-T09 realDataSource — delegation', () => {
   })
 
   it('passes getter outputs through untouched (no reshaping)', () => {
-    const sentinelPlayer = createPlayer('sentinel', AT)
+    const sentinelPlayer = createPlayer('sentinel', AT, ELIGIBLE, NO_TAKEN)
     const sentinelUniverse = buildUniverseState({ seed: 'sentinel', includeCatalogue: false })
     const source = realDataSource(
       (): PlayerState => sentinelPlayer,
@@ -241,7 +247,7 @@ describe('P4-T09 realDataSource — delegation', () => {
   })
 
   it('playerAt/universeAt throw RangeError on non-positive or non-finite at BEFORE invoking the getter', () => {
-    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at))
+    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at, ELIGIBLE, NO_TAKEN))
     const getUniverse = vi.fn(
       (at: number): UniverseState =>
         buildUniverseState({ seed: `live-${at}`, includeCatalogue: false }),
@@ -256,7 +262,7 @@ describe('P4-T09 realDataSource — delegation', () => {
   })
 
   it('a valid at passes the assert and reaches the getter unchanged', () => {
-    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at))
+    const getPlayer = vi.fn((at: number): PlayerState => createPlayer('live', at, ELIGIBLE, NO_TAKEN))
     const getUniverse = vi.fn(
       (at: number): UniverseState =>
         buildUniverseState({ seed: `live-${at}`, includeCatalogue: false }),

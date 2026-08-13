@@ -1,8 +1,14 @@
 import { createPlayer } from '../src/sim/player'
 import type { OwnedPlanet, PlayerState, StructureGrid } from '../src/sim/player'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { SAVE_V3_KEY } from '../src/ui/save'
 import type { SaveGameV3 } from '../src/ui/save'
 import type { StructureId } from '../src/sim/structures/types'
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 export const GAP_12H = 12 * 60 * 60 * 1_000
 
@@ -93,7 +99,7 @@ export function makeSave(overrides: SaveOverrides = {}): SaveGameV3 {
   const now = Date.now()
   const playerOverrides = overrides.player ?? {}
   const playerId = playerOverrides.playerId ?? TEST_PLAYER_ID
-  const defaultPlayer = createPlayer(playerId, now)
+  const defaultPlayer = createPlayer(playerId, now, ELIGIBLE, NO_TAKEN)
 
   const homePlanet = playerOverrides.homePlanet ?? {}
   const wallet = playerOverrides.wallet ?? {}

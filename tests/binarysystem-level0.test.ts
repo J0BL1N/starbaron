@@ -1,17 +1,25 @@
 import { describe, expect, it } from 'vitest'
+import { PLANETS } from '../src/sim/data/planets'
 import {
   accruePlayer,
-  colonise,
+  catalogueEntryByName,
+  claimColony,
   computePlanetDerived,
   createPlayer,
+  emptyStructureLevels,
   gridForPlanet,
   ownedPlanetByName,
   ownedPlanetIdentity,
 } from '../src/sim/player'
 import type { PlayerState } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import type { StructureId } from '../src/sim/structures/types'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 // 'fixture-player' deterministically claims Kepler-1087 b (tier 1, baseline 10,
 // no quirks) — a stable plain anchor so no quirk multiplier interferes.
@@ -23,11 +31,19 @@ const BINARY = '16 Cyg B b'
 const BINARY_BASELINE = 50
 
 function makeEmpire(playerId: string, colonyNames: string[]): PlayerState {
-  let player = createPlayer(playerId, NOW)
-  for (const name of colonyNames) {
-    player = colonise(player, name, NOW)
+  const player = createPlayer(playerId, NOW, ELIGIBLE, NO_TAKEN)
+  const colonies = colonyNames.map((name) => {
+    const entry = catalogueEntryByName(PLANETS, name)
+    if (entry === null) {
+      throw new Error(`unknown fixture planet: ${name}`)
+    }
+    return claimColony(entry, NOW)
+  })
+  const structureLevels = { ...player.structureLevels }
+  for (const colony of colonies) {
+    structureLevels[colony.name] = emptyStructureLevels()
   }
-  return player
+  return { ...player, colonies, structureLevels }
 }
 
 function grid(
@@ -54,7 +70,7 @@ function ratesFor(player: PlayerState, name: string) {
 
 describe('P2 closeout — binarySystem lifts the income floor at Trade Hub level 0 (Option A)', () => {
   it("'fixture-player' home planet has no quirks (plain anchor)", () => {
-    const player = createPlayer(ANCHOR, NOW)
+    const player = createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN)
     expect(ownedPlanetIdentity(player.homePlanet).quirks).toEqual([])
     expect(player.homePlanet.baselineIncomePerSec).toBe(10)
   })

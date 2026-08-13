@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { PLANETS } from '../src/sim/data/planets'
 import {
   accruePlayer,
   buildStructure,
+  catalogueEntryByName,
+  claimColony,
   colonise,
   computePlanetDerived,
   createPlayer,
@@ -13,6 +16,9 @@ import {
   planetTotals,
 } from '../src/sim/player'
 import type { PlayerState } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { ColoniseOverlay } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { populationCapMultiplier } from '../src/sim/planets'
 import { ORE_ALLOYS_PER_MIN } from '../src/sim/structures/effects'
 import type { StructureId } from '../src/sim/structures/types'
@@ -20,6 +26,13 @@ import type { StructureId } from '../src/sim/structures/types'
 const NOW = 1_700_000_000_000
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+const COLONISE_OVERLAY: ColoniseOverlay = {
+  globalOwners: new Set<BodyId>(),
+  requirements: { hasFleet: true, hasTravel: true },
+}
 
 // 'fixture-player' deterministically claims Kepler-1087 b (tier 1, baseline 10,
 // no quirks) — a stable plain anchor for deep multi-planet assertions.
@@ -33,11 +46,19 @@ const ANCHOR = 'fixture-player'
 //   HD 100546 b            tier 5, baseline 50, gasGiant (shipyard x1.1)
 
 function makeEmpire(playerId: string, colonyNames: string[]): PlayerState {
-  let player = createPlayer(playerId, NOW)
-  for (const name of colonyNames) {
-    player = colonise(player, name, NOW)
+  const player = createPlayer(playerId, NOW, ELIGIBLE, NO_TAKEN)
+  const colonies = colonyNames.map((name) => {
+    const entry = catalogueEntryByName(PLANETS, name)
+    if (entry === null) {
+      throw new Error(`unknown fixture planet: ${name}`)
+    }
+    return claimColony(entry, NOW)
+  })
+  const structureLevels = { ...player.structureLevels }
+  for (const colony of colonies) {
+    structureLevels[colony.name] = emptyStructureLevels()
   }
-  return player
+  return { ...player, colonies, structureLevels }
 }
 
 function grid(
@@ -57,8 +78,9 @@ function grid(
 
 describe('P2-T04-C multi-planet edge cases', () => {
   it('colonise then immediately derive/accrue the fresh colony (no crash)', () => {
-    const player = createPlayer(ANCHOR, NOW)
-    const next = colonise(player, 'Kepler-1606 b', NOW)
+    const base = createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN)
+    const player = { ...base, wallet: { ...base.wallet, alloys: 200 } }
+    const next = colonise(PLANETS, player, 'Kepler-1606 b', NOW, COLONISE_OVERLAY)
     const derived = computePlanetDerived(
       next.colonies[0],
       gridForPlanet(next, next.colonies[0].name),

@@ -1,11 +1,13 @@
 import { MAX_TIER, MIN_TIER } from '../sim/core/economy'
 import type { PlanetCatalogueEntry, PlanetTier } from '../sim/data/planets'
+import { PLANETS } from '../sim/data/planets'
 import { fnv1a, makePlanet } from '../sim/planets'
 import {
   catalogueEntryByName,
   claimHomePlanet,
   emptyStructureLevels,
 } from '../sim/player'
+import { eligibleHomeWorlds } from '../sim/player/claim'
 import type {
   OwnedPlanet,
   PlayerState,
@@ -14,6 +16,7 @@ import type {
 } from '../sim/player'
 import { isStructureId } from '../sim/structures/data'
 import type { StructureId } from '../sim/structures/types'
+import type { BodyId } from '../sim/world/identity'
 
 export const SAVE_KEY = 'starbaron.save.v1'
 export const SAVE_V2_KEY = 'starbaron.save.v2'
@@ -21,6 +24,9 @@ export const SAVE_V3_KEY = 'starbaron.save.v3'
 export const SAVE_SCHEMA_VERSION = 3
 export const OFFLINE_SUMMARY_THRESHOLD_MS = 60 * 1_000
 export const TUTORIAL_LAST_STEP = 3
+
+const ELIGIBLE_HOME_WORLDS = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN_HOME_WORLDS: ReadonlySet<BodyId> = new Set<BodyId>()
 
 export interface TutorialState {
   step: number
@@ -146,7 +152,7 @@ function validateOwnedPlanet(value: unknown, isHome: boolean): OwnedPlanet | nul
   if (!isRecord(entry) || entry.name !== name) {
     return null
   }
-  const catalogueEntry = catalogueEntryByName(name)
+  const catalogueEntry = catalogueEntryByName(PLANETS, name)
   if (catalogueEntry === null) {
     return null
   }
@@ -361,7 +367,12 @@ function migrateV1ToV2(raw: unknown): unknown {
   const playerId = migratePlayerIdFromV1(source)
   let homePlanet: OwnedPlanet | undefined
   try {
-    homePlanet = claimHomePlanet(playerId, savedAt)
+    homePlanet = claimHomePlanet(
+      playerId,
+      savedAt,
+      ELIGIBLE_HOME_WORLDS,
+      NO_TAKEN_HOME_WORLDS,
+    )
   } catch {
     homePlanet = undefined
   }
@@ -455,7 +466,12 @@ const SAVE_KEYS_NEWEST_FIRST = [SAVE_V3_KEY, SAVE_V2_KEY, SAVE_KEY]
 function repairHomePlanetClaim(save: SaveGameV3): SaveGameV3 | null {
   let expected: OwnedPlanet
   try {
-    expected = claimHomePlanet(save.player.playerId, save.savedAt)
+    expected = claimHomePlanet(
+      save.player.playerId,
+      save.savedAt,
+      ELIGIBLE_HOME_WORLDS,
+      NO_TAKEN_HOME_WORLDS,
+    )
   } catch {
     return null
   }

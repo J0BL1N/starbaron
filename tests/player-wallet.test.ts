@@ -5,10 +5,16 @@ import {
   walletAdd,
   walletSpend,
 } from '../src/sim/player'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { loadSave, saveGame } from '../src/ui/save'
 import { makeSave, MemoryStorage } from './saveHelpers'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 describe('P2-T04-B wallet negative paths (credits + alloys only)', () => {
   it('spend insufficient throws RangeError and leaves the wallet untouched', () => {
@@ -71,7 +77,7 @@ describe('P2-T04-B wallet negative paths (credits + alloys only)', () => {
 
 describe('P2-T04-B wallet survives save/load in PlayerState', () => {
   it('round-trips a spent wallet through saveGame/loadSave unchanged', () => {
-    const player = createPlayer('wallet-save-deep', NOW)
+    const player = createPlayer('wallet-save-deep', NOW, ELIGIBLE, NO_TAKEN)
     const grown = walletSpend(
       walletAdd(player.wallet, { credits: 4_000, alloys: 200 }),
       300,
@@ -100,7 +106,7 @@ describe('P2-T04-B wallet survives save/load in PlayerState', () => {
   })
 
   it('the persisted wallet stays free of negative values after a full lifecycle', () => {
-    const player = createPlayer('wallet-save-lifecycle', NOW)
+    const player = createPlayer('wallet-save-lifecycle', NOW, ELIGIBLE, NO_TAKEN)
     const lifecycle = walletSpend(
       walletAdd(player.wallet, { credits: 10_000 }),
       9_999,

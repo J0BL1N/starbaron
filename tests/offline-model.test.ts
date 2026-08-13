@@ -15,12 +15,18 @@ import type { PlayerState, StructureGrid } from '../src/sim/player/types'
 import { queueConstruction } from '../src/sim/structures/queues'
 import type { ConstructionQueue } from '../src/sim/structures/queues'
 import type { PlanetCatalogueEntry } from '../src/sim/data/planets'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 
 const NOW = 1_700_000_000_000
 const ANCHOR = 'offline-anchor'
 
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+
 function basePlayer(): PlayerState {
-  const player = createPlayer(ANCHOR, NOW)
+  const player = createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN)
   return {
     ...player,
     homePlanet: { ...player.homePlanet, population: 1_000 },
@@ -30,7 +36,7 @@ function basePlayer(): PlayerState {
 
 function playerWithColony(): PlayerState {
   const player = basePlayer()
-  const entry = firstUnclaimedByIndex(player)
+  const entry = firstUnclaimedByIndex(PLANETS, player)
   if (entry === null) {
     throw new Error('fixture needs an unclaimed catalogue planet')
   }
@@ -544,7 +550,7 @@ describe('offlineProgress — population growth (derived model, projectedPopulat
 
   it('reports a delta per planet, keyed by name, across home plus multiple colonies', () => {
     let player = playerWithColony()
-    const colony2Entry = firstUnclaimedByIndex(player)
+    const colony2Entry = firstUnclaimedByIndex(PLANETS, player)
     if (colony2Entry === null) {
       throw new Error('fixture needs a second unclaimed catalogue planet')
     }

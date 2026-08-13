@@ -14,11 +14,16 @@ import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { claimColony, claimHomePlanet } from '../src/sim/player'
 import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import type { SaveGameV3 } from '../src/ui/save'
 import type { StructureId } from '../src/sim/structures/types'
 import { makeSave, MemoryStorage, readSave, seedSave } from './saveHelpers'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 afterEach(() => {
   cleanup()
@@ -29,7 +34,7 @@ afterEach(() => {
 // 'fixture-player' -> home Kepler-1087 b (T1, baseline 10).
 // Colony picks: Kepler-1606 b (T3, plain) and EPIC 201595106 b (T2, highGravity).
 function empireSave(): SaveGameV3 {
-  const home = claimHomePlanet('fixture-player', NOW)
+  const home = claimHomePlanet('fixture-player', NOW, ELIGIBLE, NO_TAKEN)
   const colonyA = claimColony(
     PLANETS.find((entry) => entry.name === 'Kepler-1606 b')!,
     NOW,

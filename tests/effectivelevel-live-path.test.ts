@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { effectiveLevel } from '../src/sim/planets/levels'
+import { PLANETS } from '../src/sim/data/planets'
 import {
   accruePlayer,
   computePlanetDerived,
@@ -8,10 +9,15 @@ import {
   gridForPlanet,
 } from '../src/sim/player'
 import type { PlayerState } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { defensePower } from '../src/sim/structures/effects'
 import type { StructureId } from '../src/sim/structures/types'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 // 'fixture-player' deterministically claims Kepler-1087 b (tier 1, no quirks):
 // a stable plain anchor so no quirk multiplier interferes with the numbers.
@@ -54,7 +60,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('computePlanetDerived defensePower respects the half-after-10 rule at turret level 11', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'defenseTurret', 11)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'defenseTurret', 11)
     const derived = derivedFor(player)
     expect(gridForPlanet(player, player.homePlanet.name).defenseTurret).toBe(11)
     expect(derived.defensePower).toBe(5_400)
@@ -62,7 +68,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('computePlanetDerived defensePower respects the half-after-10 rule at turret level 21', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'defenseTurret', 21)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'defenseTurret', 21)
     const derived = derivedFor(player)
     expect(derived.defensePower).toBe(
       500 * effectiveLevel(21) + 0.15 * 1_000,
@@ -72,8 +78,8 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('computePlanetDerived housing growth uses effectiveLevel beyond 10', () => {
-    const at10 = derivedFor(homeGrid(createPlayer(ANCHOR, NOW), 'housing', 10))
-    const at11 = derivedFor(homeGrid(createPlayer(ANCHOR, NOW), 'housing', 11))
+    const at10 = derivedFor(homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'housing', 10))
+    const at11 = derivedFor(homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'housing', 11))
     expect(at10.populationPerSec).toBe(2 + 2 * effectiveLevel(10))
     expect(at11.populationPerSec).toBe(2 + 2 * effectiveLevel(11))
     expect(at11.populationPerSec).toBe(23)
@@ -83,7 +89,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('computePlanetDerived housing pop cap uses effectiveLevel beyond 10', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'housing', 11)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'housing', 11)
     const derived = derivedFor(player)
     expect(derived.populationCap).toBe(5_000 * (1 + 0.2 * effectiveLevel(11)))
     expect(derived.populationCap).toBe(15_500)
@@ -91,7 +97,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('computePlanetDerived hydroponics multiplier uses effectiveLevel beyond 10', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'hydroponics', 11)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'hydroponics', 11)
     const derived = derivedFor(player)
     // growth = base 2/sec x (1 + 0.5 x effectiveLevel(11))
     expect(derived.populationPerSec).toBeCloseTo(2 * (1 + 0.5 * effectiveLevel(11)), 12)
@@ -100,7 +106,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('accruePlayer live accrual path respects half-after-10 housing growth', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'housing', 11)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'housing', 11)
     const growth = 2 + 2 * effectiveLevel(11)
     const after = accruePlayer(player, 10_000)
     expect(after.homePlanet.population).toBeCloseTo(1_000 + growth * 10, 12)
@@ -109,7 +115,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('accruePlayer live accrual path respects half-after-10 hydroponics growth', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'hydroponics', 11)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'hydroponics', 11)
     const growth = 2 * (1 + 0.5 * effectiveLevel(11))
     const after = accruePlayer(player, 10_000)
     expect(after.homePlanet.population).toBeCloseTo(1_000 + growth * 10, 12)
@@ -118,7 +124,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('accruePlayer at turret level 21 derives the effective-level defense power', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'defenseTurret', 21)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'defenseTurret', 21)
     const after = accruePlayer(player, 1_000)
     const derived = derivedFor(after)
     expect(derived.defensePower).toBe(
@@ -129,7 +135,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('accruePlayer at turret level 11 derives the effective-level defense power (live accrual)', () => {
-    const player = homeGrid(createPlayer(ANCHOR, NOW), 'defenseTurret', 11)
+    const player = homeGrid(createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN), 'defenseTurret', 11)
     const after = accruePlayer(player, 1_000)
     const derived = derivedFor(after)
     expect(500 * effectiveLevel(11)).toBe(5_250)
@@ -141,7 +147,7 @@ describe('P2 whole-phase correction — effectiveLevel in the LIVE sim (not just
   })
 
   it('a level-0 grid still produces the pre-change numbers (no regression below 10)', () => {
-    const player = createPlayer(ANCHOR, NOW)
+    const player = createPlayer(ANCHOR, NOW, ELIGIBLE, NO_TAKEN)
     const grid = gridForPlanet(player, player.homePlanet.name)
     expect(grid).toEqual(emptyStructureLevels())
     const derived = derivedFor(player)

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { claimColony, claimHomePlanet, emptyStructureLevels } from '../src/sim/player'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   loadSave,
   MIGRATIONS,
@@ -16,6 +19,9 @@ import {
   TEST_PLAYER_ID,
 } from './saveHelpers'
 import type { StructureId } from '../src/sim/structures/types'
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 function deepPlayer(
   save: ReturnType<typeof makeSave>,
@@ -228,7 +234,7 @@ describe('P2-T04-B save v3 — validation', () => {
     expect(validateSave(dupHome)).toBeNull()
 
     const colony = claimColony(
-      claimHomePlanet('another-player', 1_700_000_000_000).entry,
+      claimHomePlanet('another-player', 1_700_000_000_000, ELIGIBLE, NO_TAKEN).entry,
       1_700_000_000_000,
     )
     const dupColony = {

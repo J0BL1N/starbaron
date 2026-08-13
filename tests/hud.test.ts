@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { OwnedPlanet, PlayerState } from '../src/sim/player'
 import { createPlayer } from '../src/sim/player'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   computePlanetDerived,
   gridForPlanet,
@@ -104,8 +107,11 @@ function buildFixture(): UniverseState {
 
 const UNIVERSE = buildFixture()
 
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+
 function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
-  const player = createPlayer('player-hud', NOW)
+  const player = createPlayer('player-hud', NOW, ELIGIBLE, NO_TAKEN)
   return {
     ...player,
     ...overrides,
@@ -114,7 +120,7 @@ function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
 }
 
 function makeColony(): OwnedPlanet {
-  const base = createPlayer('player-hud', NOW).homePlanet
+  const base = createPlayer('player-hud', NOW, ELIGIBLE, NO_TAKEN).homePlanet
   return {
     ...base,
     name: 'Colony One',

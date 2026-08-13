@@ -1,74 +1,71 @@
 /**
- * Legacy UI compatibility layer (phase-2 whole-phase audit, round 4).
+ * Legacy UI compatibility layer (phase-2 whole-phase audit, round 5).
  *
  * LEGACY COMPATIBILITY WRAPPER over the canonical ownership flow — the
  * canonical ownership lives in colonisation.ts / assignment.ts /
  * onboarding.ts; new callers must use those (onboarding.entryFlow +
  * assignment.selectHomeWorld for home worlds, colonisation.colonise for
  * colonies). Nothing is removed from the exports: the legacy UI and save
- * layer compile against these signatures unchanged.
+ * layer compile against these signatures.
  *
- * Purity: no nondeterministic APIs, no module-level MUTABLE state. The only
- * module-level constant is NAME_TO_ENTRY — an IMMUTABLE lookup table
- * (ReadonlyMap) built once from the pinned catalogue and never written after
- * construction; it is a lookup table, not state.
+ * Purity: no nondeterministic APIs, no module-level MUTABLE state. Every
+ * function is a pure function of its inputs.
  *
- * DELEGATION (findings 1 + 3): colonise / coloniseFirstUnclaimed delegate
- * their ownership decision and duplicate rejection to the canonical colonise
- * (colonisation.ts). The target entry is mapped to its canonical body id —
- * bodyId(systemId('catalogue', hostname), 'planet', ordinalWithinHost), the
- * same derivation assignment.eligibleHomeBodies uses — the player's owned
- * planets (home + colonies) are mapped to canonical body ids the same way,
- * and the canonical eligibility ladder runs. The legacy path predates
- * protection and the fleet/travel gates, so protection is undefined and
- * requirements are assumed met. On the canonical 'already-owned' rejection
- * the legacy descriptive error is thrown ('planet already claimed: <name>'
- * — the phrasing the legacy tests pin). The legacy path predates the
- * colonisation cost, so 'insufficient-funds' is NOT a legacy rejection: the
- * caller owns the spend (the legacy UI pays COLONISE_COST_CREDITS via
- * walletSpend after colonise returns).
+ * IMPORT BOUNDARY (finding 1): this module does NOT import the planet
+ * catalogue. Every catalogue-dependent call takes the catalogue (or a
+ * caller-derived eligible set) as an injected parameter; callers own the
+ * catalogue import. claimHomePlanet delegates the home selection exclusively
+ * to assignment.selectHomeWorld over the injected eligible + taken sets; the
+ * canonical new-player entry flow is onboarding.entryFlow.
  *
- * claimHomePlanet is @legacy — it keeps its deterministic catalogue pick for
- * the legacy UI path; the canonical new-player entry flow is
- * onboarding.entryFlow.
+ * DELEGATION (finding 2): colonise / coloniseFirstUnclaimed delegate their
+ * ownership decision and duplicate rejection to the canonical colonise
+ * (colonisation.ts). The target entry is mapped to its canonical body id and
+ * EVERY ColonisationResult rejection is propagated before an OwnedPlanet is
+ * built (previously only 'already-owned' was). The caller supplies the
+ * all-player ownership overlay (existingOwners across player states),
+ * protection, and requirement flags; the player's own owned planets are
+ * added internally, so two player states can never claim the same canonical
+ * body through any exported path.
  */
 
-import { PLANETS } from '../data/planets'
-import type { PlanetCatalogueEntry } from '../data/planets'
 import { makePlanet } from '../planets'
 import { fnv1a } from '../planets/hash'
+import type { PlanetCatalogueEntry } from '../data/planets'
 import { bodyId, systemId } from '../world/identity'
 import type { BodyId } from '../world/identity'
-import { CATALOGUE_SLUG, hostGroupIndex } from './assignment'
+import { CATALOGUE_SLUG, hostGroupIndex, selectHomeWorld } from './assignment'
 import { colonise as coloniseCanonical } from './colonisation'
-import type { ColoniseInput } from './colonisation'
+import type {
+  ColoniseInput,
+  ColonisationRejectionReason,
+  ColonisationRequirement,
+} from './colonisation'
+import type { HomeProtection } from './protection'
 import { emptyStructureLevels } from './grid'
 import { STARTER_POPULATION } from './wallet'
 import type { OwnedPlanet, PlayerState } from './types'
 
 export const CLAIM_SALT = 'starbaron-claim-v1'
 
-/**
- * Immutable name → catalogue-entry lookup, built once from the pinned
- * catalogue. ReadonlyMap — an immutable lookup TABLE, not mutable module
- * state: it is never written after construction (catalogueEntryByName is the
- * only reader).
- */
-const NAME_TO_ENTRY: ReadonlyMap<string, PlanetCatalogueEntry> = new Map(
-  PLANETS.map((entry) => [entry.name, entry]),
-)
-
-export function catalogueEntryByName(name: string): PlanetCatalogueEntry | null {
-  return NAME_TO_ENTRY.get(name) ?? null
+/** A caller-built home-world candidate: canonical body id + catalogue entry. */
+export interface HomeWorldCandidate {
+  bodyId: BodyId
+  entry: PlanetCatalogueEntry
 }
 
-export function claimIndexForPlayer(playerId: string): number {
-  if (typeof playerId !== 'string' || playerId.length === 0) {
-    throw new RangeError(
-      `playerId must be a non-empty string, got ${String(playerId)}`,
-    )
-  }
-  return fnv1a(`${CLAIM_SALT}|${playerId}`) % PLANETS.length
+/** Caller-supplied canonical ownership inputs for the legacy colony path. */
+export interface ColoniseOverlay {
+  /**
+   * All-player ownership overlay: every canonical body id already owned by
+   * OTHER player states. The colonising player's own owned planets are added
+   * internally, so a body held elsewhere can never be claimed again.
+   */
+  globalOwners: ReadonlySet<BodyId>
+  /** Requirement flags (fleet/travel); the caller owns the real computation. */
+  requirements: ColonisationRequirement
+  /** Protection snapshot to consult, when present (legacy callers omit it). */
+  protection?: HomeProtection
 }
 
 function buildOwnedPlanet(
@@ -93,77 +90,106 @@ function buildOwnedPlanet(
 }
 
 /**
+ * Build the injected eligible set for the legacy home claim from a
+ * caller-supplied catalogue, in catalogue order. Callers pass the result to
+ * claimHomePlanet / createPlayer — the sim layer never imports the catalogue.
+ */
+export function eligibleHomeWorlds(
+  catalogue: readonly PlanetCatalogueEntry[],
+): HomeWorldCandidate[] {
+  return catalogue.map((entry) => ({
+    bodyId: canonicalBodyIdForEntry(catalogue, entry),
+    entry,
+  }))
+}
+
+/** Name → catalogue-entry lookup over a caller-injected catalogue. */
+export function catalogueEntryByName(
+  catalogue: readonly PlanetCatalogueEntry[],
+  name: string,
+): PlanetCatalogueEntry | null {
+  for (const entry of catalogue) {
+    if (entry.name === name) {
+      return entry
+    }
+  }
+  return null
+}
+
+export function claimIndexForPlayer(
+  catalogue: readonly PlanetCatalogueEntry[],
+  playerId: string,
+): number {
+  if (typeof playerId !== 'string' || playerId.length === 0) {
+    throw new RangeError(
+      `playerId must be a non-empty string, got ${String(playerId)}`,
+    )
+  }
+  if (catalogue.length === 0) {
+    throw new RangeError('catalogue must not be empty')
+  }
+  return fnv1a(`${CLAIM_SALT}|${playerId}`) % catalogue.length
+}
+
+/**
  * Canonical body id of a catalogue entry:
  * bodyId(systemId('catalogue', hostname), 'planet', ordinalWithinHost) — the
  * same derivation assignment.eligibleHomeBodies uses (hostGroupIndex = count
- * of prior entries sharing the hostname, in catalogue order). Exported so the
- * canonical-path tests (and any caller) can map a legacy entry to its
- * canonical identity without importing the world mapping.
+ * of prior entries sharing the hostname, in catalogue order). Exported so
+ * callers can map a legacy entry to its canonical identity.
  */
-export function canonicalBodyIdForEntry(entry: PlanetCatalogueEntry): BodyId {
-  const index = PLANETS.findIndex((candidate) => candidate.name === entry.name)
+export function canonicalBodyIdForEntry(
+  catalogue: readonly PlanetCatalogueEntry[],
+  entry: PlanetCatalogueEntry,
+): BodyId {
+  const index = catalogue.findIndex((candidate) => candidate.name === entry.name)
   if (index === -1) {
     throw new RangeError(`unknown planet: ${entry.name}`)
   }
   return bodyId(
     systemId(CATALOGUE_SLUG, entry.hostname),
     'planet',
-    hostGroupIndex(PLANETS, index),
+    hostGroupIndex(catalogue, index),
   )
 }
 
 /**
- * The canonical body ids of every planet the player owns (home + colonies),
- * mapped name → entry → canonical body id. This is the existingOwners set
- * passed to the canonical colonise, so duplicate rejection is BODY-keyed
- * (global canonical-body uniqueness), not legacy-name-keyed.
+ * @legacy — deterministic home pick for the legacy UI path, now DELEGATED to
+ * assignment.selectHomeWorld over the caller-injected eligible + taken sets.
+ * The eligible set is supplied by the caller (eligibleHomeWorlds over its own
+ * catalogue import); this wrapper only maps the chosen body id back to its
+ * entry and builds the OwnedPlanet. The canonical new-player entry flow is
+ * onboarding.entryFlow.
  */
-function ownedBodyIds(player: PlayerState): Set<BodyId> {
-  const ids = new Set<BodyId>()
-  for (const name of ownedNames(player)) {
-    const entry = catalogueEntryByName(name)
-    if (entry !== null) {
-      ids.add(canonicalBodyIdForEntry(entry))
-    }
-  }
-  return ids
-}
-
-/**
- * Run the canonical colonisation eligibility ladder for a legacy entry on
- * behalf of a player: maps the entry + the player's owned planets to
- * canonical body ids and delegates to colonisation.ts colonise (the single
- * ownership implementation). Legacy assumptions documented above: protection
- * undefined, requirements met, cost is the caller's concern. On the
- * canonical 'already-owned' rejection the legacy descriptive error is thrown.
- */
-function coloniseEntryForPlayer(
-  player: PlayerState,
-  entry: PlanetCatalogueEntry,
+export function claimHomePlanet(
+  playerId: string,
   now: number,
+  eligible: readonly HomeWorldCandidate[],
+  taken: ReadonlySet<BodyId>,
 ): OwnedPlanet {
-  const input: ColoniseInput = {
-    bodyId: canonicalBodyIdForEntry(entry),
-    ownerId: player.playerId,
-    wallet: player.wallet,
-    requirements: { hasFleet: true, hasTravel: true },
-    existingOwners: ownedBodyIds(player),
-    at: now,
+  if (typeof playerId !== 'string' || playerId.length === 0) {
+    throw new RangeError(
+      `playerId must be a non-empty string, got ${String(playerId)}`,
+    )
   }
-  const result = coloniseCanonical(input)
-  if (!result.ok && result.reason === 'already-owned') {
-    throw new RangeError(`planet already claimed: ${entry.name}`)
+  const result = selectHomeWorld({
+    playerId,
+    eligible: eligible.map((candidate) => candidate.bodyId),
+    taken,
+    salt: CLAIM_SALT,
+  })
+  if (!result.ok) {
+    throw new RangeError(
+      result.reason === 'exhausted'
+        ? 'no home worlds available'
+        : 'empty eligible home set',
+    )
   }
-  return buildOwnedPlanet(entry, now, false)
-}
-
-/**
- * @legacy — deterministic catalogue pick for the legacy UI path. The
- * canonical new-player entry flow is onboarding.entryFlow (which assigns a
- * home world via assignment.selectHomeWorld and records it on the profile).
- */
-export function claimHomePlanet(playerId: string, now: number): OwnedPlanet {
-  return buildOwnedPlanet(PLANETS[claimIndexForPlayer(playerId)], now, true)
+  const candidate = eligible.find((item) => item.bodyId === result.bodyId)
+  if (candidate === undefined) {
+    throw new RangeError(`selected body not in eligible set: ${result.bodyId}`)
+  }
+  return buildOwnedPlanet(candidate.entry, now, true)
 }
 
 /**
@@ -196,16 +222,93 @@ export function ownedPlanetByName(
   return player.colonies.find((colony) => colony.name === name) ?? null
 }
 
-export function unclaimedPlanets(player: PlayerState): PlanetCatalogueEntry[] {
+/**
+ * The canonical body ids of every planet the player owns (home + colonies),
+ * mapped name → entry → canonical body id. This is the per-player portion of
+ * the existingOwners set passed to the canonical colonise; the caller's
+ * all-player overlay is unioned in, so duplicate rejection is BODY-keyed.
+ */
+function ownedBodyIds(
+  catalogue: readonly PlanetCatalogueEntry[],
+  player: PlayerState,
+): Set<BodyId> {
+  const ids = new Set<BodyId>()
+  for (const name of ownedNames(player)) {
+    const entry = catalogueEntryByName(catalogue, name)
+    if (entry !== null) {
+      ids.add(canonicalBodyIdForEntry(catalogue, entry))
+    }
+  }
+  return ids
+}
+
+function coloniseRejectionMessage(
+  reason: ColonisationRejectionReason,
+  name: string,
+): string {
+  switch (reason) {
+    case 'already-owned':
+      return `planet already claimed: ${name}`
+    case 'protected':
+      return `planet is protected: ${name}`
+    case 'requirements-not-met':
+      return `colonisation requirements not met: ${name}`
+    case 'insufficient-funds':
+      return `insufficient funds to colonise: ${name}`
+    case 'invalid-target':
+      return `cannot colonise target: ${name}`
+  }
+}
+
+/**
+ * Run the canonical colonisation eligibility ladder for a legacy entry on
+ * behalf of a player: maps the entry + the player's owned planets to
+ * canonical body ids, unions the caller's all-player ownership overlay, and
+ * delegates to colonisation.ts colonise (the single ownership
+ * implementation). EVERY rejection is propagated as a descriptive RangeError
+ * — an OwnedPlanet is only built on a canonical ok.
+ */
+function coloniseEntryForPlayer(
+  catalogue: readonly PlanetCatalogueEntry[],
+  player: PlayerState,
+  entry: PlanetCatalogueEntry,
+  now: number,
+  overlay: ColoniseOverlay,
+): OwnedPlanet {
+  const existingOwners = new Set<BodyId>(overlay.globalOwners)
+  for (const id of ownedBodyIds(catalogue, player)) {
+    existingOwners.add(id)
+  }
+  const input: ColoniseInput = {
+    bodyId: canonicalBodyIdForEntry(catalogue, entry),
+    ownerId: player.playerId,
+    wallet: player.wallet,
+    requirements: overlay.requirements,
+    existingOwners,
+    at: now,
+    protection: overlay.protection,
+  }
+  const result = coloniseCanonical(input)
+  if (!result.ok) {
+    throw new RangeError(coloniseRejectionMessage(result.reason, entry.name))
+  }
+  return buildOwnedPlanet(entry, now, false)
+}
+
+export function unclaimedPlanets(
+  catalogue: readonly PlanetCatalogueEntry[],
+  player: PlayerState,
+): PlanetCatalogueEntry[] {
   const owned = ownedNames(player)
-  return PLANETS.filter((entry) => !owned.has(entry.name))
+  return catalogue.filter((entry) => !owned.has(entry.name))
 }
 
 export function firstUnclaimedByIndex(
+  catalogue: readonly PlanetCatalogueEntry[],
   player: PlayerState,
 ): PlanetCatalogueEntry | null {
   const owned = ownedNames(player)
-  for (const entry of PLANETS) {
+  for (const entry of catalogue) {
     if (!owned.has(entry.name)) {
       return entry
     }
@@ -213,12 +316,18 @@ export function firstUnclaimedByIndex(
   return null
 }
 
-export function colonise(player: PlayerState, name: string, now: number): PlayerState {
-  const entry = catalogueEntryByName(name)
+export function colonise(
+  catalogue: readonly PlanetCatalogueEntry[],
+  player: PlayerState,
+  name: string,
+  now: number,
+  overlay: ColoniseOverlay,
+): PlayerState {
+  const entry = catalogueEntryByName(catalogue, name)
   if (entry === null) {
     throw new RangeError(`unknown planet: ${name}`)
   }
-  const colony = coloniseEntryForPlayer(player, entry, now)
+  const colony = coloniseEntryForPlayer(catalogue, player, entry, now, overlay)
   return {
     ...player,
     colonies: [...player.colonies, colony],
@@ -230,14 +339,16 @@ export function colonise(player: PlayerState, name: string, now: number): Player
 }
 
 export function coloniseFirstUnclaimed(
+  catalogue: readonly PlanetCatalogueEntry[],
   player: PlayerState,
   now: number,
+  overlay: ColoniseOverlay,
 ): { player: PlayerState; colony: OwnedPlanet } {
-  const entry = firstUnclaimedByIndex(player)
+  const entry = firstUnclaimedByIndex(catalogue, player)
   if (entry === null) {
     throw new RangeError('no unclaimed planets remain in the catalogue')
   }
-  const colony = coloniseEntryForPlayer(player, entry, now)
+  const colony = coloniseEntryForPlayer(catalogue, player, entry, now, overlay)
   return {
     player: {
       ...player,

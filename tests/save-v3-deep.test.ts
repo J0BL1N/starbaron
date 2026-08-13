@@ -6,6 +6,8 @@ import {
   emptyStructureLevels,
 } from '../src/sim/player'
 import type { StructureGrid } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   loadSave,
   migrateSave,
@@ -21,8 +23,11 @@ import type { StructureId } from '../src/sim/structures/types'
 
 const NOW = 1_700_000_000_000
 
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+
 function rawV2Multi(): SaveGameV2 {
-  const home = claimHomePlanet('v2-deep', NOW)
+  const home = claimHomePlanet('v2-deep', NOW, ELIGIBLE, NO_TAKEN)
   const others = PLANETS.filter((entry) => entry.name !== home.name)
   const colonyA = claimColony(others[0], NOW)
   const colonyB = claimColony(others[1], NOW)
@@ -133,7 +138,7 @@ describe('P2-T04-C migration v2->v3 deep', () => {
   })
 
   it('a colony grid containing an unknown structure id is corrupt', () => {
-    const home = claimHomePlanet('grid-key-player', NOW)
+    const home = claimHomePlanet('grid-key-player', NOW, ELIGIBLE, NO_TAKEN)
     const colony = claimColony(
       PLANETS.find((entry) => entry.name !== home.name)!,
       NOW,
@@ -162,7 +167,7 @@ describe('P2-T04-C migration v2->v3 deep', () => {
   })
 
   it('a structureLevels key that names no owned planet is corrupt', () => {
-    const home = claimHomePlanet('extra-key-player', NOW)
+    const home = claimHomePlanet('extra-key-player', NOW, ELIGIBLE, NO_TAKEN)
     const bad: SaveGameV3 = {
       schemaVersion: 3,
       savedAt: NOW,
@@ -189,7 +194,7 @@ describe('P2-T04-C migration v2->v3 deep', () => {
 
 describe('P2-T04-C round-trip stability (byte-level)', () => {
   it('save -> load -> save is byte-stable for a multi-planet v3 save', () => {
-    const home = claimHomePlanet('rt-deep', NOW)
+    const home = claimHomePlanet('rt-deep', NOW, ELIGIBLE, NO_TAKEN)
     const others = PLANETS.filter((entry) => entry.name !== home.name)
     const colonyA = claimColony(others[0], NOW)
     const colonyB = claimColony(others[1], NOW)

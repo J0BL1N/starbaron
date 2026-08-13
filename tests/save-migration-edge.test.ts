@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PLANETS } from '../src/sim/data/planets'
 import { claimColony, claimHomePlanet } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   loadSave,
   migrateSave,
@@ -12,6 +14,9 @@ import type { SaveGameV3 } from '../src/ui/save'
 import { makeSave, MemoryStorage, seedSave } from './saveHelpers'
 
 const NOW = 1_700_000_000_000
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 function rawV1(
   overrides: {
@@ -133,7 +138,7 @@ describe('P2-T04-B migration edge — repeated loads and repair', () => {
       expect(second.save.player.playerId).toBe(first.save.player.playerId)
       expect(second.save.player.homePlanet.name).toBe(first.save.player.homePlanet.name)
       expect(second.save.player.homePlanet.name).toBe(
-        claimHomePlanet(first.save.player.playerId, NOW).name,
+        claimHomePlanet(first.save.player.playerId, NOW, ELIGIBLE, NO_TAKEN).name,
       )
     }
 
@@ -149,7 +154,7 @@ describe('P2-T04-B migration edge — repeated loads and repair', () => {
   it('a v3 with a fabricated home is repaired to the deterministic claim, its twin colony dropped, grids pruned', () => {
     const storage = new MemoryStorage()
     const playerId = 'repair-deep-player'
-    const expected = claimHomePlanet(playerId, NOW)
+    const expected = claimHomePlanet(playerId, NOW, ELIGIBLE, NO_TAKEN)
     const other = PLANETS.find((entry) => entry.name !== expected.name)!
 
     const fabricatedHome = { ...claimColony(other, NOW), isHome: true, unconquerable: true }
@@ -184,7 +189,7 @@ describe('P2-T04-B migration edge — repeated loads and repair', () => {
   it('a fabricated home that is a valid planet but marked with wrong flags is corrupt, not silently repaired', () => {
     const storage = new MemoryStorage()
     const playerId = 'bad-flags-player'
-    const expected = claimHomePlanet(playerId, NOW)
+    const expected = claimHomePlanet(playerId, NOW, ELIGIBLE, NO_TAKEN)
     const other = PLANETS.find((entry) => entry.name !== expected.name)!
     const save = makeSave({ player: { playerId } })
     const conquerableHome = {
@@ -200,7 +205,7 @@ describe('P2-T04-B migration edge — repeated loads and repair', () => {
 
   it('validateSave rejects the fabricated/wrong-flag home outright before any repair runs', () => {
     const playerId = 'validate-flags'
-    const expected = claimHomePlanet(playerId, NOW)
+    const expected = claimHomePlanet(playerId, NOW, ELIGIBLE, NO_TAKEN)
     const other = PLANETS.find((entry) => entry.name !== expected.name)!
     const save = makeSave({ player: { playerId } })
     const wrongFlags = {

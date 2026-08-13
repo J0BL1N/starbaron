@@ -15,6 +15,9 @@ import PlanetView from '../src/ui/PlanetView'
 import { useGameState } from '../src/ui/useGameState'
 import { SAVE_KEY, SAVE_V3_KEY } from '../src/ui/save'
 import { claimHomePlanet } from '../src/sim/player'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import {
   GAP_12H,
   makeSave,
@@ -24,6 +27,9 @@ import {
   seedSave,
   ThrowingStorage,
 } from './saveHelpers'
+
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
 
 afterEach(() => {
   cleanup()
@@ -364,7 +370,7 @@ describe('P2-T03-B automatic first-boot claim', () => {
     )
     expect(result.current.playerId).toBe('fixture-player')
     expect(result.current.homePlanet.name).toBe(
-      claimHomePlanet('fixture-player', clock).name,
+      claimHomePlanet('fixture-player', clock, ELIGIBLE, NO_TAKEN).name,
     )
     expect(result.current.homePlanet.isHome).toBe(true)
     expect(result.current.homePlanet.unconquerable).toBe(true)

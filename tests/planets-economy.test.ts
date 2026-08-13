@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest'
+import { PLANETS } from '../src/sim/data/planets'
 import {
   accruePlayer,
   buildStructure,
+  catalogueEntryByName,
+  claimColony,
   colonise,
   computePlanetDerived,
   createPlayer,
+  emptyStructureLevels,
   empireRates,
   gridForPlanet,
   ownedPlanetByName,
 } from '../src/sim/player'
 import type { PlayerState } from '../src/sim/player'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { ColoniseOverlay } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { populationCapMultiplier } from '../src/sim/planets'
 import { ORE_ALLOYS_PER_MIN } from '../src/sim/structures/effects'
 import type { StructureId } from '../src/sim/structures/types'
@@ -17,16 +24,31 @@ import type { StructureId } from '../src/sim/structures/types'
 const NOW = 1_700_000_000_000
 const HOUR_MS = 3_600_000
 
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+const COLONISE_OVERLAY: ColoniseOverlay = {
+  globalOwners: new Set<BodyId>(),
+  requirements: { hasFleet: true, hasTravel: true },
+}
+
 // 'fixture-player' deterministically claims Kepler-1087 b (tier 1, no quirks):
 // a stable plain anchor for per-planet tests.
 const ANCHOR = 'fixture-player'
 
 function makeEmpire(playerId: string, colonyNames: string[]): PlayerState {
-  let player = createPlayer(playerId, NOW)
-  for (const name of colonyNames) {
-    player = colonise(player, name, NOW)
+  const player = createPlayer(playerId, NOW, ELIGIBLE, NO_TAKEN)
+  const colonies = colonyNames.map((name) => {
+    const entry = catalogueEntryByName(PLANETS, name)
+    if (entry === null) {
+      throw new Error(`unknown fixture planet: ${name}`)
+    }
+    return claimColony(entry, NOW)
+  })
+  const structureLevels = { ...player.structureLevels }
+  for (const colony of colonies) {
+    structureLevels[colony.name] = emptyStructureLevels()
   }
-  return player
+  return { ...player, colonies, structureLevels }
 }
 
 function grid(player: PlayerState, name: string, id: StructureId, level: number): PlayerState {
@@ -74,7 +96,13 @@ describe('P2-T04-B per-planet income sums — shared wallet', () => {
   it('adding a planet adds exactly its stream to the empire total', () => {
     const player = makeEmpire(ANCHOR, [])
     const before = empireRates(player).creditsPerSec
-    const next = colonise(player, 'Kepler-1606 b', NOW)
+    const next = colonise(
+      PLANETS,
+      { ...player, wallet: { ...player.wallet, alloys: 200 } },
+      'Kepler-1606 b',
+      NOW,
+      COLONISE_OVERLAY,
+    )
     expect(empireRates(next).creditsPerSec - before).toBeCloseTo(30, 10)
   })
 })

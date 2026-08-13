@@ -6,6 +6,9 @@ import {
 import { emptyStructureLevels } from '../src/sim/player/grid'
 import { ownedPlanetIdentity } from '../src/sim/player'
 import { createPlayer } from '../src/sim/player'
+import { PLANETS } from '../src/sim/data/planets'
+import { eligibleHomeWorlds } from '../src/sim/player/claim'
+import type { BodyId } from '../src/sim/world/identity'
 import { ownershipFor } from '../src/sim/player/ownership'
 import type { OwnershipRecord } from '../src/sim/player/ownership'
 import type { OwnedPlanet, PlayerState, StructureGrid, WalletState } from '../src/sim/player/types'
@@ -30,6 +33,9 @@ const NOW = 1_700_000_000_000
 const RICH: WalletState = { credits: 1e9, alloys: 1e9 }
 const BODY = bodyId(systemId('planet-panel', 'fixture'), 'planet', 0)
 
+const ELIGIBLE = eligibleHomeWorlds(PLANETS)
+const NO_TAKEN: ReadonlySet<BodyId> = new Set<BodyId>()
+
 /** PanelSection with every gated section narrowed to non-null (owner view). */
 type OwnerPanel = PanelSection & {
   structures: NonNullable<PanelSection['structures']>
@@ -41,7 +47,7 @@ type OwnerPanel = PanelSection & {
 }
 
 function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
-  const player = createPlayer('player-panel', NOW)
+  const player = createPlayer('player-panel', NOW, ELIGIBLE, NO_TAKEN)
   return {
     ...player,
     ...overrides,
@@ -50,7 +56,7 @@ function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
 }
 
 function makeColony(overrides: Partial<OwnedPlanet> = {}): OwnedPlanet {
-  const base = createPlayer('player-panel', NOW).homePlanet
+  const base = createPlayer('player-panel', NOW, ELIGIBLE, NO_TAKEN).homePlanet
   return {
     ...base,
     name: 'Colony One',
