@@ -80,7 +80,7 @@
 | T07 Fleet Orders | ✅ | Codex PASS (first round) — `src/sim/fleet/orders.ts` + `tests/orders.test.ts` (34 tests): order queue, one-active semantics, lifecycle, invariants |
 | T08 Fleet UI | ✅ | Codex PASS (first round) — `src/sim/ui/fleet-panel.ts` + `tests/fleet-panel.test.ts` (29 tests): list/detail/panel state contracts, deterministic locations |
 | T09 Travel Routes | ✅ | Codex PASS (first round) — `src/sim/fleet/routes.ts` + `tests/routes.test.ts` (39 tests): multi-leg planning, ETA, leg indexing |
-| T10 Fleet Persistence | ⬜ | |
+| T10 Fleet Persistence | ✅ | Codex PASS (round 2) — `src/sim/fleet/persistence.ts` + `tests/persistence.test.ts` (39 tests) + write-only `0017_fleets.sql`/`11_fleets.sql`: serialization contract, round-trip, fleet schema |
 
 ## Phase 6 — Scouting, Sensors & Intelligence
 
