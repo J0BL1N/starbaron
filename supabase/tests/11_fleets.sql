@@ -27,11 +27,13 @@
 --                 route legs / total_duration_sec columns are present on
 --                 the written rows and an omitted value raises
 --                 not_null_violation;
---               * round-3 sim-time contract: the fleet / order / route
---                 sim timestamps round-trip as exact millisecond bigint
+--               * round-4 sim-time contract: the fleet / order / route
+--                 sim timestamps round-trip as exact millisecond numeric
 --                 values (sim_created_at, issued_at, departure_at /
 --                 arrival_at) — the TS `number` snapshots persist without
---                 a timestamptz mapper;
+--                 a timestamptz mapper, INCLUDING fractional arrivals
+--                 (10 pc @ 3 pc/s → arrival 1700000003333.3333 ms) that a
+--                 bigint column cannot hold;
 --               * finding 5 one-active-order partial UNIQUE index: with
 --                 the active slot handed from order-1 to order-2 (status
 --                 and active flag transition together, round-3), a second
@@ -65,6 +67,10 @@ insert into public.players (id) values
 --    policies, then reads them back. The inserts now cover the whole-phase
 --    finding 5 mirror additions: fleet.sim_created_at, the route legs /
 --    total_duration_sec columns, and the fleet_order.active flag.
+--    Round-4: the route uses a FRACTIONAL arrival (10 pc @ 3 pc/s →
+--    3.333… s → arrival 1700000003333.3333 ms) to prove the sim
+--    timestamps are exact numeric, not bigint — the TS movement contract
+--    emits fractional ms that a bigint column cannot hold.
 -- ---------------------------------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}';
@@ -82,11 +88,11 @@ values ('order-1', 'fleet-1', 'move',   '{"kind":"system","id":"sys-alpha"}'::js
 insert into public.fleet_route (id, fleet_id, waypoints, legs, total_distance_pc, total_duration_sec, departure_at, arrival_at)
 values ('route-1', 'fleet-1',
         '[{"ref":{"kind":"planet","bodyId":"home"},"position":{"x":0,"y":0,"z":0}},{"ref":{"kind":"system","bodyId":"sys-alpha"},"position":{"x":3,"y":0,"z":0}}]'::jsonb,
-        '[{"fleetId":"fleet-1","from":{"kind":"planet","bodyId":"home"},"to":{"kind":"system","bodyId":"sys-alpha"},"distancePc":3,"speedPcPerSec":1,"departureAt":1700000000000,"arrivalAt":1700000003000,"status":"traveling"}]'::jsonb,
-        3, 3, 1700000000000, 1700000003000);
+        '[{"fleetId":"fleet-1","from":{"kind":"planet","bodyId":"home"},"to":{"kind":"system","bodyId":"sys-alpha"},"distancePc":10,"speedPcPerSec":3,"departureAt":1700000000000,"arrivalAt":1700000003333.3333,"status":"traveling"}]'::jsonb,
+        10, 3.3333, 1700000000000, 1700000003333.3333);
 
 do $$
-declare v_n bigint; v_sim bigint;
+declare v_n bigint; v_sim numeric; v_dep numeric; v_arr numeric;
 begin
   select count(*) into v_n from public.fleet where id = 'fleet-1';
   if v_n <> 1 then
@@ -100,20 +106,27 @@ begin
   if v_n <> 1 then
     raise exception '8653 ASSERTION FAILED: owner route round-trip must find the row';
   end if;
-  -- round-3: sim_created_at round-trips the exact millisecond bigint value
+  -- round-4: sim_created_at round-trips the exact millisecond numeric value
   -- (the TS createdAt number persists without a timestamptz mapper)
   select sim_created_at into v_sim from public.fleet where id = 'fleet-1';
   if v_sim <> 1700000000000 then
-    raise exception '8653 ASSERTION FAILED: fleet sim_created_at must round-trip as bigint ms, saw %', v_sim;
+    raise exception '8653 ASSERTION FAILED: fleet sim_created_at must round-trip as numeric ms, saw %', v_sim;
+  end if;
+  -- round-4: the FRACTIONAL arrival (10 pc @ 3 pc/s → 3333.333… ms after
+  -- departure) must round-trip EXACTLY as numeric — the value that a bigint
+  -- column cannot hold
+  select departure_at, arrival_at into v_dep, v_arr from public.fleet_route where id = 'route-1';
+  if v_dep <> 1700000000000 or v_arr <> 1700000003333.3333 then
+    raise exception '8653 ASSERTION FAILED: route departure/arrival must round-trip as exact numeric ms, saw % / %', v_dep, v_arr;
   end if;
   -- finding 5: route legs and total_duration_sec are present on the route
-  -- row; round-3: departure_at / arrival_at round-trip the exact bigint ms
+  -- row; round-4: departure_at / arrival_at round-trip the exact numeric ms
   select count(*) into v_n from public.fleet_route r
     where r.id = 'route-1' and r.legs is not null and jsonb_typeof(r.legs) = 'array'
-      and r.total_duration_sec = 3
-      and r.departure_at = 1700000000000 and r.arrival_at = 1700000003000;
+      and r.total_duration_sec = 3.3333
+      and r.departure_at = 1700000000000 and r.arrival_at = 1700000003333.3333;
   if v_n <> 1 then
-    raise exception '8653 ASSERTION FAILED: route legs, total_duration_sec and bigint ms timestamps must be present and match';
+    raise exception '8653 ASSERTION FAILED: route legs, total_duration_sec and numeric ms timestamps must be present and match';
   end if;
 end $$;
 
