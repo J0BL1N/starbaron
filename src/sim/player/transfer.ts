@@ -147,6 +147,13 @@ export function applySurvival(current: number, fraction: number): number {
  * input grid is never mutated and a fresh grid is returned. `fraction`
  * must be a finite fraction in [0, 1] (throws a descriptive RangeError
  * otherwise); every level must be a finite non-negative number.
+ *
+ * DEFENSE TURRET IS ALWAYS DESTROYED (DESIGN §5, LOCKED): conquered
+ * planets retain every structure EXCEPT defenses — `defenseTurret` is
+ * unconditionally OMITTED from the survivor grid regardless of the
+ * fraction, which applies to all OTHER structures only. This mirrors
+ * the SQL resolution (`structure_levels - 'defenseTurret'`), so the
+ * two layers agree: the prize is the economy, not the shell.
  */
 export function structureSurvivors(
   grid: StructureGrid,
@@ -160,6 +167,9 @@ export function structureSurvivors(
       grid[structureId],
       `structure level ${structureId}`,
     )
+    if (structureId === 'defenseTurret') {
+      continue
+    }
     const kept = Math.floor(level * validFraction)
     if (kept > 0) {
       survivors[structureId] = kept
@@ -173,9 +183,11 @@ export function structureSurvivors(
  * ladder (protected -> self-transfer -> success) and, on success, returns
  * the updated ownership record, its audit event, the surviving
  * population/garrison, the surviving structure grid, and the two
- * ownership notifications. All inputs are treated as immutable — the
- * record, the structures grid, the history array and the survival/current
- * objects are never mutated.
+ * ownership notifications. The structure grid always excludes
+ * defenseTurret (DESIGN §5 — turrets are destroyed in the fall),
+ * regardless of structureSurvival. All inputs are treated as
+ * immutable — the record, the structures grid, the history array and
+ * the survival/current objects are never mutated.
  */
 export function conquestTransfer(
   input: ConquestTransferInput,

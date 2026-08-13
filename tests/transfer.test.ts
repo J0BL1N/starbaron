@@ -306,6 +306,42 @@ describe('P2-T07 conquestTransfer — structure survival', () => {
   })
 })
 
+describe('P2-T07 conquestTransfer — defense turrets always fall (DESIGN §5)', () => {
+  it('destroys defenseTurret at full structure survival (fraction 1) while every other structure survives', () => {
+    const result = outcome(
+      conquestTransfer(
+        makeInput({
+          structures: structureGrid({ oreMine: 5, housing: 10, defenseTurret: 7 }),
+          survival: {
+            populationSurvival: 1,
+            structureSurvival: 1,
+            garrisonSurvival: 1,
+          },
+        }),
+      ),
+    )
+    expect(result.structures).toEqual({ oreMine: 5, housing: 10 })
+    expect(result.structures.defenseTurret).toBeUndefined()
+  })
+
+  it('destroys defenseTurret at fraction 0.5 while other structures halve', () => {
+    const result = outcome(
+      conquestTransfer(
+        makeInput({
+          structures: structureGrid({ oreMine: 6, housing: 8, defenseTurret: 7 }),
+          survival: {
+            populationSurvival: 0.5,
+            structureSurvival: 0.5,
+            garrisonSurvival: 0.5,
+          },
+        }),
+      ),
+    )
+    expect(result.structures).toEqual({ oreMine: 3, housing: 4 })
+    expect(result.structures.defenseTurret).toBeUndefined()
+  })
+})
+
 describe('P2-T07 conquestTransfer — previous-owner history', () => {
   it('never mutates the previousHistory array', () => {
     const history = [OLD_EVENT]
@@ -413,5 +449,12 @@ describe('P2-T07 exported helpers — applySurvival and structureSurvivors', () 
     expect(structureSurvivors(grid, 1)).toEqual({ oreMine: 5, housing: 1 })
     expect(() => structureSurvivors(grid, 1.5)).toThrow(RangeError)
     expect(() => structureSurvivors(grid, -1)).toThrow(RangeError)
+  })
+
+  it('structureSurvivors always omits defenseTurret regardless of the fraction (DESIGN §5)', () => {
+    const grid = structureGrid({ oreMine: 6, housing: 4, defenseTurret: 9 })
+    expect(structureSurvivors(grid, 1)).toEqual({ oreMine: 6, housing: 4 })
+    expect(structureSurvivors(grid, 0.5)).toEqual({ oreMine: 3, housing: 2 })
+    expect(structureSurvivors(grid, 0)).toEqual({})
   })
 })
