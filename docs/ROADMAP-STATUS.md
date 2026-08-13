@@ -111,8 +111,8 @@
 | T06 Conquest Cost | ✅ | Codex PASS (first round) — `src/sim/combat/conquest-cost.ts` + `tests/conquest-cost.test.ts` (38 tests): escalating curve, empire multiplier cap ×2.0, summary |
 | T07 Planet Capture | ✅ | Codex PASS (round 4) — `src/sim/combat/capture.ts` + `tests/capture.test.ts` (37 tests): conquest handover via locked transfer, ownership-record binding, protected refusal |
 | T08 Home-World Immunity | ✅ | Codex PASS (round 2) — `src/sim/combat/home-immunity.ts` + `tests/home-immunity.test.ts` (26 tests) + write-only `0019_home_immunity.sql`/13: launch + conquest guards over locked protection, RLS SQL |
-| T09 Combat Reports | ⬜ | |
-| T10 Combat Simulation Harness | ⬜ | |
+| T09 Combat Reports | ✅ | Codex PASS (first round) — `src/sim/combat/combat-reports.ts` + `tests/combat-reports.test.ts` (33 tests): winner/loser, ship losses, pinned report text |
+| T10 Combat Simulation Harness | ✅ | Codex PASS (round 2) — `src/sim/combat/sim-harness.ts` + `tests/sim-harness.test.ts` (41 tests): delegated battle chain, full-leaf replay check |
 | T11 Attack Notifications | ⬜ | |
 
 ## Phase 8 — Diplomacy & Alliances
