@@ -7,7 +7,7 @@ READ LIST:
 - src/sim/player/estimator.ts    (locked defense estimators — READ for the turret term)
 - src/sim/ui/validate.ts         (shared validators)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT fd60484e867b2bbdbca0ddfea457a318e1f62b0c (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 9f021ad4fc99b68ed3670267b9f13694ab4d9195 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p7-t04-brief.md + master roadmap P7-T04):
 1. DefenseState { planetName, turretLevels, population, garrison, defensePower, breakdown {turretPower (locked 500×effLevel), militiaPower (locked DP − turretPower — never negative/double-counted), garrisonPower (garrison × 0.1 draft)} }; total = locked defensePower + garrisonPower (composition documented — garrison = home defenders).

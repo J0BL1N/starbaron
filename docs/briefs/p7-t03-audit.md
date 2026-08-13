@@ -7,7 +7,7 @@ READ LIST:
 - src/sim/structures/effects.ts  (defensePower — LOCKED DP)
 - src/sim/combat/attack-orders.ts (P7-T01: id convention)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT fd60484e867b2bbdbca0ddfea457a318e1f62b0c (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 973a8ca8de8e5e1b30276610c5cd7579dcd5e3ca (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p7-t03-brief.md + master roadmap P7-T03):
 1. BattleOutcome { battleId (fnv1a(attackerId|targetId|resolvedAt)), attackerId, targetId, resolvedAt, attackPower, defensePower, victory, survivingTroops, defenderCasualties, result victory|defeat|stalemate }.
