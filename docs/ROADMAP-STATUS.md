@@ -103,7 +103,7 @@
 
 | Task | Status | Verdict / evidence |
 |---|---|---|
-| T01 Attack Orders | ⬜ | |
+| T01 Attack Orders | ✅ | Codex PASS (round 2) — `src/sim/combat/attack-orders.ts` + `tests/attack-orders.test.ts` (36 tests): DESIGN-locked launch cost via estimator, committed troops, status projection |
 | T02 Invasion Fleet | ⬜ | |
 | T03 Combat Resolution | ⬜ | |
 | T04 Planet Defense | ⬜ | |
