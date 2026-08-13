@@ -24,7 +24,7 @@
 --             resolve transition — exactly like 0014 lets non-ownership
 --             updates pass. The target FK (target_planet_name -> owned_planets
 --             planet_name) guarantees the referenced row exists before the
---             trigger runs; `if found` guards the degenerate case anyway.
+--             trigger runs; `if found` guards the degenerate case as well.
 -- Idempotent: YES for the guard itself — CREATE OR REPLACE FUNCTION +
 --             DROP TRIGGER IF EXISTS + CREATE TRIGGER re-run cleanly (the
 --             13 suite's re-run contract probes this). The migration is

@@ -35,10 +35,12 @@
  * foreign world).
  */
 
-import type { BodyId } from '../world/identity'
 import { deriveProtection } from '../player/protection'
 import type { PlayerState } from '../player/types'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
+
+/** The body-id type as derived from the locked protection signature. */
+type DerivedBodyId = Parameters<typeof deriveProtection>[0]
 
 export type HomeImmunityStatus = 'immune' | 'attackable'
 
@@ -105,7 +107,7 @@ export function homeImmunityFor(input: HomeImmunityInput): HomeImmunity {
     return attackable(targetId, input.attemptedAt)
   }
   const protection = deriveProtection(
-    targetId as BodyId,
+    targetId as DerivedBodyId,
     ownerPlayer.playerId,
     ownerPlayer.homePlanet.isHome,
     ownerPlayer.homePlanet.unconquerable,
