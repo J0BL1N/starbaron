@@ -408,6 +408,26 @@ describe('P6-T08 storeInvariants — the structural report', () => {
     expect(result.problems).toContain('record key 42 must be a non-empty string')
   })
 
+  it('tampered store: a Set of records is reported as not a Map, never a throw', () => {
+    const s = store({
+      records: new Set([42]) as unknown as ReadonlyMap<string, TargetIntel>,
+    })
+    expect(() => storeInvariants(s)).not.toThrow()
+    const result = storeInvariants(s)
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain('records must be a Map')
+  })
+
+  it('tampered store: an empty records array is reported as not a Map, never a throw', () => {
+    const s = store({
+      records: [] as unknown as ReadonlyMap<string, TargetIntel>,
+    })
+    expect(() => storeInvariants(s)).not.toThrow()
+    const result = storeInvariants(s)
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain('records must be a Map')
+  })
+
   it('tampered store: a record with undefined sources is a reported problem, never a throw', () => {
     const tampered = rec() as TargetIntel
     const s = store({

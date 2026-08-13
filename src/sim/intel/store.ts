@@ -213,26 +213,18 @@ export function storeRescoutNeeded(store: IntelStore, at: number): string[] {
   return result
 }
 
-/** True when value is iterable (a Map, an array, a Set — the tampered-store
- * guard). Lets storeInvariants enumerate keys and sources without throwing. */
-function isIterable(value: unknown): value is Iterable<unknown> {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
-  )
-}
-
 /**
- * The structural invariant report (never throws): ownerId non-empty; each map
- * key is a non-empty string EQUAL to its record's targetId (the map key is
- * the uniqueness anchor — the records' targetIds are unique exactly because
- * each key is the record's own id and a JS Map admits no duplicate keys);
- * each record's level is a known intel level, its lastUpdatedAt is null or a
- * positive finite number, and its sources are deduplicated non-empty strings.
- * Every field is runtime-guarded — a tampered value (null ownerId, a
- * non-string key, undefined sources, a null level) is reported as a problem,
- * never thrown. Returns { ok, problems } with one human-readable string per
+ * The structural invariant report (never throws): the records must be a real
+ * Map (a Set or an array is reported as a problem, never enumerated and
+ * never thrown over); ownerId non-empty; each map key is a non-empty string
+ * EQUAL to its record's targetId (the map key is the uniqueness anchor — the
+ * records' targetIds are unique exactly because each key is the record's own
+ * id and a JS Map admits no duplicate keys); each record's level is a known
+ * intel level, its lastUpdatedAt is null or a positive finite number, and its
+ * sources are deduplicated non-empty strings. Every field is runtime-guarded
+ * — a tampered value (null ownerId, a non-Map records value, a non-string
+ * key, undefined sources, a null level) is reported as a problem, never
+ * thrown. Returns { ok, problems } with one human-readable string per
  * violation.
  */
 export function storeInvariants(store: IntelStore): {
@@ -245,12 +237,18 @@ export function storeInvariants(store: IntelStore): {
     problems.push('ownerId must be a non-empty string')
   }
   const records = store.records
-  if (!isIterable(records)) {
-    problems.push('records must be an iterable map of target records')
+  if (!(records instanceof Map)) {
+    problems.push('records must be a Map')
     return { ok: false, problems }
   }
   const seen = new Set<string>()
-  for (const [key, intel] of records as Iterable<[unknown, unknown]>) {
+  for (const entry of records as Iterable<unknown>) {
+    if (!Array.isArray(entry) || entry.length !== 2) {
+      problems.push('records entries must be [targetId, record] pairs')
+      continue
+    }
+    const key = entry[0] as unknown
+    const intel = entry[1] as unknown
     if (typeof key !== 'string' || key.trim() === '') {
       problems.push(`record key ${JSON.stringify(key)} must be a non-empty string`)
     }
