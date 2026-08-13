@@ -25,9 +25,10 @@
  * caller-supplied `targetOwnership` — the DEFENDER'S STORED ownership record
  * of the target — received UNCHANGED and delegated UNCHANGED (never
  * fabricated here), so a protected home world (isHome && unconquerable)
- * reaches the locked refusal path exactly as stored. The previous history is
- * empty: the caller persists the audit trail, mirroring the P2 convention
- * ("the pure model reports; the caller persists").
+ * reaches the locked refusal path exactly as stored. The `targetCurrent`
+ * settlement state and the `previousHistory` audit trail are likewise
+ * caller-supplied and delegated UNCHANGED — the pure model reports; the
+ * caller persists (mirroring the P2 convention).
  *
  * SURVIVAL — THE APPLICATION OF T05 ONTO OWNERSHIP: the transfer's
  * structureSurvival is the capture input applied to the structure grid (the
@@ -35,17 +36,16 @@
  * survival fractions are DERIVED from the T05 casualty ledger via
  * `survivalFor`: the new owner inherits what the battle did not consume —
  * survivors = settlement − defender losses — clamped into [0,1] so a loss
- * that exceeds the draft settlement simply wipes the survivors. The ledger,
+ * that exceeds the current settlement simply wipes the survivors. The ledger,
  * never a re-derived formula, is the single source of those losses.
  *
- * SETTLEMENT DRAFT: the transfer machinery needs the world's current
- * population, garrison and structure grid. Those are CALLER-SIDE player
- * state, not world state — the backend supplies the real defender state in
- * the full flow. Until then this module derives a deterministic DRAFT
- * settlement from the target body id (`settlementFor`, a pinned seeded
- * convention, exported so callers and tests reproduce it exactly). The
- * derivation guarantees at least one housing level and one defense-turret
- * level, so the P2 turret-destruction contract is always observable.
+ * TARGET STATE: the transfer machinery needs the world's current population,
+ * garrison and structure grid. Those are CALLER-SIDE player state — required
+ * as the `targetCurrent` input and NEVER fabricated here (this module derives
+ * no settlement). The survival fractions the new owner inherits therefore
+ * come from the ACTUAL battle state: `survivalFor` applies the T05 ledger's
+ * defender losses against the real current population/garrison. Synthetic
+ * settlement fixtures live in the TESTS only.
  *
  * THE UNIVERSE: `universe` anchors the capture — the target id must parse as
  * a body and resolve to a real body in the given world (queryBody, P1-T08);
@@ -56,14 +56,19 @@
  * non-empty; capturedAt positive finite (assertPositiveAt); outcome.result a
  * terminal battle result with a consistent victory flag; structureSurvival a
  * finite fraction in [0,1]; the casualty ledger satisfies its locked
- * invariants; the cost is well-formed (tier integer >= 1, finite
- * non-negative totals); the targetOwnership record must name the capture
- * target as its bodyId and the defender as its ownerId (a mismatched record
- * would forge the handover event onto the wrong body or name the wrong
- * previous owner). A victory whose handover the locked transfer REJECTS
- * (protected or self-transfer) is an impossible capture — capturePlanet
- * throws Error (the home-world guard is P7-T08, which refuses such battles
- * before this module is reached).
+ * invariants; CROSS-SOURCE consistency — the outcome and the ledger must
+ * describe the SAME battle (attackerId / targetId / battleId / resolvedAt /
+ * result / survivors / defender losses all agree), so a victory can never
+ * ride on a ledger from a different engagement; the cost is well-formed
+ * (tier integer >= 1, finite non-negative totals); targetCurrent population
+ * and garrison finite non-negative with finite non-negative structure
+ * levels; previousHistory an array; the targetOwnership record must name the
+ * capture target as its bodyId and the defender as its ownerId (a mismatched
+ * record would forge the handover event onto the wrong body or name the
+ * wrong previous owner). A victory whose handover the locked transfer
+ * REJECTS (protected or self-transfer) is an impossible capture —
+ * capturePlanet throws Error (the home-world guard is P7-T08, which refuses
+ * such battles before this module is reached).
  */
 
 import { fnv1a } from '../planets/hash'
@@ -72,7 +77,6 @@ import { queryBody } from '../world/api'
 import { parseCanonicalId } from '../world/identity'
 import type { BodyId } from '../world/identity'
 import type { UniverseState } from '../world/reconstruct'
-import { STRUCTURE_IDS } from '../structures/data'
 import { conquestTransfer } from '../player/transfer'
 import type { OwnershipEvent, OwnershipRecord } from '../player/ownership'
 import { BATTLE_RESULTS } from './resolution'
@@ -145,13 +149,23 @@ export interface CaptureInput {
    * defender as its ownerId (RangeError otherwise).
    */
   targetOwnership: OwnershipRecord
+  /**
+   * The REAL current settlement state of the target at conquest time — the
+   * caller-supplied player state (population, garrison and structure grid)
+   * that the transfer's survivors inherit from. Delegated UNCHANGED to the
+   * locked conquestTransfer (never fabricated or re-derived here).
+   * population and garrison must be finite non-negative numbers and every
+   * structure level finite non-negative (RangeError otherwise).
+   */
+  targetCurrent: CaptureSettlement
+  /**
+   * The REAL ownership history of the target at conquest time — the caller
+   * supplies the audit trail and it is delegated UNCHANGED to the locked
+   * conquestTransfer (the pure model reports; the caller persists). Must be
+   * an array (RangeError otherwise).
+   */
+  previousHistory: OwnershipEvent[]
 }
-
-const SETTLEMENT_VERSION = 'capture-settlement-v1'
-const STRUCTURE_LEVEL_BOUND = 6
-const POPULATION_BASE = 1000
-const POPULATION_VARIANCE = 9000
-const GARRISON_BOUND = 5000
 
 function assertStructureSurvival(value: number): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
@@ -181,6 +195,38 @@ function assertLedger(ledger: CasualtyLedger): void {
   }
 }
 
+/**
+ * The outcome and the casualty ledger must describe the SAME battle — a
+ * mismatched pair would let a valid victory transfer the world on a ledger
+ * from a different engagement. Every identity field, the result, the attacker
+ * survivors and the defender losses must agree (mirrors the cross-source
+ * binding of buildCombatReport, src/sim/combat/combat-reports.ts).
+ */
+function assertConsistent(outcome: BattleOutcome, ledger: CasualtyLedger): void {
+  const pairs: ReadonlyArray<readonly [string, unknown, unknown]> = [
+    ['attackerId', outcome.attackerId, ledger.attackerId],
+    ['targetId', outcome.targetId, ledger.targetId],
+    ['battleId', outcome.battleId, ledger.battleId],
+    ['resolvedAt', outcome.resolvedAt, ledger.resolvedAt],
+    ['result', outcome.result, ledger.result],
+    ['survivors', outcome.survivingTroops, ledger.attacker.survivors],
+    [
+      'defender losses',
+      outcome.defenderCasualties,
+      ledger.defender.populationLoss,
+    ],
+  ]
+  for (const [field, expected, actual] of pairs) {
+    if (actual !== expected) {
+      throw new RangeError(
+        `ledger ${field} (${String(actual)}) disagrees with the outcome ` +
+          `${field} (${String(expected)}) — the ledger and the outcome must ` +
+          'describe the same battle',
+      )
+    }
+  }
+}
+
 function assertCost(cost: ConquestCost): void {
   assertNonEmptyString(cost.targetId, 'cost.targetId')
   if (!Number.isInteger(cost.tier) || cost.tier < 1) {
@@ -198,6 +244,47 @@ function assertCost(cost: ConquestCost): void {
         `cost.total.${key} must be a non-negative integer, got ${value}`,
       )
     }
+  }
+}
+
+/**
+ * The caller-supplied current settlement state of the target: population and
+ * garrison finite non-negative and every structure level finite non-negative
+ * — the same envelope the locked transfer enforces. A malformed current state
+ * is rejected before the locked transfer is reached.
+ */
+function assertTargetCurrent(current: CaptureSettlement): void {
+  if (
+    typeof current.population !== 'number' ||
+    !Number.isFinite(current.population) ||
+    current.population < 0
+  ) {
+    throw new RangeError(
+      `targetCurrent.population must be a finite non-negative number, got ${String(current.population)}`,
+    )
+  }
+  if (
+    typeof current.garrison !== 'number' ||
+    !Number.isFinite(current.garrison) ||
+    current.garrison < 0
+  ) {
+    throw new RangeError(
+      `targetCurrent.garrison must be a finite non-negative number, got ${String(current.garrison)}`,
+    )
+  }
+  for (const [structureId, level] of Object.entries(current.structures)) {
+    if (typeof level !== 'number' || !Number.isFinite(level) || level < 0) {
+      throw new RangeError(
+        `targetCurrent.structures.${structureId} must be a finite non-negative level, got ${String(level)}`,
+      )
+    }
+  }
+}
+
+/** The caller-supplied audit trail must be an array (RangeError otherwise). */
+function assertPreviousHistory(history: OwnershipEvent[]): void {
+  if (!Array.isArray(history)) {
+    throw new RangeError('previousHistory must be an array of OwnershipEvent')
   }
 }
 
@@ -245,40 +332,12 @@ function clampFraction(value: number): number {
 }
 
 /**
- * The deterministic DRAFT settlement of a target body (P7-T07): population,
- * garrison and a full structure grid derived from the body id via fnv1a.
- * DRAFT — the backend supplies the real defender state in the full flow; this
- * convention keeps the capture pure and world-anchored until then. The
- * derivation guarantees housing >= 1 and defenseTurret >= 1 (so the P2
- * turret-destruction contract is always observable), every other structure is
- * 0..5, population is 1,000..9,999 and garrison 0..4,999. A fresh object is
- * returned on every call; nothing is shared. bodyId must be non-empty
- * (RangeError otherwise).
- */
-export function settlementFor(bodyId: string): CaptureSettlement {
-  assertNonEmptyString(bodyId, 'bodyId')
-  const structures = {} as StructureGrid
-  for (const structureId of STRUCTURE_IDS) {
-    structures[structureId] =
-      fnv1a(`${SETTLEMENT_VERSION}|${bodyId}|${structureId}`) % STRUCTURE_LEVEL_BOUND
-  }
-  structures.housing += 1
-  structures.defenseTurret += 1
-  const population =
-    POPULATION_BASE +
-    (fnv1a(`${SETTLEMENT_VERSION}|${bodyId}|population`) % POPULATION_VARIANCE)
-  const garrison =
-    fnv1a(`${SETTLEMENT_VERSION}|${bodyId}|garrison`) % GARRISON_BOUND
-  return { population, garrison, structures }
-}
-
-/**
  * The population and garrison survival fractions of a conquest — THE
  * APPLICATION of the T05 casualty ledger onto the transfer machinery: the new
  * owner inherits what the battle did not consume. populationSurvival =
  * clamp01(1 − defender.populationLoss / settlement.population) and
  * garrisonSurvival likewise from defender.garrisonLoss — clamped into [0,1]
- * so a loss that exceeds the draft settlement wipes the survivors. A zero
+ * so a loss that exceeds the current settlement wipes the survivors. A zero
  * settlement side survives untouched. The ledger, never a re-derived formula,
  * is the single source of the losses.
  */
@@ -321,7 +380,10 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
   assertOutcome(input.outcome)
   assertStructureSurvival(input.structureSurvival)
   assertLedger(input.casualties)
+  assertConsistent(input.outcome, input.casualties)
   assertCost(input.cost)
+  assertTargetCurrent(input.targetCurrent)
+  assertPreviousHistory(input.previousHistory)
 
   const bodyId = resolveTargetBody(input.universe, targetId)
   const capturedAt = input.capturedAt
@@ -342,20 +404,23 @@ export function capturePlanet(input: CaptureInput): CaptureResult {
     }
   }
 
-  const settlement = settlementFor(bodyId)
   assertOwnershipMatches(input.targetOwnership, bodyId, defenderId)
+  const survival = survivalFor(input.targetCurrent, input.casualties)
   const transfer = conquestTransfer({
     record: input.targetOwnership,
     toOwnerId: attackerId,
     at: capturedAt,
     survival: {
-      populationSurvival: survivalFor(settlement, input.casualties).populationSurvival,
+      populationSurvival: survival.populationSurvival,
       structureSurvival: input.structureSurvival,
-      garrisonSurvival: survivalFor(settlement, input.casualties).garrisonSurvival,
+      garrisonSurvival: survival.garrisonSurvival,
     },
-    structures: settlement.structures,
-    previousHistory: [],
-    current: { population: settlement.population, garrison: settlement.garrison },
+    structures: input.targetCurrent.structures,
+    previousHistory: input.previousHistory,
+    current: {
+      population: input.targetCurrent.population,
+      garrison: input.targetCurrent.garrison,
+    },
   })
 
   if ('ok' in transfer) {
