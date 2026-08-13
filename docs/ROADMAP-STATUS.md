@@ -97,6 +97,7 @@
 | T08 Intel-Safe Backend | ✅ | Codex PASS (round 3) — `src/sim/intel/store.ts` + `tests/store.test.ts` (47 tests) + write-only `0018_intel.sql`/`12_intel.sql`: store ops, RLS no-leak schema, never-throwing invariants |
 | T09 Hover HUD Integration | ✅ | Codex PASS (round 2) — `src/sim/ui/hover-intel.ts` + `tests/hover-intel.test.ts` (32 tests): gated hover compose, intel status line, caller-supplied inputs (no runtime world API), no-leak blocked base |
 | T10 Future Sensor Hooks | ✅ | Codex PASS (round 2) — `src/sim/intel/sensors.ts` + `tests/sensors.test.ts` (74 tests): sensor range, signature/stealth hook, detection, counter-intel draft contract |
+| **Phase 6 whole-phase audit** | ⛔ BLOCKER #3 (6-round cap) | 5 fix rounds landed (field-key reveal matrix — no alliance leak, read-only decay, mission intel caps, nullable SQL timestamps, server-gate boundary, shared validators/helpers). Remaining finding for the revisit pass: extract the shared TargetIntel record-shape validator (pvp-gate.ts vs store.ts duplication) |
 
 ## Phase 7 — Combat & Planet Conquest
 
