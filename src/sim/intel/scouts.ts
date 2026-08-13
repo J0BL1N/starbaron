@@ -30,7 +30,8 @@
  * APIs, no module-level mutable state (lookup tables frozen), strictly typed.
  */
 
-import { SHIP_CLASSES, SHIP_CLASS_IDS } from '../fleet/ships'
+import { SHIP_CLASSES } from '../fleet/ships'
+import { fleetCompositionSize } from '../fleet/fleet'
 import { isIntelLevel } from './levels'
 import type { FleetComposition } from '../fleet/fleet'
 import type { IntelLevel } from './levels'
@@ -70,12 +71,6 @@ function assertNonNegativeInteger(value: number, name: string): void {
     throw new RangeError(
       `${name} must be a non-negative integer, got ${String(value)}`,
     )
-  }
-}
-
-function assertValidComposition(composition: FleetComposition): void {
-  for (const id of SHIP_CLASS_IDS) {
-    assertNonNegativeInteger(composition[id], `composition.${id}`)
   }
 }
 
@@ -122,7 +117,7 @@ export function maxIntelLevelForScouts(scoutCount: number): IntelLevel {
  * detection, 'none' intel).
  */
 export function scoutProfileFor(composition: FleetComposition): ScoutProfile {
-  assertValidComposition(composition)
+  fleetCompositionSize(composition)
   const scoutCount = composition.scout
   const scoutingPower = scoutCount * SHIP_CLASSES.scout.scoutingPower
   const sensorRangePc =
@@ -147,7 +142,7 @@ export function scoutProfileFor(composition: FleetComposition): ScoutProfile {
  * non-negative integers (RangeError otherwise).
  */
 export function canScout(composition: FleetComposition): boolean {
-  assertValidComposition(composition)
+  fleetCompositionSize(composition)
   return composition.scout > 0
 }
 

@@ -45,7 +45,6 @@
  * APIs, no module-level mutable state, strictly typed.
  */
 
-import { SHIP_CLASS_IDS } from '../fleet/ships'
 import { scoutProfileFor } from './scouts'
 import { fleetCompositionSize } from '../fleet/fleet'
 import { assertFinitePositive } from './intel-ui'
@@ -92,17 +91,6 @@ function assertFiniteNonNegative(value: number, name: string): void {
   }
 }
 
-function assertValidComposition(composition: FleetComposition): void {
-  for (const id of SHIP_CLASS_IDS) {
-    const count = composition[id]
-    if (!Number.isInteger(count) || count < 0) {
-      throw new RangeError(
-        `composition.${id} must be a non-negative integer, got ${String(count)}`,
-      )
-    }
-  }
-}
-
 /**
  * The sensor range of a fleet composition. Delegates to
  * scouts.scoutProfileFor for validation and the fleet's aggregate scouting
@@ -128,7 +116,7 @@ export function sensorRange(composition: FleetComposition): number {
  * non-negative integers (RangeError otherwise).
  */
 export function stealthFactor(composition: FleetComposition): number {
-  assertValidComposition(composition)
+  fleetCompositionSize(composition)
   return STEALTH_FACTOR_DEFAULT
 }
 
