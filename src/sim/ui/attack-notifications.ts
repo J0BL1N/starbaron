@@ -28,12 +28,15 @@
  * - **arrived:** 'attack-arrived' requires `at >= order.arrivalAt` (Error
  *   otherwise — the same half-open boundary) and carries `etaSeconds: null`.
  * - **result:** 'battle-result' speaks from the DEFENDER's perspective (the
- *   reader owns the target). The caller passes `attackerWon` as whether the
- *   DEFENDER won — a defender win reads as 'VICTORY — you repelled the
- *   attack', while the T03 'victory' result (the ATTACKER won) reads as
- *   'DEFEAT'. `attackerWon` must agree with the T03 result: 'victory' (the
- *   attacker won) ⇒ false, 'defeat' (the attacker lost) ⇒ true, 'stalemate'
- *   (no winner) ⇒ false — Error otherwise. This is the perspective flip.
+ *   reader owns the target). The message derives from the LOCKED T09 combat
+ *   report (combat-reports.ts), never from an independent winner flag:
+ *   `report.result === 'stalemate'` → 'STALEMATE — attackers withdrew'; the
+ *   report's validated winner drives the flip — winner is the DEFENDER
+ *   (report.result 'defeat') → 'VICTORY — you repelled the attack', winner
+ *   is the ATTACKER (report.result 'victory') → 'DEFEAT — <target> fell to
+ *   the attackers'. T09's reportInvariants is the winner/loser gate, so the
+ *   report is the single source of who won. The linked T01 orderId is a
+ *   separate input (the CombatReport carries no orderId).
  * - **state:** the HUD projection over a list of these notifications: `count`
  *   is the list length, `latest` is the newest by (at, id) with a
  *   deterministic id tie-break (null when empty), and `unread` mirrors the
@@ -45,13 +48,17 @@
  *
  * Validation (RangeError unless noted): `at` positive finite (validate.ts
  * assertPositiveAt); the order shape, target id and in-flight status; the
- * half-open boundaries (Error); the result union; the perspective agreement
- * (Error).
+ * half-open boundaries (Error); the report via T09's locked reportInvariants
+ * (a malformed report — bad result, winner/loser mismatch, empty ids —
+ * throws RangeError).
  */
 
 import { fnv1a } from '../planets/hash'
 import { ATTACK_ORDER_STATUSES } from '../combat/attack-orders'
 import type { AttackOrder } from '../combat/attack-orders'
+import { reportInvariants } from '../combat/combat-reports'
+import type { CombatReport } from '../combat/combat-reports'
+import type { BattleResult } from '../combat/resolution'
 import { assertNonEmptyString, assertPositiveAt } from './validate'
 
 export type AttackNotificationKind =
@@ -69,13 +76,13 @@ export interface AttackNotification {
   message: string
 }
 
-export type AttackBattleResult = 'victory' | 'defeat' | 'stalemate'
+export type AttackBattleResult = BattleResult
 
 export interface BattleResultNotificationInput {
+  /** The linked T01 order (the notification store keys on it). */
   orderId: string
-  targetId: string
-  result: AttackBattleResult
-  attackerWon: boolean
+  /** The locked T09 combat report — its validated winner/loser drive the message. */
+  report: CombatReport
   at: number
 }
 
@@ -224,59 +231,35 @@ export function attackArrivedNotification(
 /**
  * The 'battle-result' notification for a T03 outcome, read from the
  * DEFENDER's perspective (the notification reader owns the target). The
- * caller passes `attackerWon` as whether the DEFENDER won — the field name is
- * historical, the VALUE is the defender's flag: `attackerWon: true` reads as
- * 'VICTORY — you repelled the attack on <target>', `false` as 'DEFEAT —
- * <target> fell to the attackers'. `attackerWon` must agree with the T03
- * `result`: 'victory' (the attacker won) ⇒ false, 'defeat' (the attacker
- * lost) ⇒ true, 'stalemate' (no winner) ⇒ false — Error otherwise. This
- * consistency check is the perspective flip: the T03 'victory' result is
- * notified to the defender as DEFEAT. `etaSeconds` is null. Validation
- * (RangeError unless noted): orderId/targetId non-empty (validate.ts
- * assertNonEmptyString), `at` positive finite, `result` in the frozen union,
- * `attackerWon` a boolean and consistent (Error). A fresh notification is
- * returned; the input is never mutated.
+ * message derives from the LOCKED T09 combat report (never an independent
+ * winner flag): the report's validated `result` and `sections.winner` are
+ * the single source of who won — the perspective flip is the winner's
+ * identity. `report.result === 'stalemate'` (no winner) →
+ * `STALEMATE — attackers withdrew from <target>`; winner is the DEFENDER
+ * (result 'defeat') → `VICTORY — you repelled the attack on <target>`; the
+ * ATTACKER won (result 'victory') → `DEFEAT — <target> fell to the
+ * attackers`. The linked orderId is a separate input (the CombatReport
+ * carries no orderId). `etaSeconds` is null. Validation (RangeError): the
+ * orderId non-empty (validate.ts assertNonEmptyString), `at` positive finite,
+ * and the report via T09's locked reportInvariants — a malformed report
+ * (bad result, winner/loser mismatch, empty ids) throws. A fresh
+ * notification is returned; the input is never mutated.
  */
 export function battleResultNotification(
   input: BattleResultNotificationInput,
 ): AttackNotification {
   const orderId = assertNonEmptyString(input.orderId, 'orderId')
-  const targetId = assertNonEmptyString(input.targetId, 'targetId')
   assertPositiveAt(input.at)
-  if (!(ATTACK_BATTLE_RESULTS as readonly string[]).includes(input.result)) {
-    throw new RangeError(
-      `result must be 'victory'|'defeat'|'stalemate', got ${String(input.result)}`,
-    )
+  const { ok, problems } = reportInvariants(input.report)
+  if (!ok) {
+    throw new RangeError(`cannot notify a malformed combat report: ${problems[0]}`)
   }
-  if (typeof input.attackerWon !== 'boolean') {
-    throw new RangeError(
-      `attackerWon must be a boolean, got ${String(input.attackerWon)}`,
-    )
-  }
-  if (input.result === 'stalemate') {
-    if (input.attackerWon) {
-      throw new Error(
-        `a stalemate has no winner: attackerWon must be false for order ${orderId}`,
-      )
-    }
-  } else if (input.result === 'victory') {
-    if (input.attackerWon) {
-      throw new Error(
-        `the T03 'victory' result names the ATTACKER the winner of order ${orderId}: ` +
-          'attackerWon (the defender won) must be false',
-      )
-    }
-  } else if (!input.attackerWon) {
-    throw new Error(
-      `the T03 'defeat' result means the attacker lost order ${orderId}: ` +
-        'attackerWon (the defender won) must be true',
-    )
-  }
+  const targetId = input.report.targetId
 
   const message =
-    input.result === 'stalemate'
+    input.report.result === 'stalemate'
       ? `STALEMATE — attackers withdrew from ${targetId}`
-      : input.attackerWon
+      : input.report.sections.winner === input.report.defenderId
         ? `VICTORY — you repelled the attack on ${targetId}`
         : `DEFEAT — ${targetId} fell to the attackers`
 

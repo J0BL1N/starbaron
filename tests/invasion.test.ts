@@ -34,7 +34,7 @@ function input(overrides: Partial<RecruitTroopsInput> = {}): RecruitTroopsInput 
     attackerId: 'p1',
     planets: [planet('Alpha', 3_000), planet('Beta', 3_000)],
     desiredTroops: 5_000,
-    fleetSize: 1_000,
+    fleetSize: 5_000,
     raisedAt: AT,
     at: AT,
     barracksLevels: new Map([
@@ -129,7 +129,7 @@ describe('recruitTroops recruitment math (DESIGN §5 locked semantics)', () => {
   })
 
   it('deficiency: desired > available recruits the whole pool', () => {
-    const result = recruitTroops(input({ desiredTroops: 8_000 }))
+    const result = recruitTroops(input({ desiredTroops: 8_000, fleetSize: 8_000 }))
     expect(result.force.troops).toBe(6_000)
     expect([...result.force.recruitedFrom]).toEqual([
       ['Alpha', 3_000],
@@ -139,22 +139,23 @@ describe('recruitTroops recruitment math (DESIGN §5 locked semantics)', () => {
   })
 
   it('deficiency message is the locked "insufficient population: need N, have M"', () => {
-    const result = recruitTroops(input({ desiredTroops: 8_000 }))
+    const result = recruitTroops(input({ desiredTroops: 8_000, fleetSize: 8_000 }))
     expect(result.deficiencies).toEqual([
       'insufficient population: need 8000, have 6000',
     ])
   })
 
-  it('zero-fleet edge: fleetSize 0 is valid and recorded', () => {
-    const result = recruitTroops(input({ fleetSize: 0 }))
-    expect(result.force.fleetSize).toBe(0)
-    expect(result.force.troops).toBe(5_000)
-    expect(result.force.status).toBe('ready')
+  it('zero-fleet edge: a fleet of 0 carries no troops (every desired > 0 is rejected)', () => {
+    expect(() => recruitTroops(input({ fleetSize: 0 }))).toThrow(RangeError)
+    expect(() => recruitTroops(input({ fleetSize: 0 }))).toThrow(/cannot recruit/)
+    expect(() => recruitTroops(input({ fleetSize: 0, desiredTroops: 0 }))).toThrow(
+      RangeError,
+    )
   })
 
   it('records fleetSize, raisedAt and status ready on the force', () => {
-    const result = recruitTroops(input({ fleetSize: 2_000, raisedAt: AT }))
-    expect(result.force.fleetSize).toBe(2_000)
+    const result = recruitTroops(input({ fleetSize: 5_000, raisedAt: AT }))
+    expect(result.force.fleetSize).toBe(5_000)
     expect(result.force.raisedAt).toBe(AT)
     expect(result.force.status).toBe('ready')
     expect(result.force.attackerId).toBe('p1')
@@ -171,6 +172,7 @@ describe('recruitTroops recruitment math (DESIGN §5 locked semantics)', () => {
         planets: [planet('Capped', 6_000)],
         barracksLevels: new Map([['Capped', 1]]),
         desiredTroops: 6_000,
+        fleetSize: 6_000,
       }),
     )
     expect(result.force.troops).toBe(5_000)
@@ -186,6 +188,7 @@ describe('recruitTroops recruitment math (DESIGN §5 locked semantics)', () => {
         planets: [planet('Tall', 60_000)],
         barracksLevels: new Map([['Tall', 11]]),
         desiredTroops: 60_000,
+        fleetSize: 60_000,
       }),
     )
     expect(result.force.troops).toBe(52_500)
@@ -396,6 +399,27 @@ describe('recruitTroops validation', () => {
         }),
       ),
     ).toThrow(RangeError)
+  })
+})
+
+describe('recruitTroops — fleet capacity (the fleet carries the committed force)', () => {
+  it('rejects desiredTroops > fleetSize with the capacity RangeError', () => {
+    expect(() => recruitTroops(input({ fleetSize: 4_000 }))).toThrow(RangeError)
+    expect(() => recruitTroops(input({ fleetSize: 4_000 }))).toThrow(
+      /cannot recruit 5000 troops into a fleet of 4000/,
+    )
+  })
+
+  it('accepts desiredTroops === fleetSize (the whole-fleet edge)', () => {
+    const result = recruitTroops(input({ fleetSize: 5_000 }))
+    expect(result.force.troops).toBe(5_000)
+    expect(result.force.fleetSize).toBe(5_000)
+  })
+
+  it('desiredTroops below fleetSize is accepted and the fleet is recorded', () => {
+    const result = recruitTroops(input({ desiredTroops: 3_000, fleetSize: 5_000 }))
+    expect(result.force.troops).toBe(3_000)
+    expect(result.force.fleetSize).toBe(5_000)
   })
 })
 

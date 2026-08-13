@@ -10,11 +10,16 @@ import {
 import type {
   AttackNotification,
   AttackNotificationKind,
+  BattleResultNotificationInput,
 } from '../src/sim/ui/attack-notifications'
 import type { AttackOrder } from '../src/sim/combat/attack-orders'
+import type { CombatReport } from '../src/sim/combat/combat-reports'
 import { fnv1a } from '../src/sim/planets/hash'
 
 const AT = 1_700_000_000_000
+const ATTACKER = 'raider-1'
+const DEFENDER = 'defender-1'
+const TARGET = 'HD 564 b'
 
 function order(overrides: Partial<AttackOrder> = {}): AttackOrder {
   return {
@@ -29,6 +34,37 @@ function order(overrides: Partial<AttackOrder> = {}): AttackOrder {
     launchCost: { credits: 1300 },
     outcome: 'pending',
     ...overrides,
+  }
+}
+
+type PartialReport = Omit<Partial<CombatReport>, 'sections'> & {
+  sections?: Partial<CombatReport['sections']>
+}
+
+/**
+ * A valid T09 CombatReport (reportInvariants-clean) whose winner/loser and
+ * summary derive from the requested result — the winner identity drives the
+ * defender-perspective notification message.
+ */
+function report(overrides: PartialReport = {}): CombatReport {
+  const result = overrides.result ?? 'defeat'
+  const { sections: sectionOverrides, ...rest } = overrides
+  const derivedSections = {
+    winner: result === 'victory' ? ATTACKER : result === 'defeat' ? DEFENDER : '',
+    loser: result === 'victory' ? DEFENDER : result === 'defeat' ? ATTACKER : null,
+    shipLosses: { attacker: 0, defender: 0 },
+    summary: result === 'stalemate' ? '' : 'summary',
+  }
+  return {
+    reportId: fnv1a(`battle-1|${AT}`).toString(16),
+    battleId: 'battle-1',
+    attackerId: ATTACKER,
+    defenderId: DEFENDER,
+    targetId: TARGET,
+    resolvedAt: AT,
+    result,
+    ...rest,
+    sections: { ...derivedSections, ...(sectionOverrides ?? {}) },
   }
 }
 
@@ -142,42 +178,58 @@ describe('P7-T11 attackArrivedNotification — arrival boundary', () => {
   })
 })
 
-describe('P7-T11 battleResultNotification — result and perspective', () => {
-  const input = (overrides: Partial<Parameters<typeof battleResultNotification>[0]> = {}) => ({
+describe('P7-T11 battleResultNotification — bound to the T09 combat report', () => {
+  const input = (
+    overrides: Partial<BattleResultNotificationInput> = {},
+  ): BattleResultNotificationInput => ({
     orderId: 'order-1',
-    targetId: 'HD 564 b',
-    result: 'defeat' as const,
-    attackerWon: true,
+    report: report(),
     at: order().arrivalAt + 1_000,
     ...overrides,
   })
 
-  it('the defender repels the attack (T03 defeat, attacker lost) → VICTORY', () => {
+  it('the defender repels the attack (report result defeat, winner the defender) → VICTORY', () => {
     const n = battleResultNotification(input())
     expect(n.kind).toBe('battle-result')
     expect(n.orderId).toBe('order-1')
-    expect(n.targetId).toBe('HD 564 b')
+    expect(n.targetId).toBe(TARGET)
     expect(n.etaSeconds).toBeNull()
     expect(n.message).toBe('VICTORY — you repelled the attack on HD 564 b')
   })
 
-  it('the attacker takes the planet (T03 victory, attacker won) → DEFEAT', () => {
-    const n = battleResultNotification(input({ result: 'victory', attackerWon: false }))
+  it('the attacker takes the planet (report result victory, winner the attacker) → DEFEAT', () => {
+    const n = battleResultNotification(
+      input({ report: report({ result: 'victory' }) }),
+    )
     expect(n.message).toBe('DEFEAT — HD 564 b fell to the attackers')
   })
 
-  it('a stalemate reads as withdrawal', () => {
-    const n = battleResultNotification(input({ result: 'stalemate', attackerWon: false }))
+  it('a stalemate report (no winner) reads as withdrawal', () => {
+    const n = battleResultNotification(
+      input({ report: report({ result: 'stalemate' }) }),
+    )
     expect(n.message).toBe('STALEMATE — attackers withdrew from HD 564 b')
   })
 
-  it('flips the perspective: the resolver result is translated to the defender', () => {
-    const attackerWon = battleResultNotification(
-      input({ result: 'victory', attackerWon: false }),
+  it('flips the perspective via the report winner identity, not a caller flag', () => {
+    const defenderWon = battleResultNotification(
+      input({ report: report({ result: 'defeat' }) }),
     )
-    const defenderWon = battleResultNotification(input())
-    expect(attackerWon.message).toBe('DEFEAT — HD 564 b fell to the attackers')
+    const attackerWon = battleResultNotification(
+      input({ report: report({ result: 'victory' }) }),
+    )
     expect(defenderWon.message).toBe('VICTORY — you repelled the attack on HD 564 b')
+    expect(attackerWon.message).toBe('DEFEAT — HD 564 b fell to the attackers')
+  })
+
+  it('the report winner drives the message even when a foreign id is named (no assumption on ids)', () => {
+    const foreign = report({
+      result: 'victory',
+      attackerId: 'some-other-raider',
+      sections: { winner: 'some-other-raider', loser: DEFENDER },
+    })
+    const n = battleResultNotification(input({ report: foreign }))
+    expect(n.message).toBe('DEFEAT — HD 564 b fell to the attackers')
   })
 
   it('derives the id deterministically as fnv1a(kind|orderId|at)', () => {
@@ -185,33 +237,36 @@ describe('P7-T11 battleResultNotification — result and perspective', () => {
     expect(n.notificationId).toBe(
       expectedId('battle-result', 'order-1', order().arrivalAt + 1_000),
     )
-    const later = battleResultNotification(input({ at: order().arrivalAt + 2_000 }))
+    const later = battleResultNotification(
+      input({ at: order().arrivalAt + 2_000 }),
+    )
     expect(later.notificationId).not.toBe(n.notificationId)
   })
 
-  it('throws when attackerWon disagrees with the result (perspective consistency)', () => {
-    expect(() =>
-      battleResultNotification(input({ result: 'victory', attackerWon: true })),
-    ).toThrow(Error)
-    expect(() =>
-      battleResultNotification(input({ result: 'defeat', attackerWon: false })),
-    ).toThrow(Error)
-    expect(() =>
-      battleResultNotification(input({ result: 'stalemate', attackerWon: true })),
-    ).toThrow(Error)
+  it('throws RangeError for a malformed report (winner/loser mismatch via the locked invariants)', () => {
+    const bad = report({
+      result: 'victory',
+      sections: {
+        winner: DEFENDER,
+        loser: ATTACKER,
+        shipLosses: { attacker: 0, defender: 0 },
+        summary: 'x',
+      },
+    })
+    expect(() => battleResultNotification(input({ report: bad }))).toThrow(RangeError)
   })
 
-  it('throws RangeError for an unknown result', () => {
+  it('throws RangeError for an unknown report result', () => {
     expect(() =>
-      battleResultNotification(input({ result: 'tie' as never })),
+      battleResultNotification(input({ report: report({ result: 'tie' as never }) })),
     ).toThrow(RangeError)
   })
 
-  it('throws RangeError for empty ids or a bad at', () => {
+  it('throws RangeError for empty order ids, a blank report target id or a bad at', () => {
     expect(() => battleResultNotification(input({ orderId: '' }))).toThrow(RangeError)
-    expect(() => battleResultNotification(input({ targetId: ' ' }))).toThrow(
-      RangeError,
-    )
+    expect(() =>
+      battleResultNotification(input({ report: report({ targetId: ' ' }) })),
+    ).toThrow(RangeError)
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => battleResultNotification(input({ at: bad })), String(bad)).toThrow(
         RangeError,
@@ -312,21 +367,17 @@ describe('P7-T11 purity and immutability', () => {
     const first = incomingAttackNotification(order(), AT)
     const second = incomingAttackNotification(order(), AT)
     expect(second).toEqual(first)
-    const report = battleResultNotification({
+    const result = battleResultNotification({
       orderId: 'order-1',
-      targetId: 'HD 564 b',
-      result: 'defeat',
-      attackerWon: true,
+      report: report(),
       at: order().arrivalAt + 1_000,
     })
     expect(
       battleResultNotification({
         orderId: 'order-1',
-        targetId: 'HD 564 b',
-        result: 'defeat',
-        attackerWon: true,
+        report: report(),
         at: order().arrivalAt + 1_000,
       }),
-    ).toEqual(report)
+    ).toEqual(result)
   })
 })

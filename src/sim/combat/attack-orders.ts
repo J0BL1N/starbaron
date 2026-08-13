@@ -52,6 +52,13 @@
  *   the wallet is never debited here — the caller debits via transactions). A
  *   wallet short on credits throws (insufficient); wallet shape is validated
  *   (finite, non-negative).
+ * - **Home-world guard (T08 wired):** `launchAttack` consults the locked
+ *   home-immunity guard `guardLaunch` (home-immunity.ts) with the REAL target
+ *   owner (`targetOwner` — the caller's PlayerState, null for an unowned
+ *   target) and the launch time. `allowed === false` (the target is the
+ *   owner's protected home world) throws Error with the guard's own
+ *   `HOME_WORLD_IMMUNITY_REASON` — a protected home can never be launched
+ *   against, so capture's downstream transfer refusal is never reached.
  * - **Error taxonomy:** malformed VALUES (bad at/troops/fleetSize/kind/id/
  *   speed/distance/wallet) throw RangeError; semantic violations (committing
  *   more troops than the fleet holds, insufficient credits, aborting an
@@ -66,7 +73,8 @@ import { fnv1a } from '../planets/hash'
 import { assertPositiveAt } from '../ui/validate'
 import { arrivalTime } from '../fleet/movement'
 import { launchCost, PVP_CONSTANTS } from '../player/estimator'
-import type { WalletState } from '../player/types'
+import { guardLaunch, HOME_WORLD_IMMUNITY_REASON } from './home-immunity'
+import type { PlayerState, WalletState } from '../player/types'
 
 export type AttackTargetKind = 'planet' | 'system'
 
@@ -108,6 +116,12 @@ export interface LaunchAttackInput {
   launchAt: number
   speedPcPerSec: number
   wallet: WalletState
+  /**
+   * The REAL target owner (null when the target is unowned). Wired into the
+   * locked home-immunity guard (P7-T08): an attack is never launched against
+   * the owner's protected home world.
+   */
+  targetOwner: PlayerState | null
 }
 
 export interface AttackStatusProjection {
@@ -232,19 +246,22 @@ export function attackLaunchCost(
 }
 
 /**
- * Launches an attack: validates the request, reserves the launch cost against
- * the wallet (the wallet is never debited), computes the overflow-safe arrival
- * via `movement.arrivalTime` and returns a fresh 'launched' order (outcome
- * 'pending'). Validation order (each throws):
+ * Launches an attack: validates the request, consults the home-immunity
+ * guard (an attack on a protected home world is refused up front), reserves
+ * the launch cost against the wallet (the wallet is never debited), computes
+ * the overflow-safe arrival via `movement.arrivalTime` and returns a fresh
+ * 'launched' order (outcome 'pending'). Validation order (each throws):
  *   1. `launchAt` positive finite (assertPositiveAt)
  *   2. `attackerId` / `fleetId` non-empty strings
  *   3. `targetRef` kind in {'planet','system'} with a non-empty id
- *   4. `troopsCommitted` a positive integer
- *   5. `fleetSize` a non-negative integer, and `troopsCommitted <= fleetSize`
+ *   4. home-immunity guard: `guardLaunch` against `targetOwner` at `launchAt`
+ *      — `allowed === false` throws Error (HOME_WORLD_IMMUNITY_REASON)
+ *   5. `troopsCommitted` a positive integer
+ *   6. `fleetSize` a non-negative integer, and `troopsCommitted <= fleetSize`
  *      (the committed subset — Error otherwise)
- *   6. `wallet` shape (credits/alloys finite non-negative)
- *   7. launch cost via `attackLaunchCost`, wallet sufficient (Error otherwise)
- *   8. `arrivalAt` via `movement.arrivalTime` (bad speed, zero distance and
+ *   7. `wallet` shape (credits/alloys finite non-negative)
+ *   8. launch cost via `attackLaunchCost`, wallet sufficient (Error otherwise)
+ *   9. `arrivalAt` via `movement.arrivalTime` (bad speed, zero distance and
  *      overflow throw RangeError)
  *
  * The order id is `fnv1a(`${attackerId}|${fleetId}|${launchAt}|${targetId}`)
@@ -265,12 +282,21 @@ export function launchAttack(input: LaunchAttackInput): {
     launchAt,
     speedPcPerSec,
     wallet,
+    targetOwner,
   } = input
 
   assertPositiveAt(launchAt)
   assertNonEmptyString(attackerId, 'attackerId')
   assertNonEmptyString(fleetId, 'fleetId')
   assertTargetRef(targetRef)
+  const guard = guardLaunch({
+    targetId: targetRef.id,
+    ownerPlayer: targetOwner,
+    attemptedAt: launchAt,
+  })
+  if (!guard.allowed) {
+    throw new Error(HOME_WORLD_IMMUNITY_REASON)
+  }
   if (!Number.isInteger(troopsCommitted) || troopsCommitted <= 0) {
     throw new RangeError(
       `troopsCommitted must be a positive integer, got ${String(troopsCommitted)}`,

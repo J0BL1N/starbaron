@@ -18,6 +18,11 @@
  *   effectiveLevel(barracks) — the same formula structureEffect('barracks')
  *   and computePlanetDerived use (effects.ts:60, accrual.ts:105). No cap is
  *   re-derived here; the caller's barracks level is the input.
+ * - **Fleet capacity:** the fleet carries the committed force, so
+ *   `recruitTroops` REJECTS `desiredTroops > fleetSize` (RangeError
+ *   'cannot recruit N troops into a fleet of M') — a recruited force can
+ *   always be carried into launchAttack (troopsCommitted ≤ fleetSize, T01).
+ *   `desiredTroops == fleetSize` is the whole-fleet edge and is accepted.
  * - **Structure levels:** the sim OwnedPlanet type (locked, P2-era) carries
  *   no structure levels, so recruitTroops takes a REQUIRED per-planet
  *   barracks-level map (planet name → level). The caller resolves it from
@@ -191,7 +196,9 @@ function drawLedger(
  *   2. `raisedAt` finite > 0
  *   3. `attackerId` non-empty
  *   4. `desiredTroops` positive integer
- *   5. `fleetSize` finite >= 0
+ *   5. `fleetSize` finite >= 0, and `desiredTroops <= fleetSize` (the fleet
+ *      carries the committed force — RangeError 'cannot recruit N troops
+ *      into a fleet of M' otherwise)
  *   6. `planets` an array, each planet non-empty name + finite non-negative
  *      population, and each barracks level valid for garrisonCapFor
  *   7. duplicate planet names → RangeError — the ledger is keyed by name, so
@@ -210,6 +217,11 @@ export function recruitTroops(input: RecruitTroopsInput): RecruitmentResult {
   assertNonEmptyString(input.attackerId, 'attackerId')
   assertPositiveInteger(input.desiredTroops, 'desiredTroops')
   assertFiniteNonNegative(input.fleetSize, 'fleetSize')
+  if (input.desiredTroops > input.fleetSize) {
+    throw new RangeError(
+      `cannot recruit ${input.desiredTroops} troops into a fleet of ${input.fleetSize}`,
+    )
+  }
   assertPlanetsArray(input.planets)
   assertBarracksLevels(input.barracksLevels)
   assertNoDuplicatePlanetNames(input.planets)

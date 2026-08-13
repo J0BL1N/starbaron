@@ -10,12 +10,19 @@ import { conquestCostFor } from '../src/sim/combat/conquest-cost'
 import { travelDuration } from '../src/sim/fleet/movement'
 import { attackPower as lockedAttackPower } from '../src/sim/player/estimator'
 import { defensePower as lockedDefensePower } from '../src/sim/structures/effects'
+import { bodyId, systemId } from '../src/sim/world/identity'
+import type { BodyId } from '../src/sim/world/identity'
 
 const AT = 1_700_000_000_000
 
 // The DESIGN worked example: 5,000 troops × tier 2 = 10,000 AP vs 3 turrets +
 // 10k population = 1,500 + 1,500 = 3,000 DP → VICTORY. distance 10 pc at
 // 10/43200 pc/s gives a 43,200 s (12h) leg and a 1,300 cr launch (fleet 5,000).
+// The target is a canonical body id (the capture-fixture convention).
+const SLUG = 'sim-harness-fixture'
+const ALPHA = systemId(SLUG, 'alpha')
+const TARGET: BodyId = bodyId(ALPHA, 'planet', 0)
+
 function attacker(
   over: Partial<BattleScenario['attacker']> = {},
 ): BattleScenario['attacker'] {
@@ -36,7 +43,18 @@ function defender(
     population: 10_000,
     garrison: 2_000,
     fleetSize: 0,
+    ...over,
+  }
+}
+
+function target(
+  over: Partial<BattleScenario['target']> = {},
+): BattleScenario['target'] {
+  return {
+    bodyId: TARGET,
+    name: 'Kepler',
     tier: 2,
+    ownerId: 'defender-1',
     ...over,
   }
 }
@@ -49,6 +67,7 @@ function scenario(
     name: 'Raid on Kepler',
     attacker: attacker(),
     defender: defender(),
+    target: target(),
     distancePc: 10,
     speedPcPerSec: 10 / 43_200,
     at: AT,
@@ -117,7 +136,7 @@ describe('runScenario — the locked combat chain', () => {
   it('a victory carries the locked conquest cost (T2, no prior conquests) and escalation raises it', () => {
     const run = runScenario(scenario())
     const locked = conquestCostFor({
-      targetId: 'target:scenario-1',
+      targetId: TARGET,
       tier: 2,
       attackerConquests: 0,
     })
@@ -171,9 +190,9 @@ describe('runScenario — the locked combat chain', () => {
   it('derives the outcome identities deterministically from the scenarioId', () => {
     const run = runScenario(scenario())
     expect(run.outcome.attackerId).toBe('attacker:scenario-1')
-    expect(run.outcome.targetId).toBe('target:scenario-1')
+    expect(run.outcome.targetId).toBe(TARGET)
     expect(run.ledger.attackerId).toBe('attacker:scenario-1')
-    expect(run.ledger.targetId).toBe('target:scenario-1')
+    expect(run.ledger.targetId).toBe(TARGET)
   })
 
   it('is deterministic: identical input yields deep-equal results', () => {
@@ -186,46 +205,82 @@ describe('runScenario — the locked combat chain', () => {
       ...input,
       attacker: { ...input.attacker },
       defender: { ...input.defender },
+      target: { ...input.target },
     }
     runScenario(input)
     expect(input).toEqual(snapshot)
   })
 })
 
-describe('runScenario — the deterministic report', () => {
+describe('runScenario — the real capture chain (T07) and the combat report (T09)', () => {
+  it('the full chain captures the planet via the REAL T07 transfer (not a derived flag)', () => {
+    const run = runScenario(scenario())
+    expect(run.captured).toBe(true)
+    expect(run.report.result).toBe('victory')
+    expect(run.report.attackerId).toBe('attacker:scenario-1')
+    expect(run.report.defenderId).toBe('defender-1')
+    expect(run.report.targetId).toBe(TARGET)
+    expect(run.report.sections.winner).toBe('attacker:scenario-1')
+    expect(run.report.sections.loser).toBe('defender-1')
+  })
+
+  it('a defeat and a stalemate never reach the capture (captured stays false)', () => {
+    expect(runScenario(defeatScenario()).captured).toBe(false)
+    expect(runScenario(stalemateScenario()).captured).toBe(false)
+    expect(runScenario(stalemateScenario()).report.result).toBe('stalemate')
+    expect(runScenario(stalemateScenario()).report.sections.winner).toBe('')
+  })
+
+  it('rejects a non-canonical target body id up front (even before the chain runs)', () => {
+    expect(() =>
+      runScenario(scenario({ target: { ...scenario().target, bodyId: 'target:scenario-1' } })),
+    ).toThrow(RangeError)
+    expect(() =>
+      runScenario(scenario({ target: { ...scenario().target, bodyId: 'not-a-body' } })),
+    ).toThrow(/valid body id/)
+  })
+
+  it('the launch and resolution both run the T08 home-immunity guard against the real owner', () => {
+    const run = runScenario(scenario())
+    expect(run.outcome.targetId).toBe(TARGET)
+    expect(run.outcome.result).toBe('victory')
+  })
+})
+
+describe('runScenario — the deterministic summary', () => {
   it('renders the DESIGN worked-example one-liner', () => {
     const run = runScenario(scenario())
-    expect(run.report).toBe(
+    expect(run.summary).toBe(
       'VICTORY · 1,300 cr launch · 12h travel · 1,500 troops lost',
     )
   })
 
-  it('renders a defeat report with all committed troops lost', () => {
+  it('renders a defeat summary with all committed troops lost', () => {
     const run = runScenario(defeatScenario())
-    expect(run.report).toBe('DEFEAT · 500 cr launch · 12h travel · 1,000 troops lost')
+    expect(run.summary).toBe('DEFEAT · 500 cr launch · 12h travel · 1,000 troops lost')
   })
 
-  it('renders a stalemate report with the withdrawn force', () => {
+  it('renders a stalemate summary with the withdrawn force', () => {
     const run = runScenario(stalemateScenario())
-    expect(run.report).toBe(
+    expect(run.summary).toBe(
       'STALEMATE · 1,300 cr launch · 12h travel · 2,500 troops lost',
     )
   })
 
   it('renders the travel duration as seconds, minutes and hours deterministically', () => {
-    expect(runScenario(scenario({ distancePc: 45, speedPcPerSec: 1 })).report).toContain(
+    expect(runScenario(scenario({ distancePc: 45, speedPcPerSec: 1 })).summary).toContain(
       '45s travel',
     )
-    expect(runScenario(scenario({ distancePc: 90, speedPcPerSec: 1 })).report).toContain(
+    expect(runScenario(scenario({ distancePc: 90, speedPcPerSec: 1 })).summary).toContain(
       '2m travel',
     )
-    expect(runScenario(scenario({ distancePc: 10, speedPcPerSec: 10 / 43_200 })).report).toContain(
+    expect(runScenario(scenario({ distancePc: 10, speedPcPerSec: 10 / 43_200 })).summary).toContain(
       '12h travel',
     )
   })
 
-  it('keeps the report part of the deterministic result (same input → same report)', () => {
-    expect(runScenario(scenario()).report).toBe(runScenario(scenario()).report)
+  it('keeps the summary part of the deterministic result (same input → same summary)', () => {
+    expect(runScenario(scenario()).summary).toBe(runScenario(scenario()).summary)
   })
 })
 
@@ -242,7 +297,7 @@ describe('scenarioTable', () => {
     expect(rows[2]).toMatch(/^zeta /)
   })
 
-  it('each row carries the scenarioId and its one-line report', () => {
+  it('each row carries the scenarioId and its one-line summary', () => {
     const rows = scenarioTable([
       scenario({ scenarioId: 'alpha' }),
       scenario({ scenarioId: 'beta', attacker: attacker({ troops: 1_000, fleetSize: 1_000 }) }),
@@ -323,10 +378,33 @@ describe('replayCheck — deterministic replay', () => {
     expect(replayCheck(recorded, rerun).firstDifference).toBe('captured')
   })
 
-  it('names a tampered report as the first difference', () => {
+  it('names a tampered summary as the first difference', () => {
     const recorded = runScenario(scenario())
-    const rerun: ScenarioResult = { ...recorded, report: `${recorded.report} X` }
-    expect(replayCheck(recorded, rerun).firstDifference).toBe('report')
+    const rerun: ScenarioResult = { ...recorded, summary: `${recorded.summary} X` }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe('summary')
+  })
+
+  it('names a tampered combat-report winner as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      report: {
+        ...recorded.report,
+        sections: { ...recorded.report.sections, winner: 'intruder' },
+      },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe(
+      'report.sections.winner',
+    )
+  })
+
+  it('names a tampered combat-report defenderId as the first difference', () => {
+    const recorded = runScenario(scenario())
+    const rerun: ScenarioResult = {
+      ...recorded,
+      report: { ...recorded.report, defenderId: 'intruder' },
+    }
+    expect(replayCheck(recorded, rerun).firstDifference).toBe('report.defenderId')
   })
 
   it('names a tampered conquest-cost total as the first difference', () => {
@@ -484,7 +562,7 @@ describe('runScenario — validation', () => {
     }
   })
 
-  it('rejects a bad defender tier even on a scenario that ends in defeat', () => {
+  it('rejects a bad target tier even on a scenario that ends in defeat', () => {
     expect(
       () =>
         runScenario(
@@ -495,7 +573,7 @@ describe('runScenario — validation', () => {
       () =>
         runScenario({
           ...defeatScenario(),
-          defender: defender({ tier: 0 }),
+          target: { ...scenario().target, tier: 0 },
         }),
     ).toThrow(RangeError)
   })

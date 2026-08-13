@@ -54,19 +54,28 @@
  *   committed-troop count is NOT part of the locked BattleOutcome shape, so
  *   the 'of N troops' clause takes the committed count as an OPTIONAL second
  *   argument; when omitted the clause is dropped.
+ * - **Home-world guard (T08 wired):** `resolveBattle` consults the locked
+ *   `assertConquestPermitted` guard (home-immunity.ts) with the REAL target
+ *   owner (`targetOwner` — null for an unowned target) and the resolution
+ *   time. A resolution touching the owner's protected home world throws the
+ *   guard's Error — the downstream capture transfer refusal (P7-T07) is
+ *   never reached for a protected home.
  *
  * Validation (each throws RangeError, delegated where noted): attackerId /
  * targetId non-empty (validate.ts); resolvedAt positive finite
  * (validate.ts assertPositiveAt); casualtyRate in [0,1]; troops / tier /
  * turrets / population via the two locked helpers (estimator's attackPower:
  * troops > 0, tier integer 0..100; effects' defensePower: turrets a
- * non-negative integer, population finite ≥ 0).
+ * non-negative integer, population finite ≥ 0). The home-immunity guard
+ * (assertConquestPermitted) throws its own Error on a protected home world.
  */
 
 import { attackPower } from '../player/estimator'
 import { defensePower } from '../structures/effects'
 import { fnv1a } from '../planets/hash'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
+import { assertConquestPermitted } from './home-immunity'
+import type { PlayerState } from '../player/types'
 
 export type BattleResult = 'victory' | 'defeat' | 'stalemate'
 
@@ -126,6 +135,12 @@ export interface ResolveBattleInput {
   population: number
   resolvedAt: number
   casualtyRate?: number
+  /**
+   * The REAL target owner (null when the target is unowned). Wired into the
+   * locked home-immunity guard (P7-T08): no resolution touching the owner's
+   * protected home world is permitted.
+   */
+  targetOwner: PlayerState | null
 }
 
 export interface BattleOutcome {
@@ -198,20 +213,26 @@ function defenderCasualtiesFor(population: number, result: BattleResult): number
 
 /**
  * Resolves a battle deterministically (DESIGN §5 / §5a). Powers via
- * `battlePowers` (both locked formulas, delegated). Classification: victory
- * when AP > DP, stalemate when AP == DP (defenders hold — documented boundary),
- * defeat when AP < DP. Surviving troops: victory → floor(troops ×
- * (1 − casualtyRate)) (default BATTLE_CASUALTY_RATE = 0.3), stalemate →
- * floor(troops × 0.5) (withdrawal), defeat → 0 (all committed troops lost).
- * Defender casualties: victory → floor(population × 0.1), defeat →
- * floor(population × 0.2), stalemate → 0. The battleId is
- * `fnv1a(`${attackerId}|${targetId}|${resolvedAt}`).toString(16)`. The input
- * is never mutated; a fresh outcome is returned.
+ * `battlePowers` (both locked formulas, delegated). The home-immunity guard
+ * runs first (assertConquestPermitted — throws Error on a protected home
+ * world). Classification: victory when AP > DP, stalemate when AP == DP
+ * (defenders hold — documented boundary), defeat when AP < DP. Surviving
+ * troops: victory → floor(troops × (1 − casualtyRate)) (default
+ * BATTLE_CASUALTY_RATE = 0.3), stalemate → floor(troops × 0.5) (withdrawal),
+ * defeat → 0 (all committed troops lost). Defender casualties: victory →
+ * floor(population × 0.1), defeat → floor(population × 0.2), stalemate → 0.
+ * The battleId is `fnv1a(`${attackerId}|${targetId}|${resolvedAt}`)
+ * .toString(16)`. The input is never mutated; a fresh outcome is returned.
  */
 export function resolveBattle(input: ResolveBattleInput): BattleOutcome {
   assertNonEmptyString(input.attackerId, 'attackerId')
   assertNonEmptyString(input.targetId, 'targetId')
   assertPositiveAt(input.resolvedAt)
+  assertConquestPermitted({
+    targetId: input.targetId,
+    ownerPlayer: input.targetOwner,
+    attemptedAt: input.resolvedAt,
+  })
   const casualtyRate = input.casualtyRate ?? BATTLE_CASUALTY_RATE
   assertCasualtyRate(casualtyRate, 'casualtyRate')
 

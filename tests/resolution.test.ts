@@ -13,6 +13,8 @@ import type { BattleOutcome, ResolveBattleInput } from '../src/sim/combat/resolu
 import { fnv1a } from '../src/sim/planets/hash'
 import { attackPower as lockedAttackPower } from '../src/sim/player/estimator'
 import { defensePower as lockedDefensePower } from '../src/sim/structures/effects'
+import type { PlayerState } from '../src/sim/player/types'
+import { CONQUEST_PROTECTED_MESSAGE } from '../src/sim/combat/home-immunity'
 
 const AT = 1_700_000_000_000
 
@@ -21,6 +23,30 @@ const AT = 1_700_000_000_000
 // tier 1 = 5,000 (defeat).
 const TURRETS = 8
 const POP = 40_000
+
+/** A target owner whose home world is a different, protected world. */
+function player(ownerId: string, homeName: string): PlayerState {
+  return {
+    playerId: ownerId,
+    homePlanet: {
+      name: homeName,
+      entry: { name: homeName, hostname: `${homeName} Host`, systemCount: 1, tier: 1 },
+      tier: 1,
+      baselineIncomePerSec: 10,
+      populationCapMultiplier: 1,
+      claimedAt: AT,
+      isHome: true,
+      unconquerable: true,
+      population: 0,
+      garrison: 0,
+      fleet: 0,
+    },
+    colonies: [],
+    wallet: { credits: 0, alloys: 0 },
+    structureLevels: {},
+    lastTickAt: AT,
+  }
+}
 
 function resolveInput(
   overrides: Partial<ResolveBattleInput> = {},
@@ -33,6 +59,7 @@ function resolveInput(
     turretLevels: TURRETS,
     population: POP,
     resolvedAt: AT,
+    targetOwner: null,
     ...overrides,
   }
 }
@@ -325,6 +352,33 @@ describe('resolveBattle — validation', () => {
     )
     expect(resolveBattle(resolveInput({ shipyardTier: 3, casualtyRate: 1 })).result).toBe(
       'victory',
+    )
+  })
+})
+
+describe('resolveBattle — home-immunity guard (T08 wired)', () => {
+  it('throws when a resolution touches the owner\'s protected home world', () => {
+    const owner = player('owner-1', 'home-1')
+    expect(() =>
+      resolveBattle(resolveInput({ targetId: 'home-1', targetOwner: owner })),
+    ).toThrow(Error)
+    expect(() =>
+      resolveBattle(resolveInput({ targetId: 'home-1', targetOwner: owner })),
+    ).toThrow(CONQUEST_PROTECTED_MESSAGE)
+  })
+
+  it('resolves normally against an owned NON-home world (the owner\'s colony)', () => {
+    const owner = player('owner-1', 'owner-home')
+    const outcome = resolveBattle(
+      resolveInput({ targetId: 'colony-9', targetOwner: owner }),
+    )
+    expect(outcome.targetId).toBe('colony-9')
+    expect(outcome.result).toBe('stalemate')
+  })
+
+  it('resolves normally against an unowned target (targetOwner null)', () => {
+    expect(resolveBattle(resolveInput({ targetOwner: null })).battleId).toBe(
+      resolveBattle(resolveInput({ targetOwner: null })).battleId,
     )
   })
 })

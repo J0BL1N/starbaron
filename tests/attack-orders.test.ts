@@ -14,12 +14,37 @@ import {
 import type { AttackOrder } from '../src/sim/combat/attack-orders'
 import { fnv1a } from '../src/sim/planets/hash'
 import { PVP_CONSTANTS } from '../src/sim/player/estimator'
-import type { WalletState } from '../src/sim/player/types'
+import type { PlayerState, WalletState } from '../src/sim/player/types'
+import { HOME_WORLD_IMMUNITY_REASON } from '../src/sim/combat/home-immunity'
 
 const AT = 1_700_000_000_000
 
 function wallet(credits = 10_000, alloys = 0): WalletState {
   return { credits, alloys }
+}
+
+/** A target owner whose home world is a different, protected world. */
+function player(ownerId: string, homeName: string): PlayerState {
+  return {
+    playerId: ownerId,
+    homePlanet: {
+      name: homeName,
+      entry: { name: homeName, hostname: `${homeName} Host`, systemCount: 1, tier: 1 },
+      tier: 1,
+      baselineIncomePerSec: 10,
+      populationCapMultiplier: 1,
+      claimedAt: AT,
+      isHome: true,
+      unconquerable: true,
+      population: 0,
+      garrison: 0,
+      fleet: 0,
+    },
+    colonies: [],
+    wallet: wallet(),
+    structureLevels: {},
+    lastTickAt: AT,
+  }
 }
 
 function targetRef(kind: 'planet' | 'system', id: string): {
@@ -42,6 +67,7 @@ function launchInput(
     launchAt: AT,
     speedPcPerSec: 1,
     wallet: wallet(),
+    targetOwner: null,
     ...overrides,
   }
 }
@@ -190,6 +216,42 @@ describe('launchAttack — validation', () => {
     expect(() =>
       launchAttack(launchInput({ speedPcPerSec: 1e-308 })),
     ).toThrow(RangeError)
+  })
+})
+
+describe('launchAttack — home-immunity guard (T08 wired)', () => {
+  it('throws the guard Error when the target is a protected home world of its owner', () => {
+    const owner = player('owner-1', 'home-1')
+    expect(() =>
+      launchAttack(
+        launchInput({
+          targetOwner: owner,
+          targetRef: targetRef('planet', 'home-1'),
+        }),
+      ),
+    ).toThrow(Error)
+    expect(() =>
+      launchAttack(
+        launchInput({
+          targetOwner: owner,
+          targetRef: targetRef('planet', 'home-1'),
+        }),
+      ),
+    ).toThrow(HOME_WORLD_IMMUNITY_REASON)
+  })
+
+  it('allows a launch against an owned non-home world (a colony of the owner)', () => {
+    const owner = player('owner-1', 'owner-home')
+    const { order } = launchAttack(
+      launchInput({ targetOwner: owner, targetRef: targetRef('planet', 'colony-9') }),
+    )
+    expect(order.status).toBe('launched')
+    expect(order.targetRef.id).toBe('colony-9')
+  })
+
+  it('allows a launch against an unowned target (targetOwner null)', () => {
+    const { order } = launchAttack(launchInput({ targetOwner: null }))
+    expect(order.status).toBe('launched')
   })
 })
 
