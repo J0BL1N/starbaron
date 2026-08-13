@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { queryBody, queryGalaxy, querySystem } from '../src/sim/world/api'
 import { buildBodyRecord } from '../src/sim/world/body'
 import { buildGalaxyRecord, registerSystem } from '../src/sim/world/galaxy'
 import { bodyId, galaxyId, systemId } from '../src/sim/world/identity'
+import type { BodyId, GalaxyId, SystemId } from '../src/sim/world/identity'
 import { ownershipFor } from '../src/sim/player/ownership'
 import type { UniverseState } from '../src/sim/world/reconstruct'
 import { buildSystemRecord, registerBody } from '../src/sim/world/system'
 import { hoverInfoFor } from '../src/sim/ui/hover'
+import type { HoverTarget } from '../src/sim/ui/hover'
+import { contractFor } from '../src/sim/ui/info'
+import type { InfoField } from '../src/sim/ui/info'
 import { hoverIntelInfo, intelStatusLine } from '../src/sim/ui/hover-intel'
 import type { HoverIntelInput } from '../src/sim/ui/hover-intel'
 import type { TargetIntel } from '../src/sim/intel/levels'
@@ -132,6 +137,55 @@ function buildFixture(): UniverseState {
 
 const UNIVERSE = buildFixture()
 
+/** The caller-composed gate inputs: the target's contract field set and the
+ * value map the gate projects over, derived from the fixture universe (the
+ * same world facts hover-intel used to build them before the round-2 fix made
+ * them caller-supplied inputs). */
+function contractFieldsFor(kind: HoverTarget['kind']): readonly InfoField[] {
+  return contractFor(kind).fields
+}
+
+function gatedValuesFor(target: HoverTarget): ReadonlyMap<string, string | number | null> {
+  const values = new Map<string, string | number | null>()
+  switch (target.kind) {
+    case 'galaxy': {
+      const galaxy = queryGalaxy(UNIVERSE, target.id as GalaxyId)
+      if (galaxy !== null) {
+        values.set('name', galaxy.name)
+        values.set('id', galaxy.id)
+        values.set('class', galaxy.class)
+        values.set('radius', galaxy.radius)
+        values.set('systemCount', galaxy.systemIds.length)
+      }
+      break
+    }
+    case 'system': {
+      const system = querySystem(UNIVERSE, target.id as SystemId)
+      if (system !== null) {
+        values.set('name', system.name)
+        values.set('id', system.id)
+        const starType = system.star.starType
+        if (starType !== undefined && starType.trim() !== '') {
+          values.set('type', starType)
+        }
+        values.set('bodyCount', system.bodyIds.length)
+      }
+      break
+    }
+    case 'body': {
+      const body = queryBody(UNIVERSE, target.id as BodyId)
+      if (body !== null) {
+        values.set('name', body.name)
+        values.set('id', body.id)
+        values.set('type', body.type)
+        values.set('radius', body.radius)
+      }
+      break
+    }
+  }
+  return values
+}
+
 function ownershipMap(): ReadonlyMap<string, string> {
   return new Map([
     ownershipFor(ALPHA_PLANET, OWNER_A, null, NOW, 'home-assignment', true, true),
@@ -162,8 +216,11 @@ function intel(overrides: Partial<TargetIntel> = {}): TargetIntel {
 }
 
 function hoverInput(overrides: Partial<HoverIntelInput> = {}): HoverIntelInput {
+  const target = overrides.target ?? { kind: 'body', id: ALPHA_PLANET }
   return {
-    target: { kind: 'body', id: ALPHA_PLANET },
+    target,
+    contractFields: contractFieldsFor(target.kind),
+    values: gatedValuesFor(target),
     universe: UNIVERSE,
     viewer: viewer(),
     targetContext: targetContext(ALPHA_PLANET, OWNER_A),
@@ -416,20 +473,35 @@ describe('P6-T09 intelStatusLine — deterministic formatting', () => {
     expect(intelStatusLine(intel(), NOW)).toBe('Scouted intel · fresh · updated 0s ago')
   })
 
-  it('formats the aging case with floored hours', () => {
-    expect(intelStatusLine(intel(), NOW + 8 * HOUR)).toBe(
-      'Scouted intel · aging · updated 8h ago',
+  it('floors fractional seconds and minutes, crossing the minute boundary at exactly 60s', () => {
+    expect(intelStatusLine(intel(), NOW + 1_900)).toBe(
+      'Scouted intel · fresh · updated 1s ago',
+    )
+    expect(intelStatusLine(intel(), NOW + 60_000)).toBe(
+      'Scouted intel · fresh · updated 1m ago',
+    )
+    expect(intelStatusLine(intel(), NOW + 90_000)).toBe(
+      'Scouted intel · fresh · updated 1m ago',
+    )
+    expect(intelStatusLine(intel(), NOW + 3_570_000)).toBe(
+      'Scouted intel · fresh · updated 59m ago',
     )
   })
 
-  it('formats the stale case with floored days', () => {
-    expect(intelStatusLine(intel(), NOW + 48 * HOUR)).toBe(
-      'Scouted intel · stale · updated 2d ago',
+  it('floors a fractional-hour age down to whole hours', () => {
+    expect(intelStatusLine(intel(), NOW + 23.7 * HOUR)).toBe(
+      'Scouted intel · aging · updated 23h ago',
     )
   })
 
-  it('formats an expired record with a timestamp by its age', () => {
-    expect(intelStatusLine(intel(), NOW + 80 * HOUR)).toBe(
+  it('floors a fractional-day age down to whole days', () => {
+    expect(intelStatusLine(intel(), NOW + 1.9 * 24 * HOUR)).toBe(
+      'Scouted intel · stale · updated 1d ago',
+    )
+  })
+
+  it('formats an expired record with a timestamp by its floored age', () => {
+    expect(intelStatusLine(intel(), NOW + 89 * HOUR)).toBe(
       'Scouted intel · expired · updated 3d ago',
     )
   })
@@ -465,13 +537,10 @@ describe('P6-T09 determinism, immutability and validation', () => {
     expect([...map].sort()).toEqual(snapshot)
   })
 
-  it('throws RangeError on a non-positive or non-finite at in hoverIntelInfo', () => {
+  it('throws RangeError on a non-positive or non-finite at in both entry points', () => {
     for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => hoverIntelInfo(hoverInput({ at: bad }))).toThrow(RangeError)
     }
-  })
-
-  it('throws RangeError on a non-positive or non-finite at in intelStatusLine', () => {
     for (const bad of [0, -1, Number.NaN, Number.NEGATIVE_INFINITY]) {
       expect(() => intelStatusLine(intel(), bad)).toThrow(RangeError)
     }

@@ -59,11 +59,8 @@ import type { Freshness } from '../intel/staleness'
 import { REVEAL_MATRIX } from '../intel/reports'
 import { hoverInfoFor } from './hover'
 import type { HoverInfo, HoverStat, HoverTarget } from './hover'
-import { contractFor } from './info'
 import type { InfoField, InfoLevel } from './info'
 import { assertPositiveAt } from './validate'
-import { queryBody, queryGalaxy, querySystem } from '../world/api'
-import type { BodyId, GalaxyId, SystemId } from '../world/identity'
 import type { UniverseState } from '../world/reconstruct'
 
 /** The composed PvP-gated hover tooltip payload. `blocked` is null exactly
@@ -78,13 +75,18 @@ export interface IntelHoverInfo {
 }
 
 /** The hover-intel integration input: the P4 hover target plus the P6 gate's
- * viewer/target/intel inputs for the SAME object. */
+ * viewer/target/intel inputs for the SAME object. `contractFields` is the
+ * target's contract field set and `values` the value map the gate projects
+ * over — both are SUPPLIED by the caller (this module composes the gated
+ * hover; it never queries the world or the info contract itself). */
 export interface HoverIntelInput {
   target: HoverTarget
   universe: UniverseState
   viewer: ViewerContext
   targetContext: TargetContext
   intel: TargetIntel | null
+  contractFields: readonly InfoField[]
+  values: ReadonlyMap<string, string | number | null>
   ownership?: ReadonlyMap<string, string>
   at: number
 }
@@ -212,59 +214,6 @@ function mapVisible(fields: readonly InfoField[]): HoverStat[] {
   }))
 }
 
-/** The world-derived values map for the gate's contract projection: only the
- * facts directly readable from the universe are provided (identity, type,
- * radius, counts); owner/alliance/intel tier facts that live outside the
- * world state project to state 'unknown'. Null when the target does not
- * resolve against the universe. */
-function valuesForTarget(
-  target: HoverTarget,
-  universe: UniverseState,
-): ReadonlyMap<string, string | number | null> | null {
-  switch (target.kind) {
-    case 'galaxy': {
-      const galaxy = queryGalaxy(universe, target.id as GalaxyId)
-      if (galaxy === null) {
-        return null
-      }
-      const values = new Map<string, string | number | null>()
-      values.set('name', galaxy.name)
-      values.set('id', galaxy.id)
-      values.set('class', galaxy.class)
-      values.set('radius', galaxy.radius)
-      values.set('systemCount', galaxy.systemIds.length)
-      return values
-    }
-    case 'system': {
-      const system = querySystem(universe, target.id as SystemId)
-      if (system === null) {
-        return null
-      }
-      const values = new Map<string, string | number | null>()
-      values.set('name', system.name)
-      values.set('id', system.id)
-      const starType = system.star.starType
-      if (starType !== undefined && starType.trim() !== '') {
-        values.set('type', starType)
-      }
-      values.set('bodyCount', system.bodyIds.length)
-      return values
-    }
-    case 'body': {
-      const body = queryBody(universe, target.id as BodyId)
-      if (body === null) {
-        return null
-      }
-      const values = new Map<string, string | number | null>()
-      values.set('name', body.name)
-      values.set('id', body.id)
-      values.set('type', body.type)
-      values.set('radius', body.radius)
-      return values
-    }
-  }
-}
-
 /**
  * The PvP-gated hover compose (see the module docstring). Validation: `at`
  * must be positive finite, target.id must equal targetContext.targetId, and
@@ -273,18 +222,14 @@ function valuesForTarget(
  * target does not resolve against the universe. The inputs are never mutated.
  */
 export function hoverIntelInfo(input: HoverIntelInput): IntelHoverInfo | null {
-  const { target, universe, viewer, targetContext, intel, ownership, at } = input
+  const { target, universe, viewer, targetContext, intel, contractFields, values, ownership, at } = input
   assertPositiveAt(at)
   assertTargetMatch(target, targetContext)
-  const values = valuesForTarget(target, universe)
-  if (values === null) {
-    return null
-  }
   const gated = pvpGatedView({
     viewer,
     target: targetContext,
     intel,
-    contractFields: contractFor(target.kind).fields,
+    contractFields: [...contractFields],
     values,
     at,
   })
