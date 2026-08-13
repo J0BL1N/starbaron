@@ -88,8 +88,9 @@ function assertIntelLevel(value: unknown, name: string): asserts value is IntelL
  * / 1000; a null lastUpdatedAt (never updated) is 'expired'. Boundaries land
  * on the older state: age < fresh window → 'fresh'; age < aging window →
  * 'aging'; age < stale window → 'stale'; otherwise 'expired'. Validation:
- * the level must be a known intel level and `at` positive finite
- * (assertPositiveAt) — violations throw a RangeError.
+ * the level must be a known intel level, `at` positive finite and a non-null
+ * lastUpdatedAt positive finite (assertPositiveAt) — violations throw a
+ * RangeError.
  */
 export function freshnessFor(intel: TargetIntel, at: number): Freshness {
   assertIntelLevel(intel.level, 'intel.level')
@@ -97,6 +98,7 @@ export function freshnessFor(intel: TargetIntel, at: number): Freshness {
   if (intel.lastUpdatedAt === null) {
     return 'expired'
   }
+  assertPositiveAt(intel.lastUpdatedAt)
   const ageSeconds = (at - intel.lastUpdatedAt) / 1000
   if (ageSeconds < FRESH_WINDOW_SECONDS) {
     return 'fresh'

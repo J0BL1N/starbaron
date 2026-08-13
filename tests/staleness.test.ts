@@ -150,6 +150,20 @@ describe('P6-T06 freshnessFor — the age ladder', () => {
     expect(() => freshnessFor(target(), Number.POSITIVE_INFINITY)).toThrow(RangeError)
   })
 
+  it('throws a RangeError for a non-positive, non-finite or NaN lastUpdatedAt', () => {
+    for (const bad of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      expect(() => freshnessFor(target({ lastUpdatedAt: bad }), BASE)).toThrow(
+        RangeError,
+      )
+    }
+  })
+
   it('throws a RangeError for a bogus intel level', () => {
     expect(() =>
       freshnessFor(target({ level: 'bogus' as IntelLevel }), BASE),
@@ -187,6 +201,20 @@ describe('P6-T06 decayedLevel — the decay table', () => {
       decayedLevel(target({ level: 'bogus' as IntelLevel }), BASE),
     ).toThrow(RangeError)
   })
+
+  it('throws a RangeError for a non-positive, non-finite or NaN lastUpdatedAt', () => {
+    for (const bad of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      expect(() => decayedLevel(target({ lastUpdatedAt: bad }), BASE)).toThrow(
+        RangeError,
+      )
+    }
+  })
 })
 
 describe('P6-T06 needsRescout — the re-scout hook', () => {
@@ -219,6 +247,20 @@ describe('P6-T06 needsRescout — the re-scout hook', () => {
 
   it('throws a RangeError for a bad at', () => {
     expect(() => needsRescout(target(), 0)).toThrow(RangeError)
+  })
+
+  it('throws a RangeError for a non-positive, non-finite or NaN lastUpdatedAt', () => {
+    for (const bad of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      expect(() => needsRescout(target({ lastUpdatedAt: bad }), BASE)).toThrow(
+        RangeError,
+      )
+    }
   })
 })
 
@@ -286,6 +328,20 @@ describe('P6-T06 applyDecay — the store decay pass', () => {
   it('throws a RangeError for a bad at or a blank targetId', () => {
     expect(() => applyDecay(target(), 0)).toThrow(RangeError)
     expect(() => applyDecay(target({ targetId: '   ' }), BASE)).toThrow(RangeError)
+  })
+
+  it('throws a RangeError for a non-positive, non-finite or NaN lastUpdatedAt', () => {
+    for (const bad of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      expect(() => applyDecay(target({ lastUpdatedAt: bad }), BASE)).toThrow(
+        RangeError,
+      )
+    }
   })
 })
 

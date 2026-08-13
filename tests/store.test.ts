@@ -248,6 +248,19 @@ describe('P6-T08 storeApplyDecay — the store decay pass', () => {
     ).toThrow(RangeError)
   })
 
+  it('throws a RangeError for a stored record with a non-positive, non-finite or NaN lastUpdatedAt', () => {
+    for (const bad of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      const s = storeWith(rec({ targetId: 't1', lastUpdatedAt: bad }))
+      expect(() => storeApplyDecay(s, BASE)).toThrow(RangeError)
+    }
+  })
+
   it('returns a fresh store and never mutates the input', () => {
     const s = storeWith(rec({ targetId: 't1', level: 'scouted', sources: ['m1'] }))
     const originalMap = s.records
