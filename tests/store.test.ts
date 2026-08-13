@@ -7,7 +7,11 @@ import {
   storeRescoutNeeded,
 } from '../src/sim/intel/store'
 import type { IntelStore } from '../src/sim/intel/store'
-import { AGING_WINDOW_SECONDS, STALE_WINDOW_SECONDS } from '../src/sim/intel/staleness'
+import {
+  AGING_WINDOW_SECONDS,
+  STALE_WINDOW_SECONDS,
+  decayedLevel,
+} from '../src/sim/intel/staleness'
 import type { IntelLevel, TargetIntel } from '../src/sim/intel/levels'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -160,7 +164,7 @@ describe('P6-T08 storeApplyDecay — the store decay pass', () => {
     })
   })
 
-  it('aging strips one rung and stale strips two, keeping the timestamp', () => {
+  it('FINDING 2: decay is a READ PROJECTION — storeApplyDecay keeps the stored levels unchanged', () => {
     const aging = storeApplyDecay(
       storeWith(rec({ targetId: 't1', level: 'full intelligence' })),
       BASE + 12 * HOUR_MS,
@@ -169,13 +173,13 @@ describe('P6-T08 storeApplyDecay — the store decay pass', () => {
       storeWith(rec({ targetId: 't1', level: 'full intelligence' })),
       BASE + 48 * HOUR_MS,
     )
-    expect(aging.records.get('t1')?.level).toBe('deep recon')
-    expect(stale.records.get('t1')?.level).toBe('scouted')
+    expect(aging.records.get('t1')?.level).toBe('full intelligence')
+    expect(stale.records.get('t1')?.level).toBe('full intelligence')
     expect(aging.records.get('t1')?.lastUpdatedAt).toBe(BASE)
     expect(stale.records.get('t1')?.lastUpdatedAt).toBe(BASE)
   })
 
-  it('drops expired records and never-updated records', () => {
+  it('drops expired records and never-updated records, keeping the surviving levels', () => {
     const s = storeWith(
       rec({ targetId: 'a', level: 'scouted', lastUpdatedAt: BASE }),
       rec({
@@ -192,20 +196,32 @@ describe('P6-T08 storeApplyDecay — the store decay pass', () => {
     )
     const result = storeApplyDecay(s, BASE + AGING_WINDOW_SECONDS * 1000)
     expect(result.records.size).toBe(2)
-    expect(result.records.get('a')?.level).toBe('observed')
-    expect(result.records.get('b')?.level).toBe('scouted')
+    expect(result.records.get('a')?.level).toBe('scouted')
+    expect(result.records.get('b')?.level).toBe('full intelligence')
     expect(result.records.has('c')).toBe(false)
     expect(result.records.has('d')).toBe(false)
   })
 
-  it('repeated passes keep the original timestamp — decay never resets it', () => {
+  it('FINDING 2: repeated passes keep the level AND the original timestamp — decay never compounds or resets', () => {
     const s = storeWith(rec({ targetId: 't1', level: 'scouted', lastUpdatedAt: BASE }))
     const pass1 = storeApplyDecay(s, BASE + 12 * HOUR_MS)
     const pass2 = storeApplyDecay(pass1, BASE + 25 * HOUR_MS)
     expect(pass1.records.get('t1')?.lastUpdatedAt).toBe(BASE)
     expect(pass2.records.get('t1')?.lastUpdatedAt).toBe(BASE)
-    expect(pass1.records.get('t1')?.level).toBe('scanned')
-    expect(pass2.records.get('t1')?.level).toBe('none')
+    expect(pass1.records.get('t1')?.level).toBe('scouted')
+    expect(pass2.records.get('t1')?.level).toBe('scouted')
+  })
+
+  it('FINDING 2: decayedLevel still projects the read-time rung subtraction after storeApplyDecay', () => {
+    const s = storeWith(rec({ targetId: 't1', level: 'full intelligence' }))
+    const decayed = storeApplyDecay(s, BASE + 12 * HOUR_MS)
+    expect(decayed.records.get('t1')?.level).toBe('full intelligence')
+    expect(decayedLevel(decayed.records.get('t1')!, BASE + 12 * HOUR_MS)).toBe(
+      'deep recon',
+    )
+    expect(decayedLevel(decayed.records.get('t1')!, BASE + 48 * HOUR_MS)).toBe(
+      'scouted',
+    )
   })
 
   it('an empty store decays to an empty store', () => {
@@ -494,7 +510,7 @@ describe('P6-T08 determinism and purity', () => {
     expect(out.records.get('t1')?.level).toBe('scouted')
     expect(out.records.get('t1')?.sources).toEqual(['a', 'b'])
     expect(storeApplyDecay(s, BASE + 12 * HOUR_MS).records.get('t1')?.level).toBe(
-      'observed',
+      'scanned',
     )
     expect(storeRescoutNeeded(s, BASE + 12 * HOUR_MS)).toEqual([])
     expect(storeQuery(s, 't1')?.level).toBe('scanned')

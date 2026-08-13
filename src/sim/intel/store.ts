@@ -27,8 +27,13 @@
  *
  * THE DECAY PASS (storeApplyDecay): applies staleness.applyDecay (P6-T06) to
  * every record at `at`; an expired record (or a never-updated one) returns
- * null and is DROPPED from the new store. Non-expired records keep the same
- * lastUpdatedAt (decay never resets a timestamp — only a fresh record does).
+ * null and is DROPPED from the new store. Non-expired records keep their
+ * level UNCHANGED and the same lastUpdatedAt (decay never resets a timestamp
+ * — only a fresh record does). Decay is a READ PROJECTION ONLY: the stored
+ * level is the raw/promoted level, and the rung subtraction is computed on
+ * READ via staleness.decayedLevel at `at` — so running the decay job
+ * repeatedly never compounds the subtraction and every reader projects the
+ * same level from the same record.
  *
  * THE READ (storeQuery): the store read — the record for a targetId, or null
  * when absent.
@@ -163,10 +168,11 @@ export function storeRecord(store: IntelStore, intel: TargetIntel): IntelStore {
  * positive finite by assertPositiveAt; the store's ownerId non-empty).
  * staleness.applyDecay runs per record — an expired record (or a never
  * updated one) returns null and is DROPPED; every other record is re-stored
- * with its decayed level and its SAME lastUpdatedAt (decay never resets a
- * timestamp; only a fresh report does). A malformed stored record raises the
- * RangeError applyDecay throws. Returns a fresh store; the input is never
- * mutated.
+ * with its level UNCHANGED and its SAME lastUpdatedAt (decay is a read
+ * projection only — the rung subtraction is computed on READ by
+ * staleness.decayedLevel at `at`, never written back; decay never resets a
+ * timestamp). A malformed stored record raises the RangeError applyDecay
+ * throws. Returns a fresh store; the input is never mutated.
  */
 export function storeApplyDecay(store: IntelStore, at: number): IntelStore {
   assertStore(store)

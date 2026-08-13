@@ -43,6 +43,7 @@
  * tables hold only primitives, so Object.freeze is total (deep) here.
  */
 
+import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
 import type { InfoState } from '../ui/info'
 
 /** The scouting quality ladder: how deep the intelligence about a target is.
@@ -95,30 +96,6 @@ const INFO_STATES: readonly InfoState[] = Object.freeze([
   'stale',
   'verified',
 ])
-
-/** Local strict non-empty-string check mirroring ui/validate's
- * assertNonEmptyString, kept here so this module carries no runtime value
- * import from the UI layer (the P6-T01 convention). Trims; empty after
- * trimming → RangeError. */
-function assertNonEmptyString(value: string, name: string): string {
-  const trimmed = value.trim()
-  if (trimmed === '') {
-    throw new RangeError(
-      `${name} must be a non-empty string, got ${JSON.stringify(value)}`,
-    )
-  }
-  return trimmed
-}
-
-/** Local positive-finite timestamp check mirroring ui/validate's
- * assertPositiveAt (same RangeError text). */
-function assertPositiveAt(at: number): void {
-  if (!Number.isFinite(at) || at <= 0) {
-    throw new RangeError(
-      `at must be a positive finite number (milliseconds), got ${at}`,
-    )
-  }
-}
 
 export function isIntelLevel(value: unknown): value is IntelLevel {
   return (INTEL_LEVELS as readonly unknown[]).includes(value)

@@ -308,14 +308,26 @@ describe('P6-T09 hoverIntelInfo — stranger with fresh intel', () => {
     expect(result.base.stats.some((stat) => stat.label === 'Garrison')).toBe(false)
   })
 
-  it('full intelligence reveals owner-tier fields as Unknown but never the owner identity', () => {
+  it('FINDING 1: full intelligence is owner-only — a stranger sees intel fields but never owner or alliance fields', () => {
     const result = hoverIntelInfo(
       hoverInput({ intel: intel({ level: 'full intelligence' }) }),
     )!
-    expect(result.base.stats).toContainEqual({ label: 'Population', value: 'Unknown' })
-    expect(result.base.stats).toContainEqual({ label: 'Structures', value: 'Unknown' })
+    expect(result.base.stats).toContainEqual({ label: 'Garrison', value: 'Unknown' })
+    expect(result.base.stats).toContainEqual({ label: 'Defense power', value: 'Unknown' })
+    expect(result.base.stats).toContainEqual({ label: 'Fleet strength', value: 'Unknown' })
+    expect(result.base.stats).toContainEqual({ label: 'Estimated odds', value: 'Unknown' })
+    expect(result.base.stats.some((stat) => stat.label === 'Population')).toBe(false)
+    expect(result.base.stats.some((stat) => stat.label === 'Alliance held')).toBe(false)
     expect(result.base.ownedBy).toBeNull()
     expect(result.intelLine).toBe('Full intelligence · fresh · updated 0s ago')
+  })
+
+  it('FINDING 1: a stranger with scanned intel receives no alliance-tier stats', () => {
+    const result = hoverIntelInfo(hoverInput({ intel: intel({ level: 'scanned' }) }))!
+    expect(result.base.stats).toContainEqual({ label: 'Garrison', value: 'Unknown' })
+    expect(result.base.stats).toContainEqual({ label: 'Defense power', value: 'Unknown' })
+    expect(result.base.stats.some((stat) => stat.label === 'Alliance held')).toBe(false)
+    expect(result.base.stats.some((stat) => stat.label === 'Population')).toBe(false)
   })
 
   it('the status line reports the stored level with the current freshness and age', () => {

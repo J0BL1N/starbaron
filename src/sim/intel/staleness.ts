@@ -30,9 +30,12 @@
  *
  * THE STORE UPDATE (applyDecay): the immutable per-target decay pass. An
  * expired record returns null — the store drops it. Every other record is a
- * fresh object with the decayed level and the SAME lastUpdatedAt: decay never
- * resets the timestamp, so the age keeps counting; only a fresh report
- * (recordIntel) resets it.
+ * fresh object with the level UNCHANGED and the SAME lastUpdatedAt. Decay is
+ * a READ PROJECTION ONLY: the stored level is the raw/promoted level (P6-T02),
+ * and the rung subtraction is computed on READ via decayedLevel at `at` — so
+ * running the decay job repeatedly never compounds the rung subtraction.
+ * applyDecay never resets the timestamp, so the age keeps counting; only a
+ * fresh report (recordIntel) resets it.
  *
  * RE-SCOUT HOOK (needsRescout): true once the report leaves the trusted band —
  * stale or expired, i.e. age at or beyond the aging window (24h). The prompt
@@ -135,11 +138,12 @@ export function needsRescout(intel: TargetIntel, at: number): boolean {
 /**
  * The immutable per-target decay pass. An expired record (age at or beyond
  * the stale window, or never updated) returns null — the store drops it. Every
- * other record is a fresh TargetIntel with the decayed level, the SAME
- * lastUpdatedAt (decay never resets the timestamp; only recordIntel does) and
- * a fresh copy of the sources list. Validation: targetId non-empty, level a
- * known intel level, `at` positive finite (RangeError on violation). The input
- * record is never mutated.
+ * other record is a fresh TargetIntel with the level UNCHANGED (decay is a
+ * read projection — the rung subtraction is computed on READ by decayedLevel
+ * at `at`, never written back), the SAME lastUpdatedAt (decay never resets
+ * the timestamp; only recordIntel does) and a fresh copy of the sources list.
+ * Validation: targetId non-empty, level a known intel level, `at` positive
+ * finite (RangeError on violation). The input record is never mutated.
  */
 export function applyDecay(intel: TargetIntel, at: number): TargetIntel | null {
   const targetId = assertNonEmptyString(intel.targetId, 'targetId')
@@ -150,7 +154,7 @@ export function applyDecay(intel: TargetIntel, at: number): TargetIntel | null {
   }
   return {
     targetId,
-    level: decayedLevel(intel, at),
+    level: intel.level,
     lastUpdatedAt: intel.lastUpdatedAt,
     sources: [...intel.sources],
   }

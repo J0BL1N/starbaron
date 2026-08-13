@@ -17,29 +17,36 @@
  * when T04's recordMissionIntel wires it in; a documented default
  * otherwise).
  *
- * THE REVEAL MATRIX (the single mapping table — the roadmap's intel ladder
- * onto the info contract's levels):
+ * THE REVEAL POLICY (REVEAL_MATRIX + revealKeysFor — the single mapping
+ * table, restructured as a FIELD-KEY reveal policy): for each ladder rung,
+ * the exact contract FIELD KEYS revealed, resolved per kind:
  *   none              → no fields (a 'none' report reveals nothing)
- *   observed          → public   (presence + class: identity + spatial facts)
- *   scanned           → alliance (the contract's first non-public tier: the
- *                                 owner-lite identity/type/class detail plus
- *                                 the owner's alliance-held facts)
- *   scouted           → intel    (the scouting tier: defenses + fleet
- *                                 presence + composition)
- *   deep recon        → intel    (the info contract carries ONE scouting
- *                                 tier, so deep recon resolves to the same
- *                                 tier as scouted; the 'fleet activity +
- *                                 defense detail' depth lives in the report
- *                                 VALUES, not in a separate reveal level)
- *   full intelligence → owner    (the complete picture: population,
- *                                 structures, income, plus everything below,
- *                                 incl. fleet activity)
+ *   observed          → the public keys only (identity + spatial facts)
+ *   scanned           → public keys + the scanned-summary intel keys
+ *                       (SCANNED_SUMMARY_KEYS — the "structures + defences"
+ *                       detail keys from the contract's intel tier; the raw
+ *                       population/structures figures are OWNER-tier and are
+ *                       never revealed below the owner tier)
+ *   scouted           → public + every intel key (defence + fleet presence)
+ *   deep recon        → the same key set as scouted (the info contract
+ *                       carries ONE scouting tier, so deep recon resolves to
+ *                       the same reveal; the added depth lives in the report
+ *                       VALUES, not in a separate reveal level)
+ *   full intelligence → EVERY contract key — the complete picture
+ *                       (population, structures, income, alliance-held facts,
+ *                       intel detail). This rung is OWNER-path-only: the PvP
+ *                       gate never applies it for a stranger — pvp-gate
+ *                       clamps a stranger's 'full intelligence' record to the
+ *                       'deep recon' reveal (see pvp-gate.ts).
  *
- * The mapping is monotonic — a deeper intel level never hides a field an
- * earlier level revealed. `buildIntelReport` DELEGATES the field projection
- * to ui/info.projectInfo with viewerLevel = the mapped info level, so the
- * reveal keeps the info contract's field order, number formatting and
- * unknown/stale state rules.
+ * The policy NEVER emits an alliance-tier field on a stranger-visible rung:
+ * the stranger rungs draw ONLY from the contract's public + intel field sets
+ * (permissions' stranger grant { public, intel }), so alliance-held facts and
+ * the owner figures stay hidden. Monotonic: a deeper rung is always a
+ * superset of the earlier rungs. `buildIntelReport` filters the contract
+ * fields down to the rung's key set and DELEGATES the value projection to
+ * ui/info.projectInfo, so the reveal keeps the info contract's field order,
+ * number formatting and unknown/stale state rules.
  *
  * PURE module: every function derives only from its arguments — no
  * nondeterministic APIs, no module-level mutable state (the exported matrix
@@ -48,11 +55,11 @@
  * and caller-provided objects are never mutated.
  */
 
-import { contractFor, INFO_KINDS, projectInfo } from '../ui/info'
+import { contractFor, FIELD_DEFS, INFO_KINDS, projectInfo } from '../ui/info'
 import { INTEL_LEVELS, isIntelLevel } from './levels'
 import { fnv1a } from '../planets/hash'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
-import type { InfoField, InfoKind, InfoLevel } from '../ui/info'
+import type { InfoField, InfoKind, ObjectInfoContract } from '../ui/info'
 import type { IntelLevel } from './levels'
 
 /** The report's target object reference: the info-contract kind + id. */
@@ -84,20 +91,96 @@ export interface BuildIntelReportInput {
   source?: string
 }
 
+/** The ladder rungs above 'none', in locked ascending order. */
+const REVEAL_RUNGS: readonly Exclude<IntelLevel, 'none'>[] = Object.freeze([
+  'observed',
+  'scanned',
+  'scouted',
+  'deep recon',
+  'full intelligence',
+])
+
 /**
- * The locked reveal matrix: each intel ladder rung above 'none' opens the
- * info-contract tier named as its permitted level. Deep-frozen — the values
- * are primitives, so Object.freeze is total (deep). See the module docstring
- * for the per-rung rationale.
+ * The scanned-rung summary keys: the "structures + defences" detail from the
+ * info contract's INTEL tier (levels.ts coverageFor('scanned')). The raw
+ * population/structures figures are OWNER-tier and can never reach a
+ * stranger, so the scanned summary resolves onto the intel-tier defence
+ * detail keys only. A kind whose intel tier carries none of these keys
+ * reveals public keys alone at the scanned rung (galaxy). Deep-frozen.
+ */
+export const SCANNED_SUMMARY_KEYS: readonly string[] = Object.freeze([
+  'garrison',
+  'defensePower',
+])
+
+/**
+ * The FIELD-KEY reveal selection: the exact contract field keys a ladder rung
+ * reveals, derived from a field list (a kind's contract fields). The result
+ * follows the input field order (contract order), so the projection is
+ * deterministic. Stranger-visible rungs draw ONLY from the contract's public
+ * + intel field sets (permissions' stranger grant { public, intel }):
+ *   observed          → public keys
+ *   scanned           → public keys + SCANNED_SUMMARY_KEYS ∩ intel keys
+ *   scouted / deep    → public keys + every intel key
+ *     recon
+ *   full intelligence → every key (the owner-path reveal — the PvP gate never
+ *                       applies this rung for a stranger, pvp-gate.ts).
+ */
+export function revealKeysFor(
+  fields: readonly InfoField[],
+  level: Exclude<IntelLevel, 'none'>,
+): readonly string[] {
+  const publicKeys = fields
+    .filter((field) => field.level === 'public')
+    .map((field) => field.key)
+  const intelKeys = fields
+    .filter((field) => field.level === 'intel')
+    .map((field) => field.key)
+  switch (level) {
+    case 'observed':
+      return publicKeys
+    case 'scanned':
+      return [
+        ...publicKeys,
+        ...intelKeys.filter((key) => SCANNED_SUMMARY_KEYS.includes(key)),
+      ]
+    case 'scouted':
+    case 'deep recon':
+      return [...publicKeys, ...intelKeys]
+    case 'full intelligence':
+      return fields.map((field) => field.key)
+  }
+}
+
+/**
+ * The materialised per-kind reveal policy: for every kind and every ladder
+ * rung above 'none', the EXACT field keys revealed (derived from the
+ * contract's field defs through revealKeysFor, so the two can never drift).
+ * Deep-frozen — the values are primitives, so Object.freeze is total (deep).
+ * See the module docstring for the per-rung rationale.
+ */
+function revealMatrixFor(
+  kind: InfoKind,
+): Readonly<Record<Exclude<IntelLevel, 'none'>, readonly string[]>> {
+  const byRung = {} as Record<Exclude<IntelLevel, 'none'>, readonly string[]>
+  for (const rung of REVEAL_RUNGS) {
+    byRung[rung] = Object.freeze([...revealKeysFor(FIELD_DEFS[kind], rung)])
+  }
+  return Object.freeze(byRung)
+}
+
+/**
+ * The locked reveal matrix: the per-kind, per-rung field-key reveal policy.
+ * `revealKeysFor` is the shared selection rule (the PvP gate consumes it
+ * over its own contract fields); this table materialises it per kind for the
+ * report path and the contract tests.
  */
 export const REVEAL_MATRIX: Readonly<
-  Record<Exclude<IntelLevel, 'none'>, InfoLevel>
+  Record<InfoKind, Readonly<Record<Exclude<IntelLevel, 'none'>, readonly string[]>>>
 > = Object.freeze({
-  observed: 'public',
-  scanned: 'alliance',
-  scouted: 'intel',
-  'deep recon': 'intel',
-  'full intelligence': 'owner',
+  galaxy: revealMatrixFor('galaxy'),
+  system: revealMatrixFor('system'),
+  body: revealMatrixFor('body'),
 })
 
 /** The documented default report source, used when `source` is omitted. */
@@ -115,6 +198,20 @@ function isInfoKind(value: unknown): value is InfoKind {
   return (INFO_KINDS as readonly string[]).includes(value as string)
 }
 
+/** The contract narrowed to the exact fields a rung reveals (contract order
+ * preserved). Used so projectInfo can format the reveal without rank-based
+ * filtering: the reveal set is the policy, not the info tier. */
+function revealContract(
+  contract: ObjectInfoContract,
+  level: Exclude<IntelLevel, 'none'>,
+): ObjectInfoContract {
+  const keys = new Set(REVEAL_MATRIX[contract.kind][level])
+  return {
+    ...contract,
+    fields: contract.fields.filter((field) => keys.has(field.key)),
+  }
+}
+
 /**
  * Report generation. Validation (each throws a RangeError): observerId,
  * targetRef.id, targetName and an explicit source must be non-empty;
@@ -123,12 +220,12 @@ function isInfoKind(value: unknown): value is InfoKind {
  * finite (assertPositiveAt). The id is the deterministic formula
  * fnv1a(`${observerId}|${targetRef.id}|${observedAt}`).toString(16).
  * revealedFields is the reveal the intel level unlocks: for a 'none' level
- * no fields are revealed; otherwise the projection DELEGATES to
- * ui/info.projectInfo with viewerLevel = REVEAL_MATRIX[intelLevel], the
- * caller's fields map and (when given) the staleness map — so a missing or
- * null value projects to state 'unknown', a stale key to 'stale', and the
- * info contract's number formatting is applied. An omitted source defaults
- * to DEFAULT_REPORT_SOURCE. The input is never mutated; the targetRef is
+ * no fields are revealed; otherwise the contract is narrowed to the rung's
+ * exact field-key set (REVEAL_MATRIX) and the projection DELEGATES to
+ * ui/info.projectInfo over the narrowed contract — so a missing or null
+ * value projects to state 'unknown', a stale key to 'stale', and the info
+ * contract's number formatting is applied. An omitted source defaults to
+ * DEFAULT_REPORT_SOURCE. The input is never mutated; the targetRef is
  * copied.
  */
 export function buildIntelReport(input: BuildIntelReportInput): IntelReport {
@@ -147,9 +244,9 @@ export function buildIntelReport(input: BuildIntelReportInput): IntelReport {
     input.intelLevel === 'none'
       ? []
       : projectInfo({
-          contract,
+          contract: revealContract(contract, input.intelLevel),
           values: input.fields,
-          viewerLevel: REVEAL_MATRIX[input.intelLevel],
+          viewerLevel: 'owner',
           staleness: input.staleness ?? new Map<string, boolean>(),
         })
   return {

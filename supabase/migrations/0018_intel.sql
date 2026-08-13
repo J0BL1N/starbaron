@@ -29,11 +29,11 @@
 --     INTEL_LEVELS (none, observed, scanned, scouted, deep recon, full
 --     intelligence).
 --   * Timestamps: last_updated_at is the sim's lastUpdatedAt as an exact
---     numeric millisecond number (check last_updated_at > 0) — the exact
---     TS `number` contract (0017 round-4: numeric, NOT bigint, no
---     timestamptz mapper). A null lastUpdatedAt (a never-updated record)
---     never reaches SQL — the store drops it on the first decay pass, so
---     the column is NOT NULL.
+--     numeric millisecond number (0017 round-4: numeric, NOT bigint, no
+--     timestamptz mapper). NULL mirrors the TS never-updated state
+--     (store.ts allows lastUpdatedAt null), so the column is NULLABLE with
+--     `check (last_updated_at is null or last_updated_at > 0)` — a null
+--     (never updated) row is legal, a 0 or negative ms value is not.
 --   * sources: jsonb array mirror of TargetIntel.sources (the
 --     deterministic source ids) — structural CHECK only (jsonb_typeof =
 --     'array'); the string-content rule stays in the TS store invariants
@@ -56,17 +56,19 @@
 --    the store, mirrored here as the row's owner_id). target_id is the
 --    target object id (with owner_id, the store map's key). intel_level is
 --    the quality ladder as text + CHECK matching levels.ts INTEL_LEVELS
---    EXACTLY. last_updated_at is the sim's lastUpdatedAt (exact numeric ms,
---    > 0). sources is the TargetIntel.sources JSONB array (deterministic
---    source ids; string-content validation stays in TS). The PK (owner_id,
---    target_id) mirrors the store's targetId-keyed map per owner; the
---    owner_id index serves the per-owner store read.
+--    EXACTLY. last_updated_at is the sim's lastUpdatedAt (exact numeric ms;
+--    NULL mirrors the TS never-updated state, so the column is NULLABLE with
+--    check (last_updated_at is null or last_updated_at > 0)). sources is the
+--    TargetIntel.sources JSONB array (deterministic source ids; string-content
+--    validation stays in TS). The PK (owner_id, target_id) mirrors the store's
+--    targetId-keyed map per owner; the owner_id index serves the per-owner
+--    store read.
 -- ---------------------------------------------------------------------
 create table public.intel_record (
   owner_id        uuid not null references public.players (id) on delete cascade, -- the RECORDING player (who scouted)
   target_id       text not null,                                                  -- the target object id
   intel_level     text not null check (intel_level in ('none','observed','scanned','scouted','deep recon','full intelligence')), -- levels.ts INTEL_LEVELS, EXACT
-  last_updated_at numeric not null check (last_updated_at > 0), -- sim lastUpdatedAt in ms (round-4: exact numeric, not bigint)
+  last_updated_at numeric check (last_updated_at is null or last_updated_at > 0), -- sim lastUpdatedAt in ms (null = never updated; round-4: exact numeric, not bigint)
   sources         jsonb not null check (jsonb_typeof(sources) = 'array'),          -- TargetIntel.sources (deterministic source ids)
   primary key (owner_id, target_id)
 );

@@ -22,9 +22,10 @@
  *     line (the owner hover is byte-identical to the P4 hover).
  *
  * BASE VIEWER LEVEL: 'public' when the gate blocks; otherwise the gate's
- * reveal tier for an intel view (REVEAL_MATRIX maps the decayed level onto
- * the info ladder; a decayed-to-none view reads 'public'); otherwise the
- * relationship tier recovered from the visible fields' highest level.
+ * reveal tier for an intel view (the reveal policy draws ONLY on the
+ * contract's public + intel field sets, so a non-none intel view reads
+ * 'intel'; a decayed-to-none view reads 'public'); otherwise the relationship
+ * tier recovered from the visible fields' highest level.
  *
  * INTEL STATUS LINE: '<headline> · <freshness> · updated <age> ago'. The
  * headline derives from coverageFor(level): the text before the colon plus
@@ -56,7 +57,6 @@ import { coverageFor } from '../intel/levels'
 import type { IntelLevel, TargetIntel } from '../intel/levels'
 import { freshnessFor } from '../intel/staleness'
 import type { Freshness } from '../intel/staleness'
-import { REVEAL_MATRIX } from '../intel/reports'
 import { hoverInfoFor } from './hover'
 import type { HoverInfo, HoverStat, HoverTarget } from './hover'
 import type { InfoField, InfoLevel } from './info'
@@ -169,14 +169,13 @@ export function intelStatusLine(intel: TargetIntel, at: number): string {
   return statusLineFor(intel.level, freshnessFor(intel, at), intel.lastUpdatedAt, at)
 }
 
-/** The gate's reveal tier for an intel view: REVEAL_MATRIX maps the decayed
- * level onto the info ladder; a decayed-to-none view has no matrix entry and
- * reads 'public'. */
+/** The gate's reveal tier for an intel view: the reveal policy draws ONLY on
+ * the contract's public + intel field sets for a stranger, so every non-none
+ * intel view reads at the 'intel' tier (a decayed-to-none view reads
+ * 'public'). The base hover's stats are replaced by the gate's fields
+ * regardless — this tier only controls the identity-safe base overlay. */
 function revealInfoLevel(level: IntelLevel): InfoLevel {
-  if (level === 'none') {
-    return 'public'
-  }
-  return REVEAL_MATRIX[level]
+  return level === 'none' ? 'public' : 'intel'
 }
 
 /** The highest info tier present in a visible field list — the relationship

@@ -222,7 +222,7 @@ describe('P6-T06 needsRescout — the re-scout hook', () => {
   })
 })
 
-describe('P6-T06 applyDecay — the store update', () => {
+describe('P6-T06 applyDecay — the store decay pass', () => {
   it('a fresh report keeps its level, its timestamp and its sources', () => {
     const result = applyDecay(target({ level: 'scouted', sources: ['a'] }), BASE)
     expect(result).toEqual({
@@ -233,7 +233,7 @@ describe('P6-T06 applyDecay — the store update', () => {
     })
   })
 
-  it('aging strips one rung and stale strips two, keeping the timestamp', () => {
+  it('FINDING 2: decay is a READ PROJECTION — applyDecay keeps the stored level unchanged at every age', () => {
     const aging = applyDecay(
       target({ level: 'full intelligence' }),
       BASE + 12 * HOUR_MS,
@@ -242,8 +242,8 @@ describe('P6-T06 applyDecay — the store update', () => {
       target({ level: 'full intelligence' }),
       BASE + 48 * HOUR_MS,
     )
-    expect(aging?.level).toBe('deep recon')
-    expect(stale?.level).toBe('scouted')
+    expect(aging?.level).toBe('full intelligence')
+    expect(stale?.level).toBe('full intelligence')
     expect(aging?.lastUpdatedAt).toBe(BASE)
     expect(stale?.lastUpdatedAt).toBe(BASE)
   })
@@ -256,13 +256,21 @@ describe('P6-T06 applyDecay — the store update', () => {
     expect(applyDecay(target({ lastUpdatedAt: null }), BASE)).toBeNull()
   })
 
-  it('repeated passes keep the original timestamp — decay never resets it; only a fresh report does', () => {
+  it('FINDING 2: repeated passes keep the level AND the timestamp — decay never compounds or resets', () => {
     const pass1 = applyDecay(target({ level: 'scouted' }), BASE + 12 * HOUR_MS)
     const pass2 = applyDecay(pass1!, BASE + 25 * HOUR_MS)
     expect(pass1?.lastUpdatedAt).toBe(BASE)
     expect(pass2?.lastUpdatedAt).toBe(BASE)
-    expect(pass1?.level).toBe('scanned')
-    expect(pass2?.level).toBe('none')
+    expect(pass1?.level).toBe('scouted')
+    expect(pass2?.level).toBe('scouted')
+  })
+
+  it('FINDING 2: decayedLevel still projects the read-time rung subtraction from the stored level', () => {
+    const stored = target({ level: 'full intelligence' })
+    const pass = applyDecay(stored, BASE + 12 * HOUR_MS)
+    expect(pass?.level).toBe('full intelligence')
+    expect(decayedLevel(pass!, BASE + 12 * HOUR_MS)).toBe('deep recon')
+    expect(decayedLevel(pass!, BASE + 48 * HOUR_MS)).toBe('scouted')
   })
 
   it('is immutable: the input is never mutated, the result is a fresh object with fresh sources', () => {

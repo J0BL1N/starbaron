@@ -102,6 +102,78 @@ describe('P6-T04 launchScoutMission — hand-computed arrival/scan math', () => 
   })
 })
 
+describe('P6-T04 FINDING 3 — the launch-derived intel ceiling (maxIntelLevel)', () => {
+  it('persists the scout-complement ceiling at launch (3 scouts → scouted)', () => {
+    const m = launchScoutMission(input())
+    expect(m.maxIntelLevel).toBe('scouted')
+  })
+
+  it('a 1-scout mission caps at scanned; a 10-scout mission caps at deep recon', () => {
+    expect(launchScoutMission(input({ composition: composition({ scout: 1 }) })).maxIntelLevel).toBe(
+      'scanned',
+    )
+    expect(
+      launchScoutMission(input({ composition: composition({ scout: 10 }) })).maxIntelLevel,
+    ).toBe('deep recon')
+  })
+
+  it('the ceiling derives from the scout complement alone, ignoring non-scout escorts', () => {
+    const mixed = launchScoutMission(
+      input({ composition: composition({ scout: 2, battleship: 3 }) }),
+    )
+    expect(mixed.maxIntelLevel).toBe('scanned')
+    expect(launchScoutMission(input({ composition: composition({ scout: 2 }) })).maxIntelLevel).toBe(
+      'scanned',
+    )
+  })
+
+  it('FINDING 3: a 1-scout mission records scanned (at the ceiling) but rejects full intelligence', () => {
+    const oneScout = launchScoutMission(input({ composition: composition({ scout: 1 }) }))
+    expect(
+      recordMissionIntel(oneScout, { gained: 'scanned', at: oneScout.arrivalAt }).intel.level,
+    ).toBe('scanned')
+    expect(() =>
+      recordMissionIntel(oneScout, {
+        gained: 'full intelligence',
+        at: oneScout.arrivalAt,
+      }),
+    ).toThrow(/exceeds the mission's max intel level scanned/)
+  })
+
+  it('FINDING 3: a 3-scout mission caps at scouted and a 10-scout mission at deep recon', () => {
+    const threeScouts = launchScoutMission(input())
+    expect(() =>
+      recordMissionIntel(threeScouts, {
+        gained: 'deep recon',
+        at: threeScouts.arrivalAt,
+      }),
+    ).toThrow(/exceeds the mission's max intel level scouted/)
+    const tenScouts = launchScoutMission(input({ composition: composition({ scout: 10 }) }))
+    expect(
+      recordMissionIntel(tenScouts, { gained: 'deep recon', at: tenScouts.arrivalAt }).intel
+        .level,
+    ).toBe('deep recon')
+    expect(() =>
+      recordMissionIntel(tenScouts, {
+        gained: 'full intelligence',
+        at: tenScouts.arrivalAt,
+      }),
+    ).toThrow(/exceeds the mission's max intel level deep recon/)
+  })
+
+  it('FINDING 3: the ceiling binds even the deepest real scout fleet — full intelligence is unreachable by scouts', () => {
+    const large = launchScoutMission(input({ composition: composition({ scout: 100 }) }))
+    for (const gained of ['deep recon', 'full intelligence'] as const) {
+      if (gained === 'deep recon') {
+        continue
+      }
+      expect(() =>
+        recordMissionIntel(large, { gained, at: large.arrivalAt }),
+      ).toThrow(/exceeds the mission's max intel level deep recon/)
+    }
+  })
+})
+
 describe('P6-T04 speed delegation — the fleet travels at its slowest ship', () => {
   it('a battleship escort slows the mission to 0.6 pc/s (60pc → 100s)', () => {
     const m = launchScoutMission(

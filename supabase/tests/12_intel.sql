@@ -21,7 +21,8 @@
 --               * the sources-array CHECK fires: sources not a JSON array
 --                 raises check_violation;
 --               * the timestamp CHECK fires: last_updated_at <= 0 raises
---                 check_violation;
+--                 check_violation, while a NULL last_updated_at (the TS
+--                 never-updated state) is legal and round-trips as NULL;
 --               * the composite PK (owner_id, target_id) admits one row per
 --                 (owner, target) — a duplicate raises unique_violation;
 --               * anon holds no intel-table privileges (belt-and-braces
@@ -155,6 +156,24 @@ begin
   select count(*) into v_n from public.intel_record where target_id like 'intel-bad-%';
   if v_n <> 0 then
     raise exception '8653 ASSERTION FAILED: rejected intel inserts must not persist, saw %', v_n;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 4b. NULL last_updated_at (the TS never-updated state) is LEGAL: a row with
+--     last_updated_at = null inserts and round-trips as NULL — the SQL mirror
+--     of store.ts's never-updated record. A 0 or negative value still fails
+--     the check above.
+-- ---------------------------------------------------------------------
+insert into public.intel_record (owner_id, target_id, intel_level, last_updated_at, sources)
+values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'intel-null-at', 'observed', null, '[]'::jsonb);
+
+do $$
+declare v_at numeric;
+begin
+  select last_updated_at into v_at from public.intel_record where target_id = 'intel-null-at';
+  if v_at is not null then
+    raise exception '8653 ASSERTION FAILED: a null last_updated_at must round-trip as null, saw %', v_at;
   end if;
 end $$;
 

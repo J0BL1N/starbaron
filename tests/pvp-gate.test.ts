@@ -76,14 +76,15 @@ function keys(fields: InfoField[]): string[] {
 }
 
 const PUBLIC_KEYS = ['name', 'id', 'type', 'class', 'radius']
-const ALLIANCE_KEYS = [...PUBLIC_KEYS, 'allianceHeld']
-const SCOUTED_KEYS = [
-  ...ALLIANCE_KEYS,
+const SCANNED_KEYS = [...PUBLIC_KEYS, 'garrison', 'defensePower']
+const INTEL_KEYS = [
+  ...PUBLIC_KEYS,
   'garrison',
   'defensePower',
   'fleetStrength',
   'estimatedOdds',
 ]
+const ALLIANCE_KEYS = [...PUBLIC_KEYS, 'allianceHeld']
 const ALL_KEYS = [
   ...PUBLIC_KEYS,
   'population',
@@ -99,10 +100,10 @@ const ALL_KEYS = [
 const FRESH_REVEAL: Readonly<Record<IntelLevel, readonly string[]>> = {
   none: [],
   observed: PUBLIC_KEYS,
-  scanned: ALLIANCE_KEYS,
-  scouted: SCOUTED_KEYS,
-  'deep recon': SCOUTED_KEYS,
-  'full intelligence': ALL_KEYS,
+  scanned: SCANNED_KEYS,
+  scouted: INTEL_KEYS,
+  'deep recon': INTEL_KEYS,
+  'full intelligence': INTEL_KEYS,
 }
 
 const STRANGER = viewer()
@@ -194,10 +195,31 @@ describe('P6-T07 pvpGatedView — stranger with fresh intel', () => {
     for (const level of INTEL_LEVELS) {
       const g = pvpGatedView(gate(STRANGER, OWNED, intel({ level })))
       expect(keys(g.visible)).toEqual([...FRESH_REVEAL[level]])
-      expect(g.intelLevel).toBe(level)
+      expect(g.intelLevel).toBe(
+        level === 'full intelligence' ? 'deep recon' : level,
+      )
       expect(g.freshness).toBe('fresh')
       expect(g.shownFromIntel).toBe(true)
       expect(g.blocked).toBeNull()
+    }
+  })
+
+  it('FINDING 1: a stranger with fresh scanned intel receives NO alliance-tier fields', () => {
+    const g = pvpGatedView(gate(STRANGER, OWNED, intel({ level: 'scanned' })))
+    expect(keys(g.visible)).toEqual(SCANNED_KEYS)
+    expect(g.visible.some((f) => f.key === 'allianceHeld')).toBe(false)
+    expect(g.visible.some((f) => f.key === 'population')).toBe(false)
+    expect(g.visible.some((f) => f.key === 'structures')).toBe(false)
+    expect(g.visible.some((f) => f.key === 'income')).toBe(false)
+  })
+
+  it('FINDING 1: a stranger never receives alliance or owner fields at every stored rung', () => {
+    for (const level of INTEL_LEVELS) {
+      const g = pvpGatedView(gate(STRANGER, OWNED, intel({ level })))
+      expect(g.visible.some((f) => f.key === 'allianceHeld')).toBe(false)
+      expect(g.visible.some((f) => f.key === 'population')).toBe(false)
+      expect(g.visible.some((f) => f.key === 'structures')).toBe(false)
+      expect(g.visible.some((f) => f.key === 'income')).toBe(false)
     }
   })
 
@@ -207,11 +229,10 @@ describe('P6-T07 pvpGatedView — stranger with fresh intel', () => {
     )
     const radius = g.visible.find((f) => f.key === 'radius')
     const odds = g.visible.find((f) => f.key === 'estimatedOdds')
-    const population = g.visible.find((f) => f.key === 'population')
     expect(radius?.value).toBe('2.5M')
     expect(odds?.value).toBe('2.0:1')
     expect(odds?.state).toBe('estimated')
-    expect(population?.value).toBe('1.2M')
+    expect(g.visible.some((f) => f.key === 'population')).toBe(false)
   })
 })
 
@@ -242,12 +263,12 @@ describe('P6-T07 pvpGatedView — stranger decay interplay', () => {
       }),
     )
     expect(agingScouted).toMatchObject({ intelLevel: 'scanned', freshness: 'aging' })
-    expect(keys(agingScouted.visible)).toEqual(ALLIANCE_KEYS)
+    expect(keys(agingScouted.visible)).toEqual(SCANNED_KEYS)
     expect(agingFull.intelLevel).toBe('deep recon')
-    expect(keys(agingFull.visible)).toEqual(SCOUTED_KEYS)
+    expect(keys(agingFull.visible)).toEqual(INTEL_KEYS)
     expect(staleFull.intelLevel).toBe('scouted')
     expect(staleFull.freshness).toBe('stale')
-    expect(keys(staleFull.visible)).toEqual(SCOUTED_KEYS)
+    expect(keys(staleFull.visible)).toEqual(INTEL_KEYS)
   })
 
   it('a decayed-to-none reveal is empty but NOT blocked; boundaries land on the older state', () => {
@@ -375,8 +396,8 @@ describe('P6-T07 pvpSummary — the deterministic one-line label', () => {
     const freshFull = pvpGatedView(
       gate(STRANGER, OWNED, intel({ level: 'full intelligence' })),
     )
-    expect(pvpSummary(agingScouted)).toBe('Intel view · scanned (aging) — 6 fields')
-    expect(pvpSummary(freshFull)).toBe('Intel view · full intelligence (fresh) — 13 fields')
+    expect(pvpSummary(agingScouted)).toBe('Intel view · scanned (aging) — 7 fields')
+    expect(pvpSummary(freshFull)).toBe('Intel view · deep recon (fresh) — 9 fields')
   })
 
   it("renders 'Blocked: <reason>' for blocked views", () => {

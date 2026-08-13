@@ -23,16 +23,20 @@
  *      shownFromIntel); freshness 'fresh'.
  *   3. STRANGER (effectiveLevelFor === 'intel'): shownFromIntel true — the
  *      only window is the intel store. The reveal DELEGATES to the intel
- *      report machinery: reports.REVEAL_MATRIX maps the DECAYED level
- *      (staleness.decayedLevel at `at`) onto the info tier, and projectInfo
- *      projects the gate's contract fields at that tier — the exact pipeline
- *      reports.buildIntelReport uses (the report's observer/target/id plumbing
- *      is backend-side and irrelevant here). Staleness filters FIRST: expired
- *      intel (staleness.freshnessFor 'expired') blocks with 'expired-intel'
- *      and visible [] — a view is NEVER shown from data the model considers
- *      unusable (no intel, no picture). Otherwise visible = the reveal at the
- *      decayed level, intelLevel = that decayed level, freshness = the
- *      freshness state.
+ *      report machinery: reports.revealKeysFor maps the DECAYED level
+ *      (staleness.decayedLevel at `at`) onto the exact contract field-key set
+ *      (the public + intel field sets ONLY — never an alliance-tier field),
+ *      and projectInfo projects the gate's contract fields at that key set —
+ *      the exact pipeline reports.buildIntelReport uses (the report's
+ *      observer/target/id plumbing is backend-side and irrelevant here).
+ *      'full intelligence' is an OWNER-only rung (its reveal would emit owner
+ *      + alliance keys), so a stranger record at that level CLAMPS to the
+ *      'deep recon' reveal — the deepest a stranger may see. Staleness
+ *      filters FIRST: expired intel (staleness.freshnessFor 'expired') blocks
+ *      with 'expired-intel' and visible [] — a view is NEVER shown from data
+ *      the model considers unusable (no intel, no picture). Otherwise visible
+ *      = the reveal at the decayed (clamped) level, intelLevel = that level,
+ *      freshness = the freshness state.
  *   4. UNOWNED target (effectiveLevelFor === 'public'): visible = the public
  *      tier projected at 'public'; shownFromIntel false; blocked null. An
  *      unowned target is purely public — the alliance lists and the intel
@@ -65,7 +69,7 @@
 
 import { effectiveLevelFor } from './permissions'
 import type { TargetContext, ViewerContext } from './permissions'
-import { REVEAL_MATRIX } from './reports'
+import { revealKeysFor } from './reports'
 import { decayedLevel, freshnessFor } from './staleness'
 import type { Freshness } from './staleness'
 import { INTEL_LEVELS, isIntelLevel } from './levels'
@@ -138,9 +142,11 @@ function projectAt(
   })
 }
 
-/** The intel-store reveal at a decayed level: REVEAL_MATRIX[level] maps the
- * intel ladder onto the info tier, then projectInfo projects at that tier. A
- * 'none' level reveals nothing. */
+/** The intel-store reveal for a stranger: the exact field-key set the decayed
+ * level unlocks (reports.revealKeysFor over the gate's contract fields — the
+ * public + intel field sets only), projected with projectInfo. A 'none' level
+ * reveals nothing. The caller clamps 'full intelligence' to 'deep recon'
+ * before this runs (the owner-only rung, see strangerView). */
 function revealAt(
   fields: readonly InfoField[],
   level: IntelLevel,
@@ -149,7 +155,10 @@ function revealAt(
   if (level === 'none') {
     return []
   }
-  return projectAt(fields, REVEAL_MATRIX[level], values)
+  const revealLevel: Exclude<IntelLevel, 'none'> = level
+  const keys = new Set(revealKeysFor(fields, revealLevel))
+  const revealFields = fields.filter((field) => keys.has(field.key))
+  return projectAt(revealFields, 'owner', values)
 }
 
 /** A blocked view: visible [], intelLevel 'none', freshness 'expired'. */
@@ -220,7 +229,12 @@ function strangerView(
   if (freshness === 'expired') {
     return blockedView(viewerId, targetId, 'expired-intel', true)
   }
-  const level = decayedLevel(intel, at)
+  const decayed = decayedLevel(intel, at)
+  // 'full intelligence' is an OWNER-only rung (its reveal would emit owner +
+  // alliance keys); the stranger path never applies it — the reveal clamps to
+  // the 'deep recon' rung, the deepest a stranger may see.
+  const level: IntelLevel =
+    decayed === 'full intelligence' ? 'deep recon' : decayed
   return {
     targetId,
     viewerId,

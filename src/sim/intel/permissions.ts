@@ -43,6 +43,7 @@
  * projects the granted set onto the per-level canSee flags.
  */
 
+import { assertNonEmptyString } from '../ui/validate'
 import type { InfoLevel } from '../ui/info'
 
 /** The viewer's identity and alliance memberships. `isAdmin` is the
@@ -95,19 +96,6 @@ const INTEL_LEVELS: readonly InfoLevel[] = Object.freeze([
   'intel',
   'owner',
 ])
-
-/** Local, strict non-empty-string check mirroring ui/validate's
- * assertNonEmptyString, kept here so this module carries no runtime import
- * from the UI layer. Trims the value; empty after trimming → RangeError. */
-function assertNonEmptyString(value: string, name: string): string {
-  const trimmed = value.trim()
-  if (trimmed === '') {
-    throw new RangeError(
-      `${name} must be a non-empty string, got ${JSON.stringify(value)}`,
-    )
-  }
-  return trimmed
-}
 
 const ALL_LEVELS: readonly InfoLevel[] = INTEL_LEVELS
 

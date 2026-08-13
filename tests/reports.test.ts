@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_REPORT_SOURCE,
   REVEAL_MATRIX,
+  SCANNED_SUMMARY_KEYS,
   buildIntelReport,
+  revealKeysFor,
   reportInvariants,
   reportsForTarget,
 } from '../src/sim/intel/reports'
@@ -11,19 +13,12 @@ import { INTEL_LEVELS } from '../src/sim/intel/levels'
 import { contractFor } from '../src/sim/ui/info'
 import type { IntelReport } from '../src/sim/intel/reports'
 import type { BuildIntelReportInput } from '../src/sim/intel/reports'
-import type { InfoField, InfoKind, InfoLevel } from '../src/sim/ui/info'
+import type { InfoField, InfoKind } from '../src/sim/ui/info'
 import type { IntelLevel } from '../src/sim/intel/levels'
 
 const OBSERVER = 'jay'
 const TARGET_ID = 'body:slug|alpha|planet|1'
 const AT = 150_000
-
-const INFO_LEVEL_RANK: Readonly<Record<InfoLevel, number>> = Object.freeze({
-  public: 0,
-  alliance: 1,
-  intel: 2,
-  owner: 3,
-})
 
 function reportId(observerId: string, targetId: string, observedAt: number): string {
   return fnv1a(`${observerId}|${targetId}|${observedAt}`).toString(16)
@@ -147,32 +142,9 @@ const REVEAL_SETS: Readonly<Record<InfoKind, Readonly<Record<IntelLevel, readonl
   galaxy: {
     none: [],
     observed: ['name', 'id', 'class', 'radius', 'systemCount'],
-    scanned: [
-      'name',
-      'id',
-      'class',
-      'radius',
-      'systemCount',
-      'allianceBodies',
-    ],
-    scouted: [
-      'name',
-      'id',
-      'class',
-      'radius',
-      'systemCount',
-      'allianceBodies',
-      'foreignFleet',
-    ],
-    'deep recon': [
-      'name',
-      'id',
-      'class',
-      'radius',
-      'systemCount',
-      'allianceBodies',
-      'foreignFleet',
-    ],
+    scanned: ['name', 'id', 'class', 'radius', 'systemCount'],
+    scouted: ['name', 'id', 'class', 'radius', 'systemCount', 'foreignFleet'],
+    'deep recon': ['name', 'id', 'class', 'radius', 'systemCount', 'foreignFleet'],
     'full intelligence': [
       'name',
       'id',
@@ -187,25 +159,9 @@ const REVEAL_SETS: Readonly<Record<InfoKind, Readonly<Record<IntelLevel, readonl
   system: {
     none: [],
     observed: ['name', 'id', 'type', 'bodyCount'],
-    scanned: ['name', 'id', 'type', 'bodyCount', 'allianceHeld'],
-    scouted: [
-      'name',
-      'id',
-      'type',
-      'bodyCount',
-      'allianceHeld',
-      'defensePower',
-      'fleetStrength',
-    ],
-    'deep recon': [
-      'name',
-      'id',
-      'type',
-      'bodyCount',
-      'allianceHeld',
-      'defensePower',
-      'fleetStrength',
-    ],
+    scanned: ['name', 'id', 'type', 'bodyCount', 'defensePower'],
+    scouted: ['name', 'id', 'type', 'bodyCount', 'defensePower', 'fleetStrength'],
+    'deep recon': ['name', 'id', 'type', 'bodyCount', 'defensePower', 'fleetStrength'],
     'full intelligence': [
       'name',
       'id',
@@ -220,14 +176,13 @@ const REVEAL_SETS: Readonly<Record<InfoKind, Readonly<Record<IntelLevel, readonl
   body: {
     none: [],
     observed: ['name', 'id', 'type', 'class', 'radius'],
-    scanned: ['name', 'id', 'type', 'class', 'radius', 'allianceHeld'],
+    scanned: ['name', 'id', 'type', 'class', 'radius', 'garrison', 'defensePower'],
     scouted: [
       'name',
       'id',
       'type',
       'class',
       'radius',
-      'allianceHeld',
       'garrison',
       'defensePower',
       'fleetStrength',
@@ -239,7 +194,6 @@ const REVEAL_SETS: Readonly<Record<InfoKind, Readonly<Record<IntelLevel, readonl
       'type',
       'class',
       'radius',
-      'allianceHeld',
       'garrison',
       'defensePower',
       'fleetStrength',
@@ -263,34 +217,98 @@ const REVEAL_SETS: Readonly<Record<InfoKind, Readonly<Record<IntelLevel, readonl
   },
 }
 
-describe('P6-T05 REVEAL_MATRIX — the single mapping table', () => {
-  it('maps each ladder rung above none onto a documented info level', () => {
-    expect(REVEAL_MATRIX).toEqual({
-      observed: 'public',
-      scanned: 'alliance',
-      scouted: 'intel',
-      'deep recon': 'intel',
-      'full intelligence': 'owner',
-    })
+describe('P6-T05 REVEAL_MATRIX — the per-kind field-key reveal policy', () => {
+  it('defines the exact revealed field keys per ladder rung for every kind', () => {
+    for (const kind of ['galaxy', 'system', 'body'] as const) {
+      for (const level of INTEL_LEVELS) {
+        if (level === 'none') {
+          continue
+        }
+        expect([...REVEAL_MATRIX[kind][level]]).toEqual([
+          ...REVEAL_SETS[kind][level],
+        ])
+      }
+    }
   })
 
-  it('covers exactly the ladder rungs above none with valid info levels and is frozen', () => {
-    const rungs = INTEL_LEVELS.filter((level) => level !== 'none')
-    expect(Object.keys(REVEAL_MATRIX).sort()).toEqual(rungs.slice().sort())
-    for (const value of Object.values(REVEAL_MATRIX)) {
-      expect(['public', 'alliance', 'intel', 'owner']).toContain(value)
+  it('covers exactly the ladder rungs above none for every kind and is deep-frozen', () => {
+    const rungs = INTEL_LEVELS.filter(
+      (level): level is Exclude<IntelLevel, 'none'> => level !== 'none',
+    )
+    for (const kind of ['galaxy', 'system', 'body'] as const) {
+      expect(Object.keys(REVEAL_MATRIX[kind]).sort()).toEqual([...rungs].sort())
+      expect(Object.isFrozen(REVEAL_MATRIX[kind])).toBe(true)
     }
     expect(Object.isFrozen(REVEAL_MATRIX)).toBe(true)
   })
 
-  it('is monotonic non-decreasing across the ladder (deeper intel never hides a field)', () => {
-    const rungs: Exclude<IntelLevel, 'none'>[] = INTEL_LEVELS.filter(
-      (level): level is Exclude<IntelLevel, 'none'> => level !== 'none',
-    )
-    for (let i = 1; i < rungs.length; i++) {
-      expect(INFO_LEVEL_RANK[REVEAL_MATRIX[rungs[i]]]).toBeGreaterThanOrEqual(
-        INFO_LEVEL_RANK[REVEAL_MATRIX[rungs[i - 1]]],
-      )
+  it('is monotonic non-decreasing: a deeper rung never hides a field an earlier rung revealed', () => {
+    const rungs: Exclude<IntelLevel, 'none'>[] = [
+      'observed',
+      'scanned',
+      'scouted',
+      'deep recon',
+      'full intelligence',
+    ]
+    for (const kind of ['galaxy', 'system', 'body'] as const) {
+      for (let i = 1; i < rungs.length; i++) {
+        const earlier = REVEAL_MATRIX[kind][rungs[i - 1]]
+        const deeper = REVEAL_MATRIX[kind][rungs[i]]
+        for (const key of earlier) {
+          expect(deeper).toContain(key)
+        }
+      }
+    }
+  })
+
+  it('stranger-visible rungs draw ONLY on the public + intel field sets — never an alliance-tier key', () => {
+    for (const kind of ['galaxy', 'system', 'body'] as const) {
+      for (const level of ['observed', 'scanned', 'scouted', 'deep recon'] as const) {
+        const allianceKeys = contractFor(kind)
+          .fields.filter((f) => f.level === 'alliance')
+          .map((f) => f.key)
+        for (const key of REVEAL_MATRIX[kind][level]) {
+          expect(allianceKeys).not.toContain(key)
+        }
+        const ownerKeys = contractFor(kind)
+          .fields.filter((f) => f.level === 'owner')
+          .map((f) => f.key)
+        for (const key of REVEAL_MATRIX[kind][level]) {
+          expect(ownerKeys).not.toContain(key)
+        }
+      }
+    }
+  })
+
+  it('scanned reveals exactly the public keys plus SCANNED_SUMMARY_KEYS from the intel tier', () => {
+    for (const kind of ['galaxy', 'system', 'body'] as const) {
+      const contract = contractFor(kind)
+      const publicKeys = contract.fields
+        .filter((f) => f.level === 'public')
+        .map((f) => f.key)
+      const intelKeys = contract.fields
+        .filter((f) => f.level === 'intel')
+        .map((f) => f.key)
+      const expected = [
+        ...publicKeys,
+        ...intelKeys.filter((key) => SCANNED_SUMMARY_KEYS.includes(key)),
+      ]
+      expect([...REVEAL_MATRIX[kind].scanned]).toEqual(expected)
+    }
+    expect(SCANNED_SUMMARY_KEYS).toEqual(['garrison', 'defensePower'])
+  })
+
+  it('revealKeysFor matches the materialised table for every kind and rung', () => {
+    for (const kind of ['galaxy', 'system', 'body'] as const) {
+      const contract = contractFor(kind)
+      for (const level of INTEL_LEVELS) {
+        if (level === 'none') {
+          continue
+        }
+        expect([...revealKeysFor(contract.fields, level)]).toEqual([
+          ...REVEAL_MATRIX[kind][level],
+        ])
+      }
     }
   })
 })

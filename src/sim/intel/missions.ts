@@ -45,6 +45,12 @@
  *   recordedLevel is no longer 'none') accepts a re-record only when `gained`
  *   is strictly higher than its recordedLevel; an equal or lower re-record
  *   throws an Error.
+ * - **Intel ceiling (locked):** the mission PERSISTS the launch-derived
+ *   maximum — maxIntelLevel, from scouts.maxIntelLevelForScouts over the
+ *   scout complement (scouts alone cap at 'deep recon'; 'full intelligence'
+ *   needs a probe or attack, P7). recordMissionIntel REJECTS a `gained` level
+ *   above that ceiling (Error), so a scout mission can never write intel
+ *   deeper than its complement can reach.
  * - **Error taxonomy:** malformed VALUES (ids, targetRef, timing, distance,
  *   speed, gained, composition shape) throw RangeError; semantic violations
  *   (no scouts at launch, recording too early, transitioning a terminal
@@ -57,7 +63,7 @@
 
 import { SHIP_CLASS_IDS } from '../fleet/ships'
 import { arrivalTime, fleetTravelTime } from '../fleet/movement'
-import { canScout } from './scouts'
+import { canScout, maxIntelLevelForScouts } from './scouts'
 import { INTEL_LEVELS, INTEL_LEVEL_RANK, isIntelLevel, promoteIntel } from './levels'
 import { fnv1a } from '../planets/hash'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
@@ -93,6 +99,9 @@ export interface ScoutMission {
   scanCompletesAt: number
   status: ScoutMissionStatus
   recordedLevel: IntelLevel
+  /** The launch-derived intel ceiling: the deepest level this mission's scout
+   * complement can record (scouts.maxIntelLevelForScouts). */
+  maxIntelLevel: IntelLevel
 }
 
 export interface LaunchScoutMissionInput {
@@ -177,7 +186,8 @@ function assertCompositionClasses(composition: FleetComposition): void {
  * launchScoutMission always satisfy these): ids non-empty; targetRef valid
  * (kind in the union, id non-empty); launchAt positive finite; arrivalAt finite
  * and strictly after launchAt; scanCompletesAt finite and strictly after
- * arrivalAt; status in the union; recordedLevel a known intel level.
+ * arrivalAt; status in the union; recordedLevel a known intel level;
+ * maxIntelLevel a known intel level.
  */
 function assertMissionShape(mission: ScoutMission): void {
   assertNonEmptyString(mission.id, 'mission.id')
@@ -212,6 +222,12 @@ function assertMissionShape(mission: ScoutMission): void {
         `${JSON.stringify(mission.recordedLevel)}`,
     )
   }
+  if (!isIntelLevel(mission.maxIntelLevel)) {
+    throw new RangeError(
+      `mission.maxIntelLevel must be one of ${INTEL_LEVELS.join(', ')}, got ` +
+        `${JSON.stringify(mission.maxIntelLevel)}`,
+    )
+  }
 }
 
 /**
@@ -244,8 +260,10 @@ function fleetSpeedFor(composition: FleetComposition, distancePc: number): numbe
  * arrival must be finite and strictly after launch, so a zero-distance mission
  * is rejected); scanCompletesAt = arrivalAt + SCAN_DURATION_SEC × 1000. Id:
  * `fnv1a(`${ownerId}|${fleetId}|${launchAt}|${targetRef.id}`).toString(16)`.
- * Status 'launched', recordedLevel 'none'. Returns a fresh mission; the input
- * is never mutated and the targetRef is copied.
+ * Status 'launched', recordedLevel 'none', maxIntelLevel =
+ * scouts.maxIntelLevelForScouts(composition.scout) — the launch-derived
+ * ceiling recordMissionIntel enforces. Returns a fresh mission; the input is
+ * never mutated and the targetRef is copied.
  */
 export function launchScoutMission(input: LaunchScoutMissionInput): ScoutMission {
   const { ownerId, fleetId, targetRef, launchAt, composition, distancePc } = input
@@ -291,6 +309,7 @@ export function launchScoutMission(input: LaunchScoutMissionInput): ScoutMission
     scanCompletesAt,
     status: 'launched',
     recordedLevel: 'none',
+    maxIntelLevel: maxIntelLevelForScouts(composition.scout),
   }
 }
 
@@ -331,15 +350,18 @@ export function missionStatusAt(
  * The REPORT step: records intel for a mission. Allowed only from the projected
  * 'scanning'/'reported' states — before arrival ('launched'/'traveling') or on
  * a lost mission ('destroyed'/'failed') it throws an Error. `gained` must be a
- * known intel level and `at` positive finite (RangeError otherwise). Returns a
- * fresh mission (status 'reported', recordedLevel = promoteIntel(current,
- * gained)) plus a TargetIntel DELTA — { targetId: targetRef.id, level: gained,
- * lastUpdatedAt: at, sources: [mission.id] } — that the CALLER merges into its
- * intel store via recordIntel (which promotes against the stored level and
- * de-dupes the mission id source). Re-recording is allowed only as a
- * PROMOTION: a mission that has already recorded accepts a re-record only when
- * `gained` is strictly higher than its recordedLevel — an equal or lower
- * re-record throws an Error. The input mission is never mutated.
+ * known intel level and `at` positive finite (RangeError otherwise). `gained`
+ * above the mission's launch-derived ceiling (maxIntelLevel) is REJECTED with
+ * a descriptive Error — a scout mission can never record intel deeper than
+ * its scout complement can reach. Returns a fresh mission (status 'reported',
+ * recordedLevel = promoteIntel(current, gained)) plus a TargetIntel DELTA —
+ * { targetId: targetRef.id, level: gained, lastUpdatedAt: at,
+ * sources: [mission.id] } — that the CALLER merges into its intel store via
+ * recordIntel (which promotes against the stored level and de-dupes the
+ * mission id source). Re-recording is allowed only as a PROMOTION: a mission
+ * that has already recorded accepts a re-record only when `gained` is
+ * strictly higher than its recordedLevel — an equal or lower re-record throws
+ * an Error. The input mission is never mutated.
  */
 export function recordMissionIntel(
   mission: ScoutMission,
@@ -351,6 +373,12 @@ export function recordMissionIntel(
     throw new RangeError(
       `gained must be one of ${INTEL_LEVELS.join(', ')}, got ` +
         `${JSON.stringify(input.gained)}`,
+    )
+  }
+  if (INTEL_LEVEL_RANK[input.gained] > INTEL_LEVEL_RANK[mission.maxIntelLevel]) {
+    throw new Error(
+      `cannot record intel for mission ${mission.id}: gained ${input.gained} ` +
+        `exceeds the mission's max intel level ${mission.maxIntelLevel}`,
     )
   }
   const projected = missionStatusAt(mission, input.at)
