@@ -92,7 +92,7 @@
 | T03 Scout Ships | ✅ | Codex PASS (round 2) — `src/sim/intel/scouts.ts` + `tests/scouts.test.ts` (33 tests): scouting profile (power/range/detection/intel ceiling) over locked roster |
 | T04 Scout Missions | ✅ | Codex PASS (round 3) — `src/sim/intel/missions.ts` + `tests/missions.test.ts` (39 tests): lifecycle, projected status windows, promotion-only re-record, abort bounds |
 | T05 Intel Reports | ✅ | Codex PASS (first round) — `src/sim/intel/reports.ts` + `tests/reports.test.ts` (36 tests): reveal matrix, field projection via info contract, invariants |
-| T06 Intel Staleness | ⬜ | |
+| T06 Intel Staleness | ✅ | Codex PASS (first round) — `src/sim/intel/staleness.ts` + `tests/staleness.test.ts` (34 tests): freshness ladder, level decay, rescout hook, store drop |
 | T07 PvP Information Gating | ⬜ | |
 | T08 Intel-Safe Backend | ⬜ | |
 | T09 Hover HUD Integration | ⬜ | |
