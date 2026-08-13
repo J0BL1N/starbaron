@@ -114,6 +114,7 @@
 | T09 Combat Reports | ✅ | Codex PASS (first round) — `src/sim/combat/combat-reports.ts` + `tests/combat-reports.test.ts` (33 tests): winner/loser, ship losses, pinned report text |
 | T10 Combat Simulation Harness | ✅ | Codex PASS (round 2) — `src/sim/combat/sim-harness.ts` + `tests/sim-harness.test.ts` (41 tests): delegated battle chain, full-leaf replay check |
 | T11 Attack Notifications | ✅ | Codex PASS (first round) — `src/sim/ui/attack-notifications.ts` + `tests/attack-notifications.test.ts` (31 tests): incoming/arrived/result notifications, ETA, projection |
+| **Phase 7 whole-phase audit** | ⛔ BLOCKER #4 (6-round cap) | 5 fix rounds landed (guards wired into launch/resolve, full-chain harness with real records, report-bound notifications, fleet-capacity recruitment, capture cross-battle binding + real target state + ordering + party binding — 205+ tests). Remaining gap-scan findings for the revisit pass: T07 fleet occupation + production ownership after capture; T09 intel gained from combat |
 
 ## Phase 8 — Diplomacy & Alliances
 
