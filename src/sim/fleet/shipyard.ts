@@ -6,9 +6,10 @@
  * DESIGN decisions (all delegated to locked modules — nothing re-derived):
  * - **fleetCap** comes from the LOCKED `structureEffect('shipyard', level)`
  *   (1000 × effective level) — never re-implemented here.
- * - **incomePerSec** is the LOCKED flat base rate `SHIPYARD_INCOME_PER_MIN / 60`
- *   (per-level shipbuilding income scaling is owned by the locked accrual.ts,
- *   which multiplies this base by the effective level).
+ * - **incomePerSec** is the LOCKED per-level
+ *   `structureEffect('shipyard', level).shipbuildingIncomePerSec`
+ *   (`SHIPYARD_INCOME_PER_MIN / 60` × effective level) — delegated to the
+ *   locked effects.ts value, never re-derived here.
  * - **nextBuildCost** delegates to the LOCKED `framework.buildCost` (the
  *   canonical `structureCost` formula, baseCost × 1.15^level).
  * - **buildTimeSec** is the LOCKED data.ts shipyard build time (300s).
@@ -41,7 +42,7 @@
 import { SHIP_CLASSES } from './ships'
 import type { ShipClass, ShipClassId } from './ships'
 import { STRUCTURES } from '../structures/data'
-import { SHIPYARD_INCOME_PER_MIN, structureEffect } from '../structures/effects'
+import { structureEffect } from '../structures/effects'
 import { buildCost } from '../structures/framework'
 import type { WalletState } from '../player/types'
 import { assertPositiveAt } from '../ui/validate'
@@ -129,7 +130,7 @@ export function shipyardStateFor(level: number): ShipyardState {
   return {
     level,
     fleetCap: effect.fleetCap,
-    incomePerSec: SHIPYARD_INCOME_PER_MIN / 60,
+    incomePerSec: effect.shipbuildingIncomePerSec,
     nextBuildCost: buildCost('shipyard', level),
     buildTimeSec: STRUCTURES.shipyard.buildTimeSec,
   }

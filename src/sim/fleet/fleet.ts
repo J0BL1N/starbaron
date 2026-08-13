@@ -25,7 +25,7 @@
  *   aggregate numbers: no-shipyard (level 0) → fleet-cap (fleet + size >
  *   fleetCap, where fleetCap = LOCKED `shipyardStateFor(level).fleetCap`) →
  *   not-enough-credits → not-enough-alloys. Validation failures (malformed
- *   at/ownerId/composition/level/fleet/wallet/location) throw RangeError;
+ *   at/ownerId/name/composition/level/fleet/wallet/location) throw RangeError;
  *   the four eligibility reasons throw Error with the reason embedded in the
  *   message (mirroring canBuildShips' outcome reasons).
  * - **Id:** `fnv1a(`${ownerId}|${name}|${at}`).toString(16)` — deterministic,
@@ -114,6 +114,12 @@ function assertNonEmptyString(value: string, field: string): void {
   }
 }
 
+function assertNonEmptyTrimmedString(value: string, field: string): void {
+  if (value.trim().length === 0) {
+    throw new RangeError(`${field} must be a non-empty string, got ${JSON.stringify(value)}`)
+  }
+}
+
 function assertValidComposition(composition: FleetComposition): void {
   for (const id of SHIP_CLASS_IDS) {
     const count = composition[id]
@@ -170,10 +176,11 @@ export function fleetCompositionSize(composition: FleetComposition): number {
  * Creates a fleet from a request. Validation order (each throws):
  *   1. `at` finite > 0
  *   2. `ownerId` non-empty
- *   3. composition counts non-negative integers
- *   4. `location` valid (kind in union, bodyId non-empty)
- *   5. `fleet`/`wallet` finite non-negative
- *   6. shipyard eligibility (via shipyardStateFor level validation, then the
+ *   3. `name` non-empty (whitespace-trimmed)
+ *   4. composition counts non-negative integers
+ *   5. `location` valid (kind in union, bodyId non-empty)
+ *   6. `fleet`/`wallet` finite non-negative
+ *   7. shipyard eligibility (via shipyardStateFor level validation, then the
  *      documented ladder approximation — see the module docstring): level 0 →
  *      no-shipyard; fleet + size > fleetCap → fleet-cap; wallet short on
  *      credits → not-enough-credits; wallet short on alloys → not-enough-alloys.
@@ -192,6 +199,7 @@ export function createFleet(request: FleetCreationRequest): {
 
   assertPositiveAt(at)
   assertNonEmptyString(ownerId, 'ownerId')
+  assertNonEmptyTrimmedString(name, 'name')
   assertValidComposition(composition)
   assertValidLocation(location)
   assertFiniteNonNegative(fleet, 'fleet')
@@ -240,9 +248,10 @@ export function createFleet(request: FleetCreationRequest): {
 }
 
 /**
- * Structural invariants of a Fleet: id non-empty; ownerId non-empty;
- * composition counts non-negative integers; location kind in the union with a
- * non-empty bodyId; status in the union; createdAt finite > 0.
+ * Structural invariants of a Fleet: id non-empty; ownerId non-empty; name
+ * non-empty (whitespace-trimmed); composition counts non-negative integers;
+ * location kind in the union with a non-empty bodyId; status in the union;
+ * createdAt finite > 0.
  */
 export function fleetInvariants(fleet: Fleet): {
   ok: boolean
@@ -257,6 +266,9 @@ export function fleetInvariants(fleet: Fleet): {
     problems.push(
       `fleet.ownerId must be a non-empty string, got ${String(fleet.ownerId)}`,
     )
+  }
+  if (typeof fleet.name !== 'string' || fleet.name.trim().length === 0) {
+    problems.push('fleet name must be a non-empty string')
   }
 
   for (const id of SHIP_CLASS_IDS) {

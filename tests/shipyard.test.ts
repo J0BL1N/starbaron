@@ -67,19 +67,27 @@ function effectFleetCap(level: number): number {
   return effect.fleetCap
 }
 
+function effectShipbuildingIncome(level: number): number {
+  const effect = structureEffect('shipyard', level)
+  if (effect.kind !== 'shipyard') {
+    throw new Error(`unexpected shipyard effect kind: ${effect.kind}`)
+  }
+  return effect.shipbuildingIncomePerSec
+}
+
 describe('shipyardStateFor', () => {
-  it('exposes the base shipyard state at level 0 (fleetCap 0, income 50/60, cost 5000, 300s)', () => {
+  it('exposes the base shipyard state at level 0 (fleetCap 0, income 0, cost 5000, 300s)', () => {
     const state = shipyardStateFor(0)
     expect(state).toEqual({
       level: 0,
       fleetCap: 0,
-      incomePerSec: SHIPYARD_INCOME_PER_MIN / 60,
+      incomePerSec: 0,
       nextBuildCost: structureCost(STRUCTURES.shipyard.baseCost, 0),
       buildTimeSec: STRUCTURES.shipyard.buildTimeSec,
     })
     expect(state.nextBuildCost).toBe(5_000)
     expect(state.buildTimeSec).toBe(300)
-    expect(state.incomePerSec).toBeCloseTo(50 / 60, 12)
+    expect(state.incomePerSec).toBe(0)
   })
 
   it('fleetCap = 1000 × level via the LOCKED structureEffect for every level', () => {
@@ -91,12 +99,23 @@ describe('shipyardStateFor', () => {
     expect(shipyardStateFor(100).fleetCap).toBe(1_000 * effectiveLevel(100))
   })
 
-  it('incomePerSec is the LOCKED flat base SHIPYARD_INCOME_PER_MIN / 60 (no level scaling)', () => {
-    for (const level of [0, 1, 3, 25]) {
-      expect(shipyardStateFor(level).incomePerSec).toBe(
-        SHIPYARD_INCOME_PER_MIN / 60,
+  it('incomePerSec delegates to the LOCKED per-level shipbuildingIncomePerSec', () => {
+    for (const level of [0, 1, 2, 3, 25]) {
+      expect(shipyardStateFor(level).incomePerSec, `${level}`).toBe(
+        effectShipbuildingIncome(level),
       )
     }
+    expect(shipyardStateFor(1).incomePerSec).toBeCloseTo(
+      SHIPYARD_INCOME_PER_MIN / 60,
+      12,
+    )
+    expect(shipyardStateFor(2).incomePerSec).toBeCloseTo(
+      (SHIPYARD_INCOME_PER_MIN / 60) * 2,
+      12,
+    )
+    expect(shipyardStateFor(2).incomePerSec).toBe(
+      shipyardStateFor(1).incomePerSec * 2,
+    )
   })
 
   it('nextBuildCost delegates to the LOCKED framework.buildCost (hand-computed 1 and 3)', () => {

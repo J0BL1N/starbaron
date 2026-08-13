@@ -167,6 +167,12 @@ describe('createFleet validation', () => {
     expect(() => createFleet(request({ ownerId: '' }))).toThrow(RangeError)
   })
 
+  it('throws RangeError for an empty or whitespace-only name (finding 2)', () => {
+    expect(() => createFleet(request({ name: '' }))).toThrow(RangeError)
+    expect(() => createFleet(request({ name: '   ' }))).toThrow(RangeError)
+    expect(() => createFleet(request({ name: 'Strike Force' }))).not.toThrow()
+  })
+
   it('throws RangeError for non-finite or non-positive at', () => {
     for (const bad of [0, -100, NaN, Infinity, -Infinity]) {
       expect(() => createFleet(request({ at: bad })), String(bad)).toThrow(RangeError)
@@ -247,6 +253,16 @@ describe('fleetInvariants', () => {
     const badOwner: Fleet = { ...fleet, ownerId: '' }
     expect(fleetInvariants(badId).problems.some((p) => p.includes('id'))).toBe(true)
     expect(fleetInvariants(badOwner).problems.some((p) => p.includes('ownerId'))).toBe(true)
+  })
+
+  it('flags an empty or whitespace-only name (finding 2)', () => {
+    const { fleet } = createFleet(request())
+    const emptyName: Fleet = { ...fleet, name: '' }
+    const spacesName: Fleet = { ...fleet, name: '   ' }
+    expect(fleetInvariants(emptyName).problems).toContain(
+      'fleet name must be a non-empty string',
+    )
+    expect(fleetInvariants(spacesName).ok).toBe(false)
   })
 
   it('flags negative and fractional composition counts', () => {
