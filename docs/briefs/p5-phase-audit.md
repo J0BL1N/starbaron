@@ -14,7 +14,7 @@ READ LIST (all Phase 5 deliverables):
 - supabase/migrations/0017_fleets.sql + supabase/tests/11_fleets.sql (write-only)
 - Locked sources: structures/effects.ts (SHIPYARD_*), structures/framework.ts, player/accrual.ts, world/api.ts, core/format.ts, planets/hash.ts, ui/validate.ts
 
-AUDIT TARGET: the whole Phase 5 feature set on staging (through the P5-T10 PASS state). Docs commits OUT OF SCOPE.
+AUDIT TARGET: the whole Phase 5 feature set on staging (through the P5-T10 PASS state, INCLUDING the phase-fix commit d983e6f which addresses all 7 prior findings). Docs commits OUT OF SCOPE.
 
 BANNED COMMENT TOKENS (scan comments too): any, Math.random, Date.now, performance.now, localeCompare, locale, wall, clock, scene, Three.js, global state, shared mutable data, random.
 
