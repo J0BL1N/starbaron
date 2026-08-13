@@ -11,10 +11,11 @@
  * below are deep-frozen); strictly typed.
  *
  * DESIGN decisions (documented — pinned):
- * - **id:** `String(fnv1a(`${kind}|${orderId}|${at}`))` — deterministic, the
- *   P4-T07 numeric-hash convention (notifications.ts `notificationId`). The
- *   `|` separator keeps the fields unambiguous; the same triple always yields
- *   the same id.
+ * - **id:** `fnv1a(`${kind}|${orderId}|${at}`).toString(16)` — deterministic,
+ *   the P4-T07 numeric-hash convention in HEX, matching the attack/battle/
+ *   capture/report id convention (notifications.ts `notificationId`). The `|`
+ *   separator keeps the fields unambiguous; the same triple always yields the
+ *   same id.
  * - **incoming:** 'incoming-attack' is valid only while the order is IN
  *   FLIGHT — `order.status` must be 'launched'/'traveling' (an arrived,
  *   resolving, resolved or aborted order throws) and `at` must be strictly
@@ -104,16 +105,17 @@ export const ATTACK_BATTLE_RESULTS: readonly AttackBattleResult[] = Object.freez
 ])
 
 /**
- * Deterministic notification id: `fnv1a(`${kind}|${orderId}|${at}`)` as a
- * decimal string — the P4-T07 numeric-hash convention. The `|` separator
- * keeps the fields unambiguous; the same triple always yields the same id.
+ * Deterministic notification id: `fnv1a(`${kind}|${orderId}|${at}`)` as a HEX
+ * string (.toString(16)) — the phase's id convention (attack/battle/capture/
+ * report ids all use .toString(16)). The `|` separator keeps the fields
+ * unambiguous; the same triple always yields the same id.
  */
 function notificationIdFor(
   kind: AttackNotificationKind,
   orderId: string,
   at: number,
 ): string {
-  return String(fnv1a(`${kind}|${orderId}|${at}`))
+  return fnv1a(`${kind}|${orderId}|${at}`).toString(16)
 }
 
 /**

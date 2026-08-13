@@ -17,8 +17,9 @@
  *                     launchAt: at − travel×1000, speedPcPerSec, wallet,
  *                     targetOwner }) (P7-T01 → the estimator's locked
  *                     `200 + fleet × 0.2 + distancePc × 10`; the T08
- *                     home-immunity guard runs inside — a scenario target is
- *                     a normal colony, so it is always attackable).
+ *                     home-immunity guard runs inside against the scenario's
+ *                     REAL target player — a protected home world throws the
+ *                     guard Error, so a protected-home scenario fails here).
  *   - travelSeconds = travelDuration(distancePc, speedPcPerSec) — the
  *                     movement module's DURATION unit: SECONDS (arrivalAt =
  *                     departureAt + duration × 1000 in movement.ts /
@@ -42,13 +43,13 @@
  *   - capture       = capturePlanet({ attackerId, defenderId:
  *                     target.ownerId, targetId, outcome, cost, casualties:
  *                     ledger, structureSurvival, capturedAt: at, universe,
- *                     targetOwnership }) on VICTORY ONLY — the REAL T07
- *                     handover (the ownership record is built via the
- *                     ownership module's ownershipFor for the real defender
- *                     id; the target is a normal colony, isHome false and
- *                     unconquerable false). captured = capture.outcome ===
- *                     'captured'; a defeat or stalemate never captures
- *                     (capturePlanet is not reached).
+ *                     targetOwnership, targetCurrent, previousHistory }) on
+ *                     VICTORY ONLY — the REAL T07 handover (the scenario's
+ *                     targetOwnership / targetCurrent / targetHistory are
+ *                     REQUIRED inputs, delegated UNCHANGED to the locked
+ *                     transfer — never fabricated by the harness). captured =
+ *                     capture.outcome === 'captured'; a defeat or stalemate
+ *                     never captures (capturePlanet is not reached).
  *   - report        = buildCombatReport({ outcome, ledger, defenderId:
  *                     target.ownerId, attackerFleetSize, defenderFleetSize,
  *                     at }) (P7-T09 — winner/loser from the locked report).
@@ -76,8 +77,13 @@
  * finite (assertPositiveAt); troops positive finite; shipyardTier an integer
  * in 0..100; fleetSize (both sides), garrison, turretLevels and conquests
  * non-negative integers; defender tier an integer >= 1; population and
- * distancePc finite non-negative; speedPcPerSec finite > 0. The bounds mirror
- * the locked helpers' own constraints (estimator.attackPower,
+ * distancePc finite non-negative; speedPcPerSec finite > 0. The REAL target
+ * records are REQUIRED and validated too: the targetPlayer shape (non-empty
+ * playerId and a homePlanet with a non-empty name), the targetOwnership
+ * binding (its bodyId/ownerId must match the target — the capture binding
+ * check), the targetCurrent settlement envelope (finite non-negative
+ * population, garrison and structure levels) and targetHistory an array. The
+ * bounds mirror the locked helpers' own constraints (estimator.attackPower,
  * effects.defensePower, casualties.ts, conquest-cost.ts) — the MATH is never
  * re-derived, only the envelope is checked.
  */
@@ -92,9 +98,10 @@ import { conquestCostFor } from './conquest-cost'
 import type { ConquestCost } from './conquest-cost'
 import { travelDuration } from '../fleet/movement'
 import { capturePlanet } from './capture'
+import type { CaptureSettlement } from './capture'
 import { buildCombatReport } from './combat-reports'
 import type { CombatReport } from './combat-reports'
-import { ownershipFor } from '../player/ownership'
+import type { OwnershipEvent, OwnershipRecord } from '../player/ownership'
 import { buildGalaxyRecord, registerSystem } from '../world/galaxy'
 import { buildSystemRecord, registerBody } from '../world/system'
 import { buildBodyRecord } from '../world/body'
@@ -126,6 +133,27 @@ export interface BattleScenario {
     tier: number
     ownerId: string
   }
+  /**
+   * The REAL target owner — read by the T08 home-immunity guard (launch and
+   * resolution) and the source of the T07 ownership handover. Passed UNCHANGED
+   * to the chain (never fabricated by the harness).
+   */
+  targetPlayer: PlayerState
+  /**
+   * The defender's STORED ownership record of the target — delegated UNCHANGED
+   * to the T07 capture (the capture binding checks bodyId/ownerId match).
+   */
+  targetOwnership: OwnershipRecord
+  /**
+   * The REAL current settlement state of the target at conquest time — the T07
+   * capture's targetCurrent (population, garrison and structure grid).
+   */
+  targetCurrent: CaptureSettlement
+  /**
+   * The REAL ownership history of the target at conquest time — the T07
+   * capture's previousHistory audit trail.
+   */
+  targetHistory: OwnershipEvent[]
   distancePc: number
   speedPcPerSec: number
   at: number
@@ -219,8 +247,88 @@ function assertScenario(input: BattleScenario): void {
   assertNonEmptyString(input.target.name, 'target.name')
   assertIntegerAtLeast(input.target.tier, 1, 'target.tier')
   assertNonEmptyString(input.target.ownerId, 'target.ownerId')
+  assertPlayerShape(input.targetPlayer)
+  assertOwnershipBinding(input.targetOwnership, parsedTarget.id, input.target.ownerId)
+  assertCurrentState(input.targetCurrent)
+  assertHistoryArray(input.targetHistory)
   assertFiniteNonNegative(input.distancePc, 'distancePc')
   assertFinitePositive(input.speedPcPerSec, 'speedPcPerSec')
+}
+
+/**
+ * The REAL target owner must be a usable PlayerState: a non-empty playerId
+ * and a homePlanet carrying a non-empty name (the T08 guard reads
+ * homePlanet.name to decide immunity). A protected-home scenario supplies a
+ * player whose homePlanet.name IS the target — the guard then refuses the
+ * battle, so this shape check never rejects a legitimate scenario.
+ */
+function assertPlayerShape(player: PlayerState): void {
+  assertNonEmptyString(player.playerId, 'targetPlayer.playerId')
+  if (
+    typeof player.homePlanet !== 'object' ||
+    player.homePlanet === null ||
+    typeof player.homePlanet.name !== 'string' ||
+    player.homePlanet.name.length === 0
+  ) {
+    throw new RangeError(
+      'targetPlayer.homePlanet must carry a non-empty name',
+    )
+  }
+}
+
+/**
+ * The capture binding check (mirrors capture.ts assertOwnershipMatches): the
+ * stored record MUST name the capture target as its bodyId and the defender
+ * as its ownerId — a mismatched record would forge the handover onto the
+ * wrong body or name the wrong previous owner. Rejected up front, before the
+ * chain runs.
+ */
+function assertOwnershipBinding(
+  record: OwnershipRecord,
+  bodyIdValue: BodyId,
+  ownerId: string,
+): void {
+  if (record.bodyId !== bodyIdValue) {
+    throw new RangeError(
+      `targetOwnership.bodyId must be the capture target ${bodyIdValue}, got ${record.bodyId}`,
+    )
+  }
+  if (record.ownerId !== ownerId) {
+    throw new RangeError(
+      `targetOwnership.ownerId must be the defender ${ownerId}, got ${record.ownerId}`,
+    )
+  }
+}
+
+/**
+ * The REAL current settlement envelope (mirrors capture.ts assertTargetCurrent):
+ * finite non-negative population, garrison and structure levels.
+ */
+function assertCurrentState(current: CaptureSettlement): void {
+  if (!Number.isFinite(current.population) || current.population < 0) {
+    throw new RangeError(
+      `targetCurrent.population must be a finite non-negative number, got ${String(current.population)}`,
+    )
+  }
+  if (!Number.isFinite(current.garrison) || current.garrison < 0) {
+    throw new RangeError(
+      `targetCurrent.garrison must be a finite non-negative number, got ${String(current.garrison)}`,
+    )
+  }
+  for (const [structureId, level] of Object.entries(current.structures)) {
+    if (!Number.isFinite(level) || level < 0) {
+      throw new RangeError(
+        `targetCurrent.structures.${structureId} must be a finite non-negative level, got ${String(level)}`,
+      )
+    }
+  }
+}
+
+/** The caller-supplied audit trail must be an array (mirrors capture.ts). */
+function assertHistoryArray(history: OwnershipEvent[]): void {
+  if (!Array.isArray(history)) {
+    throw new RangeError('targetHistory must be an array of OwnershipEvent')
+  }
 }
 
 function formatInteger(value: number): string {
@@ -278,50 +386,6 @@ function buildReport(
 const SCENARIO_STRUCTURE_SURVIVAL = 0.5
 
 /**
- * The canonical body id of a scenario target (parseCanonicalId-valid, the
- * capture-fixture convention). RangeError for a non-body id.
- */
-function parseTargetBody(bodyIdValue: string): BodyId {
-  const parsed = parseCanonicalId(bodyIdValue)
-  if (!parsed.ok || parsed.kind !== 'body') {
-    throw new RangeError(
-      `target.bodyId must be a valid body id, got ${JSON.stringify(bodyIdValue)}`,
-    )
-  }
-  return parsed.id
-}
-
-/**
- * The REAL target owner's PlayerState for the home-immunity guard (T08) and
- * the ownership record (T07). The target is a normal colony: the owner's
- * home planet is a DIFFERENT world (its name can never collide with a body
- * id), so the guard answers attackable and the capture is never refused.
- */
-function targetOwnerState(target: BattleScenario['target'], at: number): PlayerState {
-  const homeName = `${target.ownerId} home`
-  return {
-    playerId: target.ownerId,
-    homePlanet: {
-      name: homeName,
-      entry: { name: homeName, hostname: `${homeName} Host`, systemCount: 1, tier: 1 },
-      tier: 1,
-      baselineIncomePerSec: 10,
-      populationCapMultiplier: 1,
-      claimedAt: at,
-      isHome: true,
-      unconquerable: true,
-      population: 0,
-      garrison: 0,
-      fleet: 0,
-    },
-    colonies: [],
-    wallet: { credits: 0, alloys: 0 },
-    structureLevels: {},
-    lastTickAt: at,
-  }
-}
-
-/**
  * The minimal world anchoring the scenario target (the capture-fixture
  * shape): one galaxy, one system and the target body, fully registered so
  * queryBody resolves it — the T07 capture's universe anchor.
@@ -363,8 +427,7 @@ export function runScenario(input: BattleScenario): ScenarioResult {
   const attackerId = `attacker:${input.scenarioId}`
   const fleetId = `fleet:${input.scenarioId}`
   const targetId = input.target.bodyId
-  const targetBody = parseTargetBody(targetId)
-  const owner = targetOwnerState(input.target, input.at)
+  const owner = input.targetPlayer
   const travelSeconds = travelDuration(input.distancePc, input.speedPcPerSec)
   const launchAt = input.at - travelSeconds * 1000
   const launchCost = attackLaunchCost(
@@ -420,15 +483,9 @@ export function runScenario(input: BattleScenario): ScenarioResult {
       structureSurvival: SCENARIO_STRUCTURE_SURVIVAL,
       capturedAt: input.at,
       universe: universeForTarget(targetId),
-      targetOwnership: ownershipFor(
-        targetBody,
-        input.target.ownerId,
-        null,
-        input.at,
-        'colonisation',
-        false,
-        false,
-      ),
+      targetOwnership: input.targetOwnership,
+      targetCurrent: input.targetCurrent,
+      previousHistory: input.targetHistory,
     })
     captured = capture.outcome === 'captured'
   }

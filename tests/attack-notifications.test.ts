@@ -69,7 +69,7 @@ function report(overrides: PartialReport = {}): CombatReport {
 }
 
 function expectedId(kind: AttackNotificationKind, orderId: string, at: number): string {
-  return String(fnv1a(`${kind}|${orderId}|${at}`))
+  return fnv1a(`${kind}|${orderId}|${at}`).toString(16)
 }
 
 function snapshot(value: AttackOrder): AttackOrder {

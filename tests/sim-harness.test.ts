@@ -6,10 +6,14 @@ import {
 } from '../src/sim/combat/sim-harness'
 import type { BattleScenario, ScenarioResult } from '../src/sim/combat/sim-harness'
 import { attackLaunchCost } from '../src/sim/combat/attack-orders'
+import type { CaptureSettlement } from '../src/sim/combat/capture'
 import { conquestCostFor } from '../src/sim/combat/conquest-cost'
 import { travelDuration } from '../src/sim/fleet/movement'
 import { attackPower as lockedAttackPower } from '../src/sim/player/estimator'
 import { defensePower as lockedDefensePower } from '../src/sim/structures/effects'
+import { ownershipFor } from '../src/sim/player/ownership'
+import type { OwnershipRecord } from '../src/sim/player/ownership'
+import type { PlayerState } from '../src/sim/player/types'
 import { bodyId, systemId } from '../src/sim/world/identity'
 import type { BodyId } from '../src/sim/world/identity'
 
@@ -59,6 +63,77 @@ function target(
   }
 }
 
+// The REAL target owner: a normal colony scenario — the owner's home planet is
+// a DIFFERENT world (name never equal to the target body id), so the T08
+// home-immunity guard answers attackable.
+function targetPlayer(
+  over: Partial<PlayerState> = {},
+): PlayerState {
+  return {
+    playerId: 'defender-1',
+    homePlanet: {
+      name: 'defender-1 home',
+      entry: {
+        name: 'defender-1 home',
+        hostname: 'defender-1 home Host',
+        systemCount: 1,
+        tier: 1,
+      },
+      tier: 1,
+      baselineIncomePerSec: 10,
+      populationCapMultiplier: 1,
+      claimedAt: AT,
+      isHome: true,
+      unconquerable: true,
+      population: 0,
+      garrison: 0,
+      fleet: 0,
+    },
+    colonies: [],
+    wallet: { credits: 0, alloys: 0 },
+    structureLevels: {},
+    lastTickAt: AT,
+    ...over,
+  }
+}
+
+// The defender's STORED ownership record of the target (a normal conquerable
+// colony — colonisation, isHome/unconquerable false).
+function targetOwnership(
+  over: Partial<OwnershipRecord> = {},
+): OwnershipRecord {
+  const record = ownershipFor(
+    TARGET,
+    'defender-1',
+    null,
+    AT,
+    'colonisation',
+    false,
+    false,
+  )
+  return { ...record, ...over }
+}
+
+// The REAL current settlement state of the target at conquest time.
+function targetCurrent(
+  over: Partial<CaptureSettlement> = {},
+): CaptureSettlement {
+  return {
+    population: 10_000,
+    garrison: 2_000,
+    structures: {
+      oreMine: 0,
+      tradeHub: 0,
+      housing: 0,
+      hydroponics: 0,
+      barracks: 0,
+      shipyard: 0,
+      defenseTurret: 3,
+    },
+    ...over,
+  }
+}
+
 function scenario(
   over: Partial<BattleScenario> = {},
 ): BattleScenario {
@@ -68,6 +143,10 @@ function scenario(
     attacker: attacker(),
     defender: defender(),
     target: target(),
+    targetPlayer: targetPlayer(),
+    targetOwnership: targetOwnership(),
+    targetCurrent: targetCurrent(),
+    targetHistory: [],
     distancePc: 10,
     speedPcPerSec: 10 / 43_200,
     at: AT,
@@ -201,12 +280,7 @@ describe('runScenario — the locked combat chain', () => {
 
   it('never mutates its input scenario', () => {
     const input = scenario()
-    const snapshot = {
-      ...input,
-      attacker: { ...input.attacker },
-      defender: { ...input.defender },
-      target: { ...input.target },
-    }
+    const snapshot = JSON.parse(JSON.stringify(input)) as BattleScenario
     runScenario(input)
     expect(input).toEqual(snapshot)
   })
@@ -244,6 +318,42 @@ describe('runScenario — the real capture chain (T07) and the combat report (T0
     const run = runScenario(scenario())
     expect(run.outcome.targetId).toBe(TARGET)
     expect(run.outcome.result).toBe('victory')
+  })
+
+  it('a protected-home target (targetPlayer whose home IS the target) is refused by the T08 guard', () => {
+    const protectedHome: PlayerState = {
+      ...targetPlayer(),
+      homePlanet: {
+        ...targetPlayer().homePlanet,
+        name: TARGET,
+        entry: {
+          name: TARGET,
+          hostname: `${TARGET} Host`,
+          systemCount: 1,
+          tier: 1,
+        },
+      },
+    }
+    expect(() => runScenario(scenario({ targetPlayer: protectedHome }))).toThrow(
+      /home world/,
+    )
+  })
+
+  it('a victory whose targetOwnership is protected replays the locked refusal unchanged', () => {
+    const protectedRecord = ownershipFor(
+      TARGET,
+      'defender-1',
+      null,
+      AT,
+      'home-assignment',
+      true,
+      true,
+    )
+    expect(() =>
+      runScenario(
+        scenario({ targetOwnership: { ...protectedRecord } }),
+      ),
+    ).toThrow(/cannot be captured/)
   })
 })
 
@@ -588,5 +698,62 @@ describe('runScenario — validation', () => {
     expect(() => runScenario(scenario({ defender: defender({ garrison: -1 }) }))).toThrow(RangeError)
     expect(() => runScenario(scenario({ defender: defender({ fleetSize: -1 }) }))).toThrow(RangeError)
     expect(() => runScenario(scenario({ distancePc: -1 }))).toThrow(RangeError)
+  })
+
+  it('rejects a targetOwnership whose bodyId or ownerId does not bind to the target (the capture binding check)', () => {
+    expect(() =>
+      runScenario(
+        scenario({ targetOwnership: { ...targetOwnership(), bodyId: bodyId(ALPHA, 'planet', 1) } }),
+      ),
+    ).toThrow(/targetOwnership\.bodyId must be the capture target/)
+    expect(() =>
+      runScenario(
+        scenario({ targetOwnership: { ...targetOwnership(), ownerId: 'someone-else' } }),
+      ),
+    ).toThrow(/targetOwnership\.ownerId must be the defender/)
+  })
+
+  it('rejects a malformed targetPlayer shape and a malformed targetCurrent envelope', () => {
+    expect(() =>
+      runScenario(
+        scenario({ targetPlayer: { ...targetPlayer(), playerId: '' } }),
+      ),
+    ).toThrow(RangeError)
+    expect(() =>
+      runScenario(
+        scenario({
+          targetPlayer: {
+            ...targetPlayer(),
+            homePlanet: { ...targetPlayer().homePlanet, name: '' },
+          },
+        }),
+      ),
+    ).toThrow(/homePlanet must carry a non-empty name/)
+    expect(() =>
+      runScenario(
+        scenario({ targetCurrent: { ...targetCurrent(), population: -1 } }),
+      ),
+    ).toThrow(RangeError)
+    expect(() =>
+      runScenario(
+        scenario({ targetCurrent: { ...targetCurrent(), garrison: Number.NaN } }),
+      ),
+    ).toThrow(RangeError)
+    expect(() =>
+      runScenario(
+        scenario({
+          targetCurrent: {
+            ...targetCurrent(),
+            structures: { ...targetCurrent().structures, shipyard: -1 },
+          },
+        }),
+      ),
+    ).toThrow(RangeError)
+  })
+
+  it('rejects a non-array targetHistory (the audit trail must be an array)', () => {
+    expect(() =>
+      runScenario(scenario({ targetHistory: 'not-an-array' as never })),
+    ).toThrow(RangeError)
   })
 })
