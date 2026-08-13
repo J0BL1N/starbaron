@@ -8,7 +8,7 @@ READ LIST:
 - src/sim/intel/levels.ts      (P6-T02: recordIntel semantics, IntelLevel)
 - src/sim/planets/hash.ts      (fnv1a)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT e29b4f9a1a2aac6db520d9744df475fa1b6603f6 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 6fde6dca17258344ad80d17ba285a8e3caaeb034 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p6-t04-brief.md + master roadmap P6-T04):
 1. ScoutMission { id (fnv1a(ownerId|fleetId|launchAt|targetId)), ownerId, fleetId, targetRef, launchAt, arrivalAt (overflow-safe via movement.arrivalTime — DELEGATED), scanCompletesAt (arrival + 30s × 1000), status launched|traveling|scanning|reported|destroyed|failed, recordedLevel }.
