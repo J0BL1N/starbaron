@@ -107,8 +107,8 @@
 | T02 Invasion Fleet | ✅ | Codex PASS (round 2) — `src/sim/combat/invasion.ts` + `tests/invasion.test.ts` (39 tests): locked garrison-cap recruitment, committed-whether-win-or-lose, dup-name rejection |
 | T03 Combat Resolution | ✅ | Codex PASS (round 2) — `src/sim/combat/resolution.ts` + `tests/resolution.test.ts` (42 tests): locked AP/DP delegation, 3-way outcome (victory/stalemate/defeat), casualties |
 | T04 Planet Defense | ✅ | Codex PASS (round 2) — `src/sim/combat/defense.ts` + `tests/defense.test.ts` (52 tests): garrison-inclusive DP, breakdown (no double-count), readiness threshold |
-| T05 Population Casualties | ⬜ | |
-| T06 Conquest Cost | ⬜ | |
+| T05 Population Casualties | ✅ | Codex PASS (round 2) — `src/sim/combat/casualties.ts` + `tests/casualties.test.ts` (38 tests): outcome delegation, DESIGN committed-loss, garrison mapping (victory wipe / 20% / 0) |
+| T06 Conquest Cost | ✅ | Codex PASS (first round) — `src/sim/combat/conquest-cost.ts` + `tests/conquest-cost.test.ts` (38 tests): escalating curve, empire multiplier cap ×2.0, summary |
 | T07 Planet Capture | ⬜ | |
 | T08 Home-World Immunity | ⬜ | |
 | T09 Combat Reports | ⬜ | |
