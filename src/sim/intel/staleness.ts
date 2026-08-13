@@ -49,10 +49,10 @@
  * caller-provided objects are never mutated.
  */
 
-import { INTEL_LEVELS, INTEL_LEVEL_RANK, isIntelLevel } from './levels'
+import { INTEL_LEVELS, INTEL_LEVEL_RANK } from './levels'
 import type { IntelLevel, TargetIntel } from './levels'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
-import { flooredAgeLabel } from './intel-ui'
+import { assertIntelLevel, flooredAgeLabel } from './intel-ui'
 export { flooredAgeLabel } from './intel-ui'
 
 /** The freshness ladder: how old a report is. See the module docstring. */
@@ -75,14 +75,6 @@ const RUNGS: Readonly<Record<Exclude<Freshness, 'expired'>, number>> = Object.fr
   stale: 2,
 })
 
-function assertIntelLevel(value: unknown, name: string): asserts value is IntelLevel {
-  if (!isIntelLevel(value)) {
-    throw new RangeError(
-      `${name} must be one of ${INTEL_LEVELS.join(', ')}, got ${JSON.stringify(value)}`,
-    )
-  }
-}
-
 /**
  * The freshness of a target's intel at time `at`. age = (at − lastUpdatedAt)
  * / 1000; a null lastUpdatedAt (never updated) is 'expired'. Boundaries land
@@ -93,7 +85,7 @@ function assertIntelLevel(value: unknown, name: string): asserts value is IntelL
  * RangeError.
  */
 export function freshnessFor(intel: TargetIntel, at: number): Freshness {
-  assertIntelLevel(intel.level, 'intel.level')
+  assertIntelLevel(intel.level)
   assertPositiveAt(at)
   if (intel.lastUpdatedAt === null) {
     return 'expired'
@@ -151,7 +143,7 @@ export function needsRescout(intel: TargetIntel, at: number): boolean {
  */
 export function applyDecay(intel: TargetIntel, at: number): TargetIntel | null {
   const targetId = assertNonEmptyString(intel.targetId, 'targetId')
-  assertIntelLevel(intel.level, 'intel.level')
+  assertIntelLevel(intel.level)
   assertPositiveAt(at)
   if (freshnessFor(intel, at) === 'expired') {
     return null

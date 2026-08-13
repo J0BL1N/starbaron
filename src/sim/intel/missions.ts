@@ -67,6 +67,7 @@ import { canScout, maxIntelLevelForScouts } from './scouts'
 import { INTEL_LEVELS, INTEL_LEVEL_RANK, isIntelLevel, promoteIntel } from './levels'
 import { fnv1a } from '../planets/hash'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
+import { assertFinitePositive } from './intel-ui'
 import type { FleetComposition } from '../fleet/fleet'
 import type { IntelLevel, TargetIntel } from './levels'
 
@@ -153,14 +154,6 @@ export const MISSION_PROGRESSES: readonly MissionProgress[] = Object.freeze([
 
 /** The locked scan window: a scout mission reports within 30s of arrival. */
 export const SCAN_DURATION_SEC = 30
-
-function assertFinitePositive(value: number, field: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(
-      `${field} must be a finite number > 0, got ${value}`,
-    )
-  }
-}
 
 function assertTargetRef(ref: ScoutMissionTargetRef): void {
   if (!(SCOUT_MISSION_TARGET_KINDS as readonly string[]).includes(ref.kind)) {

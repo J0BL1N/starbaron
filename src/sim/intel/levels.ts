@@ -43,6 +43,7 @@
  * tables hold only primitives, so Object.freeze is total (deep) here.
  */
 
+import { assertIntelLevel } from './intel-ui'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
 import type { InfoState } from '../ui/info'
 
@@ -105,14 +106,6 @@ function isInfoState(value: unknown): value is InfoState {
   return (INFO_STATES as readonly unknown[]).includes(value)
 }
 
-function assertIntelLevel(value: unknown, name: string): asserts value is IntelLevel {
-  if (!isIntelLevel(value)) {
-    throw new RangeError(
-      `${name} must be one of ${INTEL_LEVELS.join(', ')}, got ${JSON.stringify(value)}`,
-    )
-  }
-}
-
 function assertInfoState(value: unknown, name: string): asserts value is InfoState {
   if (!isInfoState(value)) {
     throw new RangeError(
@@ -126,8 +119,8 @@ function assertInfoState(value: unknown, name: string): asserts value is InfoSta
  * `a`. Deterministic — a pure rank comparison over the locked ladder.
  */
 export function higher(a: IntelLevel, b: IntelLevel): IntelLevel {
-  assertIntelLevel(a, 'a')
-  assertIntelLevel(b, 'b')
+  assertIntelLevel(a)
+  assertIntelLevel(b)
   return INTEL_LEVEL_RANK[a] >= INTEL_LEVEL_RANK[b] ? a : b
 }
 
@@ -137,8 +130,8 @@ export function higher(a: IntelLevel, b: IntelLevel): IntelLevel {
  * the current level untouched. Age-based decay is P6-T06's concern.
  */
 export function promoteIntel(current: IntelLevel, gained: IntelLevel): IntelLevel {
-  assertIntelLevel(current, 'current')
-  assertIntelLevel(gained, 'gained')
+  assertIntelLevel(current)
+  assertIntelLevel(gained)
   return higher(current, gained)
 }
 
@@ -156,8 +149,8 @@ export function recordIntel(
   input: { level: IntelLevel; at: number; source: string },
 ): TargetIntel {
   const targetId = assertNonEmptyString(target.targetId, 'targetId')
-  assertIntelLevel(target.level, 'target.level')
-  assertIntelLevel(input.level, 'input.level')
+  assertIntelLevel(target.level)
+  assertIntelLevel(input.level)
   assertPositiveAt(input.at)
   const source = assertNonEmptyString(input.source, 'source')
   const sources = target.sources.includes(source)
@@ -176,7 +169,7 @@ export function recordIntel(
  * semantics). Deterministic — one string per level, documented above.
  */
 export function coverageFor(level: IntelLevel): string {
-  assertIntelLevel(level, 'level')
+  assertIntelLevel(level)
   switch (level) {
     case 'none':
       return 'Nothing known'

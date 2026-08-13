@@ -48,6 +48,7 @@
 import { SHIP_CLASS_IDS } from '../fleet/ships'
 import { scoutProfileFor } from './scouts'
 import { fleetCompositionSize } from '../fleet/fleet'
+import { assertFinitePositive } from './intel-ui'
 import type { FleetComposition } from '../fleet/fleet'
 import type { ScoutProfile } from './scouts'
 
@@ -82,12 +83,6 @@ export const SIGNATURE_BASE = 1
 export const SIGNATURE_PER_SHIP = 0.1
 export const STEALTH_FACTOR_DEFAULT = 1
 export const COUNTER_INTEL_UNDETECTED_FACTOR = 0.05
-
-function assertFinitePositive(value: number, name: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} must be a finite number > 0, got ${value}`)
-  }
-}
 
 function assertFiniteNonNegative(value: number, name: string): void {
   if (!Number.isFinite(value) || value < 0) {

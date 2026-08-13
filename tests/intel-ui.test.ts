@@ -1,13 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertFinitePositive,
+  assertIntelLevel,
   flooredAgeLabel,
   highestVisibleTier,
   infoLevelRank,
 } from '../src/sim/intel/intel-ui'
 import { flooredAgeLabel as stalenessFlooredAgeLabel } from '../src/sim/intel/staleness'
 import type { InfoLevel } from '../src/sim/ui/info'
+import type { IntelLevel } from '../src/sim/intel/levels'
 
 const TIERS: readonly InfoLevel[] = ['public', 'alliance', 'intel', 'owner']
+
+const LADDER: readonly IntelLevel[] = [
+  'none',
+  'observed',
+  'scanned',
+  'scouted',
+  'deep recon',
+  'full intelligence',
+]
 
 describe('P6 intel-ui infoLevelRank — the info-tier rank', () => {
   it('assigns the documented rank to each tier: public 0, alliance 1, intel 2, owner 3', () => {
@@ -118,5 +130,61 @@ describe('P6 intel-ui staleness backward-compat re-export', () => {
   it('staleness re-exports the same floored age label for its public surface', () => {
     expect(stalenessFlooredAgeLabel).toBe(flooredAgeLabel)
     expect(stalenessFlooredAgeLabel(48 * 3_600)).toBe('2d')
+  })
+})
+
+describe('P6 intel-ui assertIntelLevel — the shared ladder membership guard', () => {
+  it('accepts every ladder level without throwing', () => {
+    for (const level of LADDER) {
+      expect(() => assertIntelLevel(level)).not.toThrow()
+    }
+  })
+
+  it('narrows an unknown value to a known IntelLevel', () => {
+    const value: unknown = 'scouted'
+    assertIntelLevel(value)
+    const narrowed: IntelLevel = value
+    expect(narrowed).toBe('scouted')
+  })
+
+  it('rejects values outside the ladder with a RangeError', () => {
+    for (const bogus of ['bogus', 42, undefined, null, { level: 'none' }]) {
+      expect(() => assertIntelLevel(bogus)).toThrow(RangeError)
+    }
+  })
+
+  it('lists the locked ladder in the RangeError message', () => {
+    expect(() => assertIntelLevel('bogus')).toThrow(
+      'must be one of none, observed, scanned, scouted, deep recon, full intelligence, got "bogus"',
+    )
+  })
+})
+
+describe('P6 intel-ui assertFinitePositive — the shared finite-number guard', () => {
+  it('accepts positive finite numbers', () => {
+    expect(() => assertFinitePositive(1, 'x')).not.toThrow()
+    expect(() => assertFinitePositive(0.5, 'x')).not.toThrow()
+    expect(() => assertFinitePositive(Number.MAX_VALUE, 'x')).not.toThrow()
+  })
+
+  it('rejects zero, negatives and non-finite numbers with a RangeError', () => {
+    for (const bad of [
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]) {
+      expect(() => assertFinitePositive(bad, 'x')).toThrow(RangeError)
+    }
+  })
+
+  it('names the offending field in the RangeError message', () => {
+    expect(() => assertFinitePositive(0, 'distancePc')).toThrow(
+      'distancePc must be a finite number > 0, got 0',
+    )
+    expect(() => assertFinitePositive(Number.NaN, 'signature')).toThrow(
+      'signature must be a finite number > 0, got NaN',
+    )
   })
 })

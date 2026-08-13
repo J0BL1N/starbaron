@@ -59,6 +59,7 @@ import { contractFor, FIELD_DEFS, INFO_KINDS, projectInfo } from '../ui/info'
 import { INTEL_LEVELS, isIntelLevel } from './levels'
 import { fnv1a } from '../planets/hash'
 import { assertNonEmptyString, assertPositiveAt } from '../ui/validate'
+import { assertIntelLevel } from './intel-ui'
 import type { InfoField, InfoKind, ObjectInfoContract } from '../ui/info'
 import type { IntelLevel } from './levels'
 
@@ -186,14 +187,6 @@ export const REVEAL_MATRIX: Readonly<
 /** The documented default report source, used when `source` is omitted. */
 export const DEFAULT_REPORT_SOURCE = 'scout-report'
 
-function assertIntelLevel(value: unknown, name: string): asserts value is IntelLevel {
-  if (!isIntelLevel(value)) {
-    throw new RangeError(
-      `${name} must be one of ${INTEL_LEVELS.join(', ')}, got ${JSON.stringify(value)}`,
-    )
-  }
-}
-
 function isInfoKind(value: unknown): value is InfoKind {
   return (INFO_KINDS as readonly string[]).includes(value as string)
 }
@@ -232,7 +225,7 @@ export function buildIntelReport(input: BuildIntelReportInput): IntelReport {
   const observerId = assertNonEmptyString(input.observerId, 'observerId')
   const targetId = assertNonEmptyString(input.targetRef.id, 'targetRef.id')
   const targetName = assertNonEmptyString(input.targetName, 'targetName')
-  assertIntelLevel(input.intelLevel, 'intelLevel')
+  assertIntelLevel(input.intelLevel)
   assertPositiveAt(input.observedAt)
   const source =
     input.source === undefined
