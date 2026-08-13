@@ -113,7 +113,7 @@
 | T08 Home-World Immunity | ✅ | Codex PASS (round 2) — `src/sim/combat/home-immunity.ts` + `tests/home-immunity.test.ts` (26 tests) + write-only `0019_home_immunity.sql`/13: launch + conquest guards over locked protection, RLS SQL |
 | T09 Combat Reports | ✅ | Codex PASS (first round) — `src/sim/combat/combat-reports.ts` + `tests/combat-reports.test.ts` (33 tests): winner/loser, ship losses, pinned report text |
 | T10 Combat Simulation Harness | ✅ | Codex PASS (round 2) — `src/sim/combat/sim-harness.ts` + `tests/sim-harness.test.ts` (41 tests): delegated battle chain, full-leaf replay check |
-| T11 Attack Notifications | ⬜ | |
+| T11 Attack Notifications | ✅ | Codex PASS (first round) — `src/sim/ui/attack-notifications.ts` + `tests/attack-notifications.test.ts` (31 tests): incoming/arrived/result notifications, ETA, projection |
 
 ## Phase 8 — Diplomacy & Alliances
 
