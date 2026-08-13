@@ -5,7 +5,7 @@ READ LIST:
 - tests/casualties.test.ts        (NEW — test suite)
 - src/sim/combat/resolution.ts    (P7-T03: BattleOutcome — survivors/defenderCasualties DELEGATED)
 
-AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 25c6cebed8d5d0ffd3ee0dd4980035ec25131fbf (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
+AUTHORISED SCOPE: ONLY the two new files. AUDIT TARGET = COMMIT 45cd9023f4418ec0ac7068e2050719413dab1912 (`git show --stat` adds exactly those two). Docs commits OUT OF SCOPE. No existing file modified.
 
 TASK SPEC (docs/briefs/p7-t05-brief.md + master roadmap P7-T05):
 1. CasualtyLedger { attackerId, targetId, battleId, resolvedAt, attacker {troopsCommitted, survivors, populationLoss (= committed − survivors — DESIGN: committed lost whether win or lose), fleetLost (defeat only)}, defender {populationLoss (= outcome.defenderCasualties — DELEGATED), garrisonLoss (victory → full garrison; defeat → floor(garrison×0.2) DEFENDER_GARRISON_LOSS_RATE; stalemate → 0 — pinned)}, result }.
