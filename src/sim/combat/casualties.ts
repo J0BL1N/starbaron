@@ -59,8 +59,8 @@
  * attackerId / targetId non-empty via validate.ts, resolvedAt positive finite
  * via validate.ts, result in the frozen union, survivingTroops and
  * defenderCasualties non-negative integers), committedTroops a positive
- * integer, defenderPopulationBefore / defenderGarrisonBefore finite
- * non-negative, survivors ≤ committedTroops (a returning force cannot exceed
+ * integer, defenderPopulationBefore finite non-negative, defenderGarrisonBefore
+ * a non-negative integer, survivors ≤ committedTroops (a returning force cannot exceed
  * the committed force), and defenderCasualties ≤ defenderPopulationBefore
  * (defender population never negative).
  */
@@ -169,9 +169,9 @@ function assertOutcomeShape(outcome: BattleOutcome): void {
  * victory → the full garrison is destroyed in the fall (garrisonLoss =
  * defenderGarrisonBefore); defeat → floor(garrisonBefore × 0.2); stalemate →
  * 0. Validation order (each throws RangeError): outcome shape → committedTroops
- * positive integer → defenderPopulationBefore / defenderGarrisonBefore finite
- * non-negative → survivors ≤ committedTroops → defenderCasualties ≤
- * defenderPopulationBefore. The input is never mutated; a fresh ledger is
+ * positive integer → defenderPopulationBefore finite non-negative →
+ * defenderGarrisonBefore non-negative integer → survivors ≤ committedTroops →
+ * defenderCasualties ≤ defenderPopulationBefore. The input is never mutated; a fresh ledger is
  * returned.
  */
 export function applyCasualties(input: ApplyCasualtiesInput): CasualtyLedger {
@@ -181,7 +181,7 @@ export function applyCasualties(input: ApplyCasualtiesInput): CasualtyLedger {
     input.defenderPopulationBefore,
     'defenderPopulationBefore',
   )
-  assertFiniteNonNegative(
+  assertNonNegativeInteger(
     input.defenderGarrisonBefore,
     'defenderGarrisonBefore',
   )

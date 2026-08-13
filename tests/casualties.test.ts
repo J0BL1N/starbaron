@@ -268,6 +268,15 @@ describe('applyCasualties — validation', () => {
     }
   })
 
+  it('throws RangeError for a fractional defenderGarrisonBefore (garrisonLoss must stay an integer)', () => {
+    for (const bad of [0.5, 2.5, 1.999]) {
+      expect(
+        () => applyCasualties(applyInput({ defenderGarrisonBefore: bad })),
+        `garrison ${bad}`,
+      ).toThrow(RangeError)
+    }
+  })
+
   it('throws RangeError for a malformed outcome (result outside the union, bad survivors, bad resolvedAt)', () => {
     expect(() =>
       applyCasualties(applyInput({ outcome: outcome({ result: 'moon' as BattleOutcome['result'] }) })),
