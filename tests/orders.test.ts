@@ -283,9 +283,12 @@ describe('completeOrder', () => {
     expect(() => completeOrder(cancelled, cancelled.orders[0].id, AT + 2)).toThrow(Error)
   })
 
-  it('throws for an unknown order id', () => {
+  it('throws RangeError with the shared unknown-id message for an unknown id', () => {
     const s = issue(freshState(), {})
-    expect(() => completeOrder(s, 'ghost', AT + 1)).toThrow(Error)
+    expect(() => completeOrder(s, 'ghost', AT + 1)).toThrow(RangeError)
+    expect(() => completeOrder(s, 'ghost', AT + 1)).toThrow(
+      `unknown order id ${JSON.stringify('ghost')}`,
+    )
   })
 
   it('validates at and does NOT auto-activate the next queued order', () => {
@@ -327,9 +330,12 @@ describe('cancelOrder', () => {
     expect(() => cancelOrder(cancelled, cancelled.orders[0].id, AT + 2)).toThrow(Error)
   })
 
-  it('throws for an unknown order id and for non-positive at', () => {
+  it('throws RangeError with the shared unknown-id message for an unknown id and for non-positive at', () => {
     const s = issue(freshState(), {})
-    expect(() => cancelOrder(s, 'ghost', AT + 1)).toThrow(Error)
+    expect(() => cancelOrder(s, 'ghost', AT + 1)).toThrow(RangeError)
+    expect(() => cancelOrder(s, 'ghost', AT + 1)).toThrow(
+      `unknown order id ${JSON.stringify('ghost')}`,
+    )
     expect(() => cancelOrder(s, s.orders[0].id, 0)).toThrow(RangeError)
   })
 })

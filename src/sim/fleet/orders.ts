@@ -271,7 +271,8 @@ export function activateNext(state: FleetOrders, at: number): FleetOrders {
 /**
  * Completes the ACTIVE order with `orderId` ('active' → 'done') and clears
  * `activeOrderId`. Only active orders can complete — an 'issued', 'done' or
- * 'cancelled' order throws (Error), as does an unknown id. `at` must be
+ * 'cancelled' order throws (Error), and an unknown id throws RangeError with
+ * the shared unknown-id message (`unknown order id <id>`). `at` must be
  * positive finite and satisfy the ORDER_MIN_AT boundary: `at >=
  * order.issuedAt`, and an expired order (non-null `expiresAt` with `at >=
  * expiresAt`) cannot transition (RangeError carrying the 'expired' token).
@@ -286,9 +287,7 @@ export function completeOrder(
   assertPositiveAt(at)
   const order = state.orders.find((o) => o.id === orderId)
   if (!order) {
-    throw new Error(
-      `cannot complete order ${orderId}: no such order for fleet ${state.fleetId}`,
-    )
+    throw new RangeError(`unknown order id ${JSON.stringify(orderId)}`)
   }
   if (order.status !== 'active') {
     throw new Error(
@@ -307,7 +306,8 @@ export function completeOrder(
  * Cancels an 'issued' or 'active' order ('issued'/'active' → 'cancelled').
  * Cancelling the active order clears `activeOrderId`; cancelling a queued
  * 'issued' order leaves it untouched. A 'done' order — and an already
- * 'cancelled' order — cannot be cancelled (Error), as does an unknown id.
+ * 'cancelled' order — cannot be cancelled (Error), and an unknown id throws
+ * RangeError with the shared unknown-id message (`unknown order id <id>`).
  * `at` must be positive finite and satisfy the ORDER_MIN_AT boundary: `at >=
  * order.issuedAt`, and an expired order (non-null `expiresAt` with `at >=
  * expiresAt`) cannot transition (RangeError carrying the 'expired' token).
@@ -322,9 +322,7 @@ export function cancelOrder(
   assertPositiveAt(at)
   const order = state.orders.find((o) => o.id === orderId)
   if (!order) {
-    throw new Error(
-      `cannot cancel order ${orderId}: no such order for fleet ${state.fleetId}`,
-    )
+    throw new RangeError(`unknown order id ${JSON.stringify(orderId)}`)
   }
   if (order.status !== 'issued' && order.status !== 'active') {
     throw new Error(

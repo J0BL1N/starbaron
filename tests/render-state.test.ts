@@ -8,6 +8,7 @@ import {
 import type { FleetRenderState } from '../src/sim/fleet/render-state'
 import type { Fleet, FleetComposition } from '../src/sim/fleet/fleet'
 import type { PositionedFleet, FleetPosition } from '../src/sim/fleet/positioning'
+import type { Position, TravelLeg } from '../src/sim/fleet/movement'
 
 const AT = 1_700_000_000_000
 
@@ -35,6 +36,19 @@ function positioned(overrides: Partial<PositionedFleet> = {}): PositionedFleet {
     position: position(),
     leg: null,
     ...overrides,
+  }
+}
+
+function leg(): TravelLeg {
+  return {
+    fleetId: FLEET_ID,
+    from: { kind: 'planet', bodyId: 'a' },
+    to: { kind: 'planet', bodyId: 'b' },
+    distancePc: 10,
+    speedPcPerSec: 1,
+    departureAt: AT,
+    arrivalAt: AT + 10_000,
+    status: 'traveling',
   }
 }
 
@@ -264,6 +278,159 @@ describe('fleetRenderState — statusHint', () => {
         input({ positioned: positioned({ position: position({ phase, progress }) }) }),
       )
       expect(out.statusHint).toBe(phase)
+    }
+  })
+})
+
+describe('fleetRenderState — orientation (heading on the world XZ plane)', () => {
+  function travelingInput(origin: Position, destination: Position) {
+    return input({
+      positioned: positioned({ leg: leg() }),
+      origin,
+      destination,
+    })
+  }
+
+  it('heading 0° toward +Z (dx 0, dz 1 → atan2(0,1) = 0°)', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }),
+    )
+    expect(out.orientation).toEqual({
+      headingDegrees: 0,
+      headingRadians: 0,
+      hasHeading: true,
+    })
+  })
+
+  it('heading 90° toward +X (dx 1, dz 0 → atan2(1,0) = π/2)', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }),
+    )
+    expect(out.orientation.headingDegrees).toBe(90)
+    expect(out.orientation.headingRadians).toBeCloseTo(Math.PI / 2, 12)
+    expect(out.orientation.hasHeading).toBe(true)
+  })
+
+  it('heading 180° toward −Z (dx 0, dz −1 → atan2(0,−1) = π)', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }),
+    )
+    expect(out.orientation.headingDegrees).toBe(180)
+    expect(out.orientation.headingRadians).toBeCloseTo(Math.PI, 12)
+    expect(out.orientation.hasHeading).toBe(true)
+  })
+
+  it('heading 270° toward −X (dx −1, dz 0 → atan2(−1,0) = −π/2, +360 wrap)', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }),
+    )
+    expect(out.orientation.headingDegrees).toBe(270)
+    expect(out.orientation.headingRadians).toBeCloseTo((3 * Math.PI) / 2, 12)
+    expect(out.orientation.hasHeading).toBe(true)
+  })
+
+  it('negative-vector wrap: (−1,−1) → atan2 −135° + 360 → 225° in [0, 360)', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: -1, y: 0, z: -1 }),
+    )
+    expect(out.orientation.headingDegrees).toBe(225)
+    expect(out.orientation.headingDegrees).toBeGreaterThanOrEqual(0)
+    expect(out.orientation.headingDegrees).toBeLessThan(360)
+  })
+
+  it('modulo keeps the wrapped result exact: (1,−1) → atan2 135°, +360 then %360 → 135°', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: -1 }),
+    )
+    expect(out.orientation.headingDegrees).toBe(135)
+  })
+
+  it('zero-length vector → hasHeading false with the 0/0 fallback (even while traveling)', () => {
+    const out = fleetRenderState(
+      travelingInput({ x: 4, y: 0, z: 4 }, { x: 4, y: 0, z: 4 }),
+    )
+    expect(out.orientation).toEqual({
+      headingDegrees: 0,
+      headingRadians: 0,
+      hasHeading: false,
+    })
+  })
+
+  it('idle fallbacks: leg null / phase at-origin / phase at-destination / endpoints omitted', () => {
+    const endpoints = { origin: { x: 0, y: 0, z: 0 }, destination: { x: 1, y: 0, z: 0 } }
+    const legNull = fleetRenderState(input({ ...endpoints }))
+    expect(legNull.orientation.hasHeading).toBe(false)
+    expect(legNull.orientation.headingDegrees).toBe(0)
+
+    const atOrigin = fleetRenderState(
+      input({
+        ...endpoints,
+        positioned: positioned({
+          leg: leg(),
+          position: position({ phase: 'at-origin', progress: 0 }),
+        }),
+      }),
+    )
+    expect(atOrigin.orientation.hasHeading).toBe(false)
+
+    const atDestination = fleetRenderState(
+      input({
+        ...endpoints,
+        positioned: positioned({
+          leg: leg(),
+          position: position({ phase: 'at-destination', progress: 1 }),
+        }),
+      }),
+    )
+    expect(atDestination.orientation.hasHeading).toBe(false)
+
+    const noEndpoints = fleetRenderState(input({ positioned: positioned({ leg: leg() }) }))
+    expect(noEndpoints.orientation).toEqual({
+      headingDegrees: 0,
+      headingRadians: 0,
+      hasHeading: false,
+    })
+  })
+
+  it('is deterministic and independent of `at` when a heading exists', () => {
+    const a = fleetRenderState(travelingInput({ x: 0, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }))
+    const b = fleetRenderState(
+      travelingInput({ x: 0, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }),
+    )
+    expect(a.orientation).toEqual(b.orientation)
+    const c = fleetRenderState(
+      input({
+        positioned: positioned({ leg: leg() }),
+        origin: { x: 0, y: 0, z: 0 },
+        destination: { x: -1, y: 0, z: 0 },
+        at: AT + 500,
+      }),
+    )
+    expect(c.orientation).toEqual(a.orientation)
+  })
+
+  it('throws RangeError for non-finite provided endpoints', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(() =>
+        fleetRenderState(
+          input({
+            positioned: positioned({ leg: leg() }),
+            origin: { x: bad, y: 0, z: 0 },
+            destination: { x: 1, y: 0, z: 0 },
+          }),
+        ),
+        String(bad),
+      ).toThrow(RangeError)
+      expect(() =>
+        fleetRenderState(
+          input({
+            positioned: positioned({ leg: leg() }),
+            origin: { x: 0, y: 0, z: 0 },
+            destination: { x: 1, y: 0, z: bad },
+          }),
+        ),
+        String(bad),
+      ).toThrow(RangeError)
     }
   })
 })

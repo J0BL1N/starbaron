@@ -10,7 +10,9 @@
  * - `fleetRenderState` is the per-frame entry point. It takes a
  *   `PositionedFleet` (P5-T05 positionAt — the validated phase + interpolated
  *   position), the fleet's `FleetComposition` (P5-T03), an optional owner
- *   name, and the `at` timestamp. `at` is validated via `assertPositiveAt`
+ *   name, the `at` timestamp, and — when the caller has resolved the leg's
+ *   world endpoints — optional `origin`/`destination` positions (the heading
+ *   source; see `orientation` below). `at` is validated via `assertPositiveAt`
  *   for contract-consistency with positionAt but does NOT influence the
  *   output (documented; deterministic — same state → same render state at
  *   every timestamp).
@@ -21,6 +23,21 @@
  *   separately for tests/UI reuse and guarantees the same string.
  * - `position` is a validated PASSTHROUGH (coordinates finite, phase in the
  *   union, progress in [0,1]) returned as a FRESH object — never aliased.
+ * - `orientation` — the fleet's heading on the world XZ plane (yaw around
+ *   the +Y axis; 0° = the +Z axis, 90° = the +X axis, matching the
+ *   planetgen3d orbit convention where a heading θ points along
+ *   (sin θ, 0, cos θ)). `hasHeading` is true ONLY when the fleet is actively
+ *   traveling (leg non-null AND phase 'traveling') with a non-zero
+ *   origin→destination vector; every other frame (idle at origin, arrived,
+ *   or a zero-length leg) is the documented fallback
+ *   `{ headingDegrees: 0, headingRadians: 0, hasHeading: false }`. The
+ *   heading is derived deterministically from the leg's resolved endpoints:
+ *   `headingDegrees = (atan2(dx, dz) × 180/π + 360) % 360` with dx/dz the
+ *   destination−origin difference on the XZ plane. `origin`/`destination`
+ *   are OPTIONAL inputs (world `Position`s the caller resolves from the
+ *   leg's refs — the leg itself carries no coordinates); when omitted the
+ *   fallback applies. Provided endpoints must be finite (RangeError
+ *   otherwise).
  *
  * LOD (level-of-detail) draw counts — documented decisions:
  * - Full counts always stay in the MODEL (`draw.perClass[].count`); the LOD
@@ -57,6 +74,7 @@ import type { ShipClassId } from './ships'
 import { fleetCompositionSize } from './fleet'
 import type { Fleet, FleetComposition } from './fleet'
 import type { PositionedFleet, FleetPosition } from './positioning'
+import type { Position } from './movement'
 import { assertPositiveAt } from '../ui/validate'
 
 /** The total number of ships the renderer draws per fleet (LOD cap). */
@@ -91,6 +109,20 @@ export interface FleetRenderState {
   draw: FleetDraw
   scaleHint: number
   statusHint: string
+  orientation: FleetOrientation
+}
+
+/**
+ * The fleet's world orientation at a frame: a heading on the world XZ plane
+ * (yaw around the +Y axis). 0° = +Z, 90° = +X — the planetgen3d orbit
+ * convention, so a heading θ points along (sin θ, 0, cos θ). The IDLE /
+ * ZERO-VECTOR fallback is `{ headingDegrees: 0, headingRadians: 0,
+ * hasHeading: false }`.
+ */
+export interface FleetOrientation {
+  headingDegrees: number
+  headingRadians: number
+  hasHeading: boolean
 }
 
 export interface FleetRenderStateInput {
@@ -98,6 +130,8 @@ export interface FleetRenderStateInput {
   composition: FleetComposition
   ownerName?: string
   at: number
+  origin?: Position
+  destination?: Position
 }
 
 function assertNonEmpty(value: string, field: string): void {
@@ -132,6 +166,72 @@ function assertValidPosition(position: FleetPosition): void {
     throw new RangeError(
       `position.progress must be a finite number in [0, 1], got ${position.progress}`,
     )
+  }
+}
+
+function assertFiniteEndpoint(position: Position | undefined, field: string): void {
+  if (position === undefined) return
+  assertFinite(position.x, `${field}.x`)
+  assertFinite(position.y, `${field}.y`)
+  assertFinite(position.z, `${field}.z`)
+}
+
+/**
+ * The heading derived from an origin→destination vector on the world XZ
+ * plane, or null when the vector is zero-length. Convention (documented in
+ * the module docstring and the `FleetOrientation` contract): heading θ points
+ * along (sin θ, 0, cos θ) — `headingDegrees = (atan2(dx, dz) × 180/π + 360)
+ * % 360`, so negative atan2 results wrap into [0, 360).
+ */
+function headingFromVector(
+  origin: Position,
+  destination: Position,
+): { headingDegrees: number; headingRadians: number } | null {
+  const dx = destination.x - origin.x
+  const dz = destination.z - origin.z
+  if (dx === 0 && dz === 0) {
+    return null
+  }
+  const headingDegrees = ((Math.atan2(dx, dz) * 180) / Math.PI + 360) % 360
+  return {
+    headingDegrees,
+    headingRadians: (headingDegrees * Math.PI) / 180,
+  }
+}
+
+/**
+ * The deterministic orientation block for a frame. A heading exists ONLY for
+ * a fleet actively traveling (leg non-null, phase 'traveling') with resolved
+ * endpoints whose XZ vector is non-zero; every other frame — idle at origin,
+ * arrived, endpoints omitted, or a zero-length leg — is the documented
+ * fallback `{ headingDegrees: 0, headingRadians: 0, hasHeading: false }`.
+ */
+function orientationFor(
+  positioned: PositionedFleet,
+  origin: Position | undefined,
+  destination: Position | undefined,
+): FleetOrientation {
+  const fallback: FleetOrientation = {
+    headingDegrees: 0,
+    headingRadians: 0,
+    hasHeading: false,
+  }
+  if (
+    positioned.leg === null ||
+    positioned.position.phase !== 'traveling' ||
+    origin === undefined ||
+    destination === undefined
+  ) {
+    return fallback
+  }
+  const heading = headingFromVector(origin, destination)
+  if (heading === null) {
+    return fallback
+  }
+  return {
+    headingDegrees: heading.headingDegrees,
+    headingRadians: heading.headingRadians,
+    hasHeading: true,
   }
 }
 
@@ -214,23 +314,27 @@ export function fleetLabel(fleet: Fleet, ownerName?: string): string {
 /**
  * Builds the per-frame render state for a fleet. Validates (RangeError):
  * `at` positive finite (assertPositiveAt), `fleetId` non-empty, `position`
- * (finite coords, phase in the union, progress in [0,1]), and the composition
- * (non-negative integer counts, via fleetCompositionSize). The leg is NOT part
- * of this contract (position already encodes phase/progress; it was validated
- * upstream by positionAt).
+ * (finite coords, phase in the union, progress in [0,1]), the composition
+ * (non-negative integer counts, via fleetCompositionSize), and — when
+ * provided — the `origin`/`destination` endpoints (finite coords). The leg is
+ * NOT validated here (position already encodes phase/progress; it was
+ * validated upstream by positionAt).
  *
  * Output: label (deterministic), position (fresh copy — passthrough, never
  * aliased), draw (totalShips + per-class counts with LOD drawCounts — see the
  * module docstring), scaleHint (draft size cue), statusHint (phase verbatim,
- * draft). `at` is validated but does not influence the output. Inputs are
- * never mutated.
+ * draft), and orientation (the heading derived from the leg's resolved
+ * endpoints — see the module docstring for the full semantics). `at` is
+ * validated but does not influence the output. Inputs are never mutated.
  */
 export function fleetRenderState(input: FleetRenderStateInput): FleetRenderState {
-  const { positioned, composition, ownerName, at } = input
+  const { positioned, composition, ownerName, at, origin, destination } = input
 
   assertPositiveAt(at)
   assertNonEmpty(positioned.fleetId, 'fleetId')
   assertValidPosition(positioned.position)
+  assertFiniteEndpoint(origin, 'origin')
+  assertFiniteEndpoint(destination, 'destination')
 
   const totalShips = fleetCompositionSize(composition)
   const ratio = lodRatio(totalShips)
@@ -257,5 +361,6 @@ export function fleetRenderState(input: FleetRenderStateInput): FleetRenderState
     draw: { totalShips, perClass },
     scaleHint: scaleHintFor(totalShips),
     statusHint: positioned.position.phase,
+    orientation: orientationFor(positioned, origin, destination),
   }
 }
