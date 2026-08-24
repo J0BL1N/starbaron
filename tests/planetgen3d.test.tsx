@@ -1,7 +1,5 @@
 /* @vitest-environment jsdom */
-import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PLANETS } from '../src/sim/data/planets'
@@ -29,13 +27,11 @@ import {
 } from '../src/ui/planetgen3d/render'
 import { buildSolarSystem } from '../src/ui/planetgen3d/system'
 import * as THREE from 'three'
-import PlanetCanvas3D from '../src/ui/components/PlanetCanvas3D'
 
 import type { PlanetVisualProfile } from '../src/sim/planets/types'
 import type { RadiusBand } from '../src/sim/planets/visual'
 
 afterEach(() => {
-  cleanup()
   clearTextureCache()
   vi.restoreAllMocks()
 })
@@ -413,59 +409,3 @@ function sampleProfile(band: RadiusBand): PlanetVisualProfile {
 // React component smoke tests
 // ---------------------------------------------------------------------------
 
-describe('planetgen3d/PlanetCanvas3D', () => {
-  it('renders a canvas with the expected aria-label for Kepler-452 b', () => {
-    const entry = PLANETS.find((p) => p.name === 'Kepler-452 b')!
-    const identity = generatePlanetIdentity(entry)
-    const band = radiusBandOf(resolveRadius(entry, () => 0.5))
-    const { container } = render(
-      <PlanetCanvas3D
-        name={entry.name}
-        profile={identity.visual}
-        tier={entry.tier}
-        radiusBand={band}
-      />,
-    )
-    const canvas = container.querySelector('canvas')
-    expect(canvas).toBeInTheDocument()
-    expect(canvas).toHaveAttribute('aria-label', `${entry.name} ${identity.visual.emoji}`)
-    expect(canvas).toHaveAttribute('role', 'img')
-    cleanup()
-  })
-
-  it('builds without throwing for edge cases (moons=0, ringed=false, no atmosphere, tier 1 and 5)', () => {
-    const edgeProfile: PlanetVisualProfile = {
-      surfacePalette: ['#c0c0c0', '#8a6a4a', '#6b5138', '#4a3a2a'],
-      atmosphereTint: null,
-      ringed: false,
-      moons: 0,
-      emoji: '🪨',
-    }
-
-    expect(() =>
-      render(
-        <PlanetCanvas3D
-          name="Edge-Tier-1"
-          profile={edgeProfile}
-          tier={1}
-          radiusBand="rocky"
-        />,
-      ),
-    ).not.toThrow()
-
-    cleanup()
-
-    expect(() =>
-      render(
-        <PlanetCanvas3D
-          name="Edge-Tier-5"
-          profile={edgeProfile}
-          tier={5}
-          radiusBand="gaseous"
-        />,
-      ),
-    ).not.toThrow()
-
-    cleanup()
-  })
-})

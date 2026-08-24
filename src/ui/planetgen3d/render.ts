@@ -297,7 +297,7 @@ function buildPlanet(
 function buildStar(
   data: SolarSystemData,
   scene: THREE.Scene,
-): { mesh: THREE.Mesh; glow: THREE.Sprite } {
+): { mesh: THREE.Mesh; glow: THREE.Sprite; baseSize: number } {
   const model = data.starModel
   const baseSize = 2.6 * model.size
 
@@ -318,7 +318,7 @@ function buildStar(
   glow.scale.set(baseSize * 5, baseSize * 5, 1)
   scene.add(glow)
 
-  return { mesh: core, glow }
+  return { mesh: core, glow, baseSize }
 }
 
 const ASTEROID_COLORS = [
@@ -343,6 +343,46 @@ function buildAsteroidBelt(
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   scene.add(mesh)
   return mesh
+}
+
+/**
+ * Precomputed circular-orbit parameters for one asteroid.
+ *
+ * Belt rocks are visually indistinguishable at their scale, so the animator
+ * uses a cheap circular model (constant angular speed, inclination/node folded
+ * into two precomputed basis coefficients) instead of the full Kepler solve
+ * the planets use. This removes ~1400 pow()+trig chains PER FRAME — the
+ * single biggest CPU hotspot in the old loop.
+ */
+export interface AsteroidFast {
+  a: number
+  baseAngle: number
+  angularSpeed: number
+  cosNode: number
+  sinNode: number
+  sinInc: number
+  cosInc: number
+  scale: number
+}
+
+export function buildAsteroidFastTable(
+  asteroids: SolarSystemData['asteroidBelt']['asteroids'],
+): AsteroidFast[] {
+  const table: AsteroidFast[] = new Array(asteroids.length)
+  for (let i = 0; i < asteroids.length; i++) {
+    const el = asteroids[i].elements
+    table[i] = {
+      a: el.a,
+      baseAngle: el.phase + el.argP,
+      angularSpeed: (Math.PI * 2) / el.period,
+      cosNode: Math.cos(el.node),
+      sinNode: Math.sin(el.node),
+      sinInc: Math.sin(el.inc),
+      cosInc: Math.cos(el.inc),
+      scale: 0.025 + ((i * 37) % 9) * 0.008,
+    }
+  }
+  return table
 }
 
 export interface GalaxyLocator {
@@ -921,6 +961,37 @@ export interface SolarSystemRenderer {
   dispose: () => void
 }
 
+/** One projected planet-telemetry sample delivered to the React HUD layer.
+ *
+ * Deliberately NDC-space: the renderer owns the camera, the HUD layer owns
+ * the pixels. This removes the renderer's dependence on canvas client size
+ * (which read as 1×1 inside the render loop in some environments) and lets
+ * the layer convert with its own reliably-measured container rect.
+ */
+export interface PlanetTelemetrySample {
+  name: string
+  /** Normalised device coords of the planet centre (-1..1). */
+  ndcX: number
+  ndcY: number
+  /** True when the planet is behind the camera. */
+  behind: boolean
+  /** World-space distance from the camera (for apparent-size math). */
+  dist: number
+  /** World-space planet radius. */
+  worldRadius: number
+  /** Camera zoom level (0 = close planet, 1 = system, 2 = galaxy). */
+  level: number
+  /** Radius band — drives the classification shown on the label. */
+  band: RadiusBand | 'system'
+  /** Catalogue tier 1–5. */
+  tier: number
+  /** 'planet' (system view) or 'system' (galaxy-view host callout). */
+  kind: 'planet' | 'system'
+  /** Ownership truth straight from the renderer's own options/state. */
+  owned: boolean
+  home: boolean
+}
+
 export interface CreateSolarSystemRendererOptions {
   seedName: string
   homePlanetName: string
@@ -934,6 +1005,22 @@ export interface CreateSolarSystemRendererOptions {
   onHostSelected?: (host: HostStar) => void
   onPlanetSelected?: (planet: PlanetData) => void
   onZoomChanged?: (level: string) => void
+  /**
+   * Single-click selection at system zoom. Fires with the clicked planet, or
+   * `null` when empty space was clicked (deselect). Never fires while the
+   * camera is dragging.
+   */
+  onSelectPlanet?: (planet: PlanetData | null) => void
+  /**
+   * Hover callback — fires only when the hovered planet CHANGES (never per
+   * mousemove). `null` = pointer left all planets.
+   */
+  onPlanetHovered?: (planet: PlanetData | null) => void
+  /**
+   * Throttled (~12 Hz) world→screen telemetry samples for every planet,
+   * delivered AFTER each render so positions match the presented frame.
+   */
+  onTelemetry?: (samples: PlanetTelemetrySample[]) => void
 }
 
 export function createSolarSystemRenderer(
@@ -952,6 +1039,9 @@ export function createSolarSystemRenderer(
     onHostSelected,
     onPlanetSelected,
     onZoomChanged,
+    onSelectPlanet,
+    onPlanetHovered,
+    onTelemetry,
   } = options
 
   if (!isWebGLAvailable()) {
@@ -986,10 +1076,11 @@ export function createSolarSystemRenderer(
   // Lazy solar-system mesh lifecycle: these meshes are heavy, so build them
   // only while the camera is near the system and dispose them at galaxy/universe
   // zoom. The plain `system` data is retained and rebuilding is cheap.
-  let star: { mesh: THREE.Mesh; glow: THREE.Sprite } | undefined
+  let star: { mesh: THREE.Mesh; glow: THREE.Sprite; baseSize: number } | undefined
   let planetMeshes: PlanetMeshes[] = []
   let asteroidMesh: THREE.InstancedMesh | undefined
   let systemMeshesBuilt = false
+  let asteroidFastTable: AsteroidFast[] = []
 
   const SYSTEM_MESH_DISPOSE_ZOOM = 1.8
   const SYSTEM_MESH_REBUILD_ZOOM = 1.5
@@ -1010,6 +1101,7 @@ export function createSolarSystemRenderer(
     }
 
     asteroidMesh = buildAsteroidBelt(system.asteroidBelt, scene)
+    asteroidFastTable = buildAsteroidFastTable(system.asteroidBelt.asteroids)
     systemMeshesBuilt = true
   }
 
@@ -1063,6 +1155,7 @@ export function createSolarSystemRenderer(
       disposeMaterial(asteroidMesh.material)
       asteroidMesh = undefined
     }
+    asteroidFastTable = []
 
     systemMeshesBuilt = false
   }
@@ -1117,6 +1210,44 @@ export function createSolarSystemRenderer(
     lastY = e.clientY
   }
 
+  function onHoverMove(e: MouseEvent) {
+    if (dragging || currentZoom >= 1.5 || !systemMeshesBuilt) {
+      setHovered(-1)
+      return
+    }
+    const now = performance.now()
+    if (now - hoverThrottleAt < 33) return // ~30 Hz max
+    hoverThrottleAt = now
+
+    const rect = canvas.getBoundingClientRect()
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    if (pointer.x < -1.05 || pointer.x > 1.05 || pointer.y < -1.05 || pointer.y > 1.05) {
+      setHovered(-1)
+      return
+    }
+    raycaster.setFromCamera(pointer, camera)
+    const hits = raycaster.intersectObjects(
+      planetMeshes.map((m) => m.group),
+      false,
+    )
+    if (hits.length === 0) {
+      setHovered(-1)
+      return
+    }
+    const group = hits[0].object as THREE.Object3D & { userData: { planetIndex?: number } }
+    setHovered(group.userData.planetIndex ?? -1)
+  }
+
+  /** Reports hover changes only — never fires per mousemove. */
+  function setHovered(index: number) {
+    if (index === hoveredIndex) return
+    hoveredIndex = index
+    if (onPlanetHovered) {
+      onPlanetHovered(index >= 0 ? system.planets[index] ?? null : null)
+    }
+  }
+
   function onResize() {
     const w = canvas.clientWidth
     const h = canvas.clientHeight
@@ -1159,12 +1290,17 @@ export function createSolarSystemRenderer(
 
     raycaster.setFromCamera(pointer, camera)
     const planetGroups = planetMeshes.map((m) => m.group)
-    const hits = raycaster.intersectObjects(planetGroups, false)
+    const hits = raycaster.intersectObjects(planetGroups, true)
     if (hits.length === 0) return undefined
 
-    const group = hits[0].object
-    const data = (group as THREE.Object3D).userData.planet as PlanetData | undefined
-    return data ?? planetMeshes.find((m) => m.group === group)?.group.userData.planet
+    // Walk up from the hit mesh to its owning planet group.
+    let obj: THREE.Object3D | null = hits[0].object
+    while (obj !== null) {
+      const data = (obj as THREE.Object3D).userData?.planet as PlanetData | undefined
+      if (data !== undefined) return data
+      obj = obj.parent
+    }
+    return undefined
   }
 
   function onPointerClick(e: MouseEvent) {
@@ -1176,7 +1312,23 @@ export function createSolarSystemRenderer(
       if (host && onHostSelected) {
         onHostSelected(host)
       }
-    } else if (currentZoom >= 0.6 && currentZoom < 1.5) {
+      return
+    }
+
+    if (currentZoom >= 0.6) {
+      // System zoom: single click selects (or deselects on empty space).
+      const planet = pickPlanetAt(e.clientX, e.clientY)
+      if (onSelectPlanet) {
+        onSelectPlanet(planet ?? null)
+      }
+      return
+    }
+  }
+
+  function onDoubleClick(e: MouseEvent) {
+    if (e.button !== 0) return
+    if (currentZoom >= 0.6 && currentZoom < 1.5) {
+      // Preserve the existing close-up focus journey on double-click.
       const planet = pickPlanetAt(e.clientX, e.clientY)
       if (planet && onPlanetSelected) {
         onPlanetSelected(planet)
@@ -1198,6 +1350,8 @@ export function createSolarSystemRenderer(
   canvas.addEventListener('wheel', onWheel, { passive: false })
   canvas.addEventListener('mousedown', onMouseDown)
   canvas.addEventListener('click', onPointerClick)
+  canvas.addEventListener('dblclick', onDoubleClick)
+  canvas.addEventListener('mousemove', onHoverMove)
   canvas.addEventListener('contextmenu', onContextMenu)
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('mousemove', onMouseMove)
@@ -1208,9 +1362,24 @@ export function createSolarSystemRenderer(
   let raf = 0
   const clock = new THREE.Clock()
   let simTime = 0
+  // Scratch object reused for asteroid instance matrices (zero allocations/frame).
+  const scratchObj = new THREE.Object3D()
+
+  // Hover picking state — raycast on pointermove is throttled to ~30 Hz and
+  // only reports CHANGES, so hovering stays cheap even while dragging.
+  let hoverThrottleAt = 0
+  let hoveredIndex = -1
 
   // Pre-frame camera target: home planet if present, otherwise origin.
   const targetObj = new THREE.Vector3(0, 0, 0)
+  // Telemetry scratch state (no per-frame allocations).
+  const TELEMETRY_INTERVAL_MS = 83 // ≈12 Hz
+  let lastTelemetryAt = -1000
+  const telemetryScratch: PlanetTelemetrySample[] = []
+  const worldPos = new THREE.Vector3()
+  // Manual frame clock — clock.elapsedTime is NOT advanced by getDelta() in
+  // three.js, so all pulse/telemetry timers must use this accumulator.
+  let animTime = 0
 
   function animate() {
     if (disposed) return
@@ -1219,6 +1388,7 @@ export function createSolarSystemRenderer(
 
     currentZoom += (targetZoom - currentZoom) * Math.min(1, dt * 2.2)
     simTime += dt * 2
+    animTime += dt
 
     // Lazy build / dispose solar-system meshes as the camera moves between the
     // system view and the galaxy/universe view.
@@ -1260,34 +1430,59 @@ export function createSolarSystemRenderer(
         if (track) {
           track.visible = currentZoom >= 0.8 && currentZoom < 2.5
         }
+
+        // Zoom-scaled planets: real scale at close zoom, enlarged at system
+        // zoom so texture, atmosphere and rings actually read on screen
+        // (showcase look). Scales smoothly between 0.6 and 1.2 zoom.
+        const planetScale =
+          currentZoom <= 0.6
+            ? 1
+            : currentZoom >= 1.2
+              ? 4.5
+              : 1 + ((currentZoom - 0.6) / 0.6) * 3.5
+        meshes.group.scale.setScalar(planetScale)
       }
 
-      // Update asteroids.
+      // Update asteroids via the precomputed circular-orbit table — no per-
+      // frame Kepler solves. Positions are written straight into the
+      // instance matrix with a reused scratch object.
       if (asteroidMesh) {
-        const dummy = new THREE.Object3D()
-        for (let i = 0; i < system.asteroidBelt.asteroids.length; i++) {
-          const ast = system.asteroidBelt.asteroids[i]
-          const el = ast.elements
-          const pos = keplerPosition(el.a, el.e, el.inc, el.node, el.argP, el.period, simTime + el.phase)
-          dummy.position.set(pos.x, pos.y, pos.z)
-          const scale = 0.025 + ((i * 37) % 9) * 0.008
-          dummy.scale.set(scale, scale, scale)
-          dummy.rotation.set(((i * 53) % 10) * 0.6, ((i * 97) % 10) * 0.6, 0)
-          dummy.updateMatrix()
-          asteroidMesh.setMatrixAt(i, dummy.matrix)
+        for (let i = 0; i < asteroidFastTable.length; i++) {
+          const fast = asteroidFastTable[i]
+          const angle = fast.baseAngle + simTime * fast.angularSpeed
+          const cosA = Math.cos(angle)
+          const sinA = Math.sin(angle)
+          // Inclined circular orbit folded into two basis vectors.
+          const ox = fast.a * cosA
+          const oz = fast.a * sinA
+          const oy = fast.sinInc * (fast.a * 0.5) * sinA * fast.cosNode +
+            fast.cosInc * (fast.a * 0.5) * cosA * fast.sinNode
+          scratchObj.position.set(
+            ox * fast.cosNode - oz * fast.sinNode,
+            oy,
+            ox * fast.sinNode + oz * fast.cosNode,
+          )
+          const s = fast.scale
+          scratchObj.scale.set(s, s, s)
+          scratchObj.rotation.set(0, angle, 0)
+          scratchObj.updateMatrix()
+          asteroidMesh.setMatrixAt(i, scratchObj.matrix)
         }
         asteroidMesh.instanceMatrix.needsUpdate = true
         asteroidMesh.visible = currentZoom >= 0.6 && currentZoom < 2.5
       }
 
-      // Subtle star glow pulse.
+      // Subtle star glow pulse + zoom-scaled presence. The raw star is
+      // real-scale (tiny vs orbital distances), so at system zoom the core
+      // and glow scale up to read like the showcase's bright star — without
+      // swallowing the inner orbits.
       if (star) {
-        const pulse = 1 + Math.sin(clock.elapsedTime * 1.2) * 0.03
-        star.glow.scale.set(
-          system.starModel.size * 13 * pulse,
-          system.starModel.size * 13 * pulse,
-          1,
-        )
+        const pulse = 1 + Math.sin(animTime * 1.2) * 0.03
+        const zt = Math.min(1.5, Math.max(0.6, currentZoom))
+        const coreScale = 1 + (zt - 0.6) * 0.9
+        const glowScale = star.baseSize * 5 * pulse * (1 + (zt - 0.6) * 1.2)
+        star.glow.scale.set(glowScale, glowScale, 1)
+        star.mesh.scale.setScalar(coreScale)
       }
     }
 
@@ -1298,7 +1493,7 @@ export function createSolarSystemRenderer(
 
     // Pulse the home ring in the dedicated highlight layer — locators stay static.
     if (galaxy.homeRing) {
-      const homePulse = 1 + Math.sin(clock.elapsedTime * 2.5) * 0.18
+      const homePulse = 1 + Math.sin(animTime * 2.5) * 0.18
       galaxy.homeRing.scale.setScalar(homePulse)
       galaxy.homeRing.lookAt(0, 0, 0)
     }
@@ -1340,6 +1535,68 @@ export function createSolarSystemRenderer(
       canvas.dataset.level = levelName
       onZoomChanged?.(levelName)
     }
+
+    // Telemetry: world→screen projection for every planet, throttled to
+    // ~12 Hz. Runs only at system zoom (meshes exist) and never allocates.
+    if (onTelemetry && systemMeshesBuilt && currentZoom >= 0.6 && currentZoom < 1.5) {
+      const now = animTime * 1000
+      if (now - lastTelemetryAt > TELEMETRY_INTERVAL_MS) {
+        lastTelemetryAt = now
+        telemetryScratch.length = 0
+        for (let i = 0; i < planetMeshes.length; i++) {
+          const meshes = planetMeshes[i]
+          const data = system.planets[i]
+          if (!meshes || !data) continue
+          worldPos.copy(meshes.group.position)
+          worldPos.project(camera)
+          telemetryScratch.push({
+            name: data.name,
+            ndcX: worldPos.x,
+            ndcY: worldPos.y,
+            behind: worldPos.z > 1,
+            dist: meshes.group.position.distanceTo(camera.position),
+            worldRadius: data.radius,
+            level: currentZoom,
+            band: data.band,
+            tier: data.tier,
+            kind: 'planet',
+            owned: ownedNames.has(data.name),
+            home: data.name === homePlanetName,
+          })
+        }
+        onTelemetry(telemetryScratch)
+      }
+    }
+
+    // Galaxy telemetry: callouts for OWNED/home host stars while at galaxy
+    // zoom. Same NDC pipeline, ~12 Hz, zero allocation.
+    if (onTelemetry && currentZoom >= 1.5 && currentZoom < 2.5) {
+      const now = animTime * 1000
+      if (now - lastTelemetryAt > TELEMETRY_INTERVAL_MS) {
+        lastTelemetryAt = now
+        telemetryScratch.length = 0
+        for (const locator of galaxy.locators.values()) {
+          if (!locator.claimed && !locator.home) continue
+          worldPos.copy(locator.position)
+          worldPos.project(camera)
+          telemetryScratch.push({
+            name: locator.hostName,
+            ndcX: worldPos.x,
+            ndcY: worldPos.y,
+            behind: worldPos.z > 1,
+            dist: locator.position.distanceTo(camera.position),
+            worldRadius: 0,
+            level: currentZoom,
+            band: 'system',
+            tier: locator.tier,
+            kind: 'system',
+            owned: true,
+            home: locator.home,
+          })
+        }
+        onTelemetry(telemetryScratch)
+      }
+    }
   }
 
   animate()
@@ -1352,6 +1609,8 @@ export function createSolarSystemRenderer(
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('mousedown', onMouseDown)
       canvas.removeEventListener('click', onPointerClick)
+      canvas.removeEventListener('dblclick', onDoubleClick)
+      canvas.removeEventListener('mousemove', onHoverMove)
       canvas.removeEventListener('contextmenu', onContextMenu)
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('mousemove', onMouseMove)
