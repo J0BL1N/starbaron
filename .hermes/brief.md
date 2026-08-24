@@ -18,9 +18,12 @@ _Last updated: 2026-08-23_
   `src/ui/planetgen3d/**` (the engine the main game runs on).
 
 ## Decisions
+- 2026-08-24: **canonical vision doc = `docs/STARBARON_MASTER_GAME_VISION.md`**
+  (full vision + implementation status + architecture + perf risks + debt +
+  mismatches + next phase). READ IT FIRST for any substantial work.
 - 2026-08-23: single-file three.js main game; everything else deleted.
 - 2026-08: functioning game first; MMO deferred. FULL MODULAR ships approved.
-- Locked design canon lives in DESIGN.md + docs/MASTER-ROADMAP.md.
+- Locked design canon lives in DESIGN.md + docs/MASTER-ROADMAP.md + the vision doc.
 
 ## Open items / next steps
 - Re-attach game systems (claim/economy/structures/fleet) onto the three.js

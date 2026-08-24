@@ -52,18 +52,475 @@
   #photoPanel button:hover { background: #243059; }
   #photoPanel button.ppModeOn { background: #5a3a10; border-color: #ff9a40; color: #ffd6a0; font-weight: 700; }
   #photoPanel .ppStatus { margin-top: 8px; color: #6b7aa8; font-size: 11px; line-height: 1.4; }
-  #photoReopen {
-    position: fixed; top: 14px; right: 14px; z-index: 25;
-    background: rgba(11,14,26,0.7); color: #ffd6a0; border: 1px solid #2a3355;
-    border-radius: 999px; padding: 5px 12px; font-size: 11px; cursor: pointer;
-    letter-spacing: 1px;
-  }
+
+/* ---- main menu overlay ---- */
+#menu {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(8, 12, 26, 0.18) 0%, rgba(4, 6, 14, 0.72) 78%),
+    rgba(3, 5, 12, 0.55);
+  backdrop-filter: blur(2.5px) saturate(0.9);
+  opacity: 1; transition: opacity 0.45s ease;
+  cursor: default;
+}
+#menu.closed { opacity: 0; pointer-events: none; }
+#menu .menu-inner { text-align: center; user-select: none; }
+#menu .menu-kicker {
+  font-size: 12px; letter-spacing: 0.42em; text-transform: uppercase;
+  color: #7f8db8; margin-bottom: 14px;
+}
+#menu h1 {
+  margin: 0; font-size: 64px; font-weight: 200; letter-spacing: 0.24em;
+  color: #eef2ff; text-shadow: 0 0 34px rgba(120, 150, 255, 0.35);
+}
+#menu .menu-rule {
+  width: 64px; height: 2px; margin: 22px auto 30px;
+  background: linear-gradient(90deg, transparent, #ff7a1a, transparent);
+}
+#menu .menu-item {
+  display: block; width: 300px; margin: 0 auto 12px; padding: 11px 0;
+  background: transparent; border: 1px solid rgba(127, 141, 184, 0.35);
+  color: #c6cfe8; font-family: inherit; font-size: 14px;
+  letter-spacing: 0.34em; text-transform: uppercase; cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease,
+              letter-spacing 0.25s ease;
+}
+#menu .menu-item:hover {
+  border-color: #ff7a1a; color: #ffd9b8; background: rgba(255, 122, 26, 0.07);
+  letter-spacing: 0.42em;
+}
+#menu .menu-item.primary { border-color: rgba(255, 122, 26, 0.65); color: #ffb98a; }
+#menu .menu-item.primary:hover { background: rgba(255, 122, 26, 0.14); }
+#menu .menu-controls {
+  margin-top: 34px; font-size: 11px; letter-spacing: 0.28em;
+  text-transform: uppercase; color: #55618a; line-height: 2;
+}
+#menu .menu-controls b { color: #8b98c4; font-weight: 600; }
+/* hide HUD chrome while the menu is open */
+body.menu-open #hud,
+body.menu-open #hint,
+body.menu-open #status,
+body.menu-open #photoPanel { opacity: 0; pointer-events: none; }
+
+/* ---- planet telemetry panel (vision §18) ---- */
+#telBox {
+  position: fixed; top: 0; left: 0; z-index: 12; width: 0; height: 0;
+  pointer-events: none; opacity: 0; transition: opacity 0.25s ease;
+}
+#telBox .tel-card {
+  /* pushed clear of the planet to the LEFT every frame by updatePlanetTelemetry */
+  position: absolute; right: 0; top: 0; width: 208px;
+  background: rgba(6, 11, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-left: 2px solid #ffffff;
+  backdrop-filter: blur(7px);
+  padding: 10px 13px 11px;
+  border-radius: 3px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+#telBox .tel-name {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.12em;
+  color: #f4f8ff; text-transform: uppercase; margin-top: 1px;
+}
+#telBox .tel-class {
+  font-size: 9px; letter-spacing: 0.22em; color: #9aa9cc;
+  text-transform: uppercase; margin: 1px 0 6px;
+  padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+}
+#telBox .tel-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 10.5px; line-height: 1.75; font-variant-numeric: tabular-nums;
+}
+#telBox .tel-row .k {
+  color: #7d8db2; letter-spacing: 0.14em; font-size: 8.5px;
+  text-transform: uppercase;
+}
+#telBox .tel-row .v { color: #e8f0ff; letter-spacing: 0.04em; }
+#telBox .tel-pips { display: flex; gap: 4px; margin-top: 8px; }
+#telBox .tel-pips .pip {
+  width: 14px; height: 3px; border-radius: 2px; background: #2a3a5c;
+}
+#telBox .tel-pips .pip.on { background: #7fc2ff; box-shadow: 0 0 6px rgba(127, 194, 255, 0.7); }
+#telBox .tel-dot {
+  position: absolute; left: -4.5px; top: -4.5px; width: 9px; height: 9px;
+  border-radius: 50%; background: #8fd0ff;
+  box-shadow: 0 0 12px rgba(140, 200, 255, 0.95), 0 0 2px #fff;
+  border: 1px solid rgba(230, 244, 255, 0.9);
+}
+#telLineSvg {
+  position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 11;
+  pointer-events: none;
+}
+#telLineSvg line {
+  stroke: rgba(170, 200, 240, 0.65); stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+/* ---- ESC pause overlay (distinct from the boot title screen) ---- */
+#pauseMenu {
+  position: fixed; inset: 0; z-index: 45;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(8, 12, 26, 0.22) 0%, rgba(4, 6, 14, 0.78) 78%),
+    rgba(3, 5, 12, 0.6);
+  backdrop-filter: blur(4px) saturate(0.9);
+  opacity: 1; transition: opacity 0.3s ease;
+  cursor: default;
+}
+#pauseMenu.closed { opacity: 0; pointer-events: none; }
+#pauseMenu .pm-inner { width: 340px; text-align: center; user-select: none; }
+#pauseMenu .pm-kicker {
+  font-size: 12px; letter-spacing: 0.42em; text-transform: uppercase;
+  color: #7f8db8; margin-bottom: 10px;
+}
+#pauseMenu .pm-title {
+  font-size: 26px; font-weight: 200; letter-spacing: 0.3em;
+  color: #eef2ff; margin-bottom: 26px;
+  text-shadow: 0 0 24px rgba(120, 150, 255, 0.3);
+}
+#pauseMenu .pm-rule {
+  width: 56px; height: 2px; margin: 0 auto 26px;
+  background: linear-gradient(90deg, transparent, #ff7a1a, transparent);
+}
+#pauseMenu .pm-item {
+  display: block; width: 100%; margin: 0 0 11px; padding: 11px 0;
+  background: transparent; border: 1px solid rgba(127, 141, 184, 0.35);
+  color: #c6cfe8; font-family: inherit; font-size: 13px;
+  letter-spacing: 0.32em; text-transform: uppercase; cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease,
+              letter-spacing 0.25s ease;
+}
+#pauseMenu .pm-item:hover {
+  border-color: #ff7a1a; color: #ffd9b8; background: rgba(255, 122, 26, 0.07);
+  letter-spacing: 0.4em;
+}
+#pauseMenu .pm-item.primary { border-color: rgba(255, 122, 26, 0.65); color: #ffb98a; }
+#pauseMenu .pm-item.primary:hover { background: rgba(255, 122, 26, 0.14); }
+#pauseMenu .pm-panel {
+  margin-top: 4px; padding: 14px 16px 16px; text-align: left;
+  border: 1px solid rgba(90, 130, 190, 0.25); background: rgba(6, 11, 22, 0.6);
+  border-radius: 4px; display: none;
+}
+#pauseMenu .pm-panel.open { display: block; }
+#pauseMenu .pm-panel h3 {
+  margin: 0 0 12px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.24em; text-transform: uppercase; color: #9aa9cc;
+}
+#pauseMenu .pm-set {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 11px; font-size: 12px; color: #c6cfe8;
+}
+#pauseMenu .pm-set:last-child { margin-bottom: 0; }
+#pauseMenu .pm-set label { letter-spacing: 0.12em; text-transform: uppercase; color: #8b98c4; font-size: 10.5px; }
+#pauseMenu .pm-set select,
+#pauseMenu .pm-set input[type="number"] {
+  background: rgba(10, 16, 32, 0.7); color: #dfe9ff;
+  border: 1px solid rgba(127, 141, 184, 0.35); border-radius: 3px;
+  padding: 4px 8px; font-family: inherit; font-size: 12px;
+}
+#pauseMenu .pm-help {
+  margin-top: 4px; padding: 13px 16px; text-align: left;
+  border: 1px solid rgba(90, 130, 190, 0.25); background: rgba(6, 11, 22, 0.6);
+  border-radius: 4px; display: none; font-size: 12px; color: #9aa9cc;
+  line-height: 2.1;
+}
+#pauseMenu .pm-help.open { display: block; }
+#pauseMenu .pm-help b { color: #d3e0ff; font-weight: 600; }
+#pauseMenu .pm-foot {
+  margin-top: 22px; font-size: 10px; letter-spacing: 0.24em;
+  text-transform: uppercase; color: #55618a;
+}
+body.pause-open #hud,
+body.pause-open #hint,
+body.pause-open #status { opacity: 0; pointer-events: none; }
+
+/* ---- bottom-center command deck (vision §19) ---- */
+#commandDeck {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  z-index: 13; width: min(1300px, 96vw);
+  user-select: none; opacity: 0; transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+#commandDeck.show { opacity: 1; pointer-events: auto; }
+/* top strip: status segs + category tabs on ONE line */
+#commandDeck .cd-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 7px 14px;
+  background: rgba(6, 11, 22, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
+#commandDeck .cd-segs { display: flex; align-items: center; gap: 14px; }
+#commandDeck .cd-seg { display: flex; align-items: baseline; gap: 6px; font-size: 10px; }
+#commandDeck .cd-seg .k {
+  color: #6d7fa6; letter-spacing: 0.16em; text-transform: uppercase; font-size: 8.5px;
+}
+#commandDeck .cd-seg .v { color: #e8f0ff; font-variant-numeric: tabular-nums; font-size: 11.5px; letter-spacing: 0.05em; }
+#commandDeck .cd-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.14); }
+/* category tab bar (right side of the strip) */
+#commandDeck .cd-tabs {
+  display: flex; align-items: center; gap: 5px;
+}
+#commandDeck .cd-tab {
+  flex: 0 0 auto;
+  background: rgba(10, 16, 32, 0.6); color: #9fb0d8;
+  border: 1px solid rgba(127, 141, 184, 0.3); border-radius: 999px;
+  padding: 4px 13px; font-family: inherit; font-size: 10.5px;
+  letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+#commandDeck .cd-tab:hover { border-color: #ff7a1a; color: #ffd9b8; }
+#commandDeck .cd-tab.active {
+  border-color: rgba(255, 122, 26, 0.65); color: #ffc49a;
+  background: rgba(255, 122, 26, 0.1);
+}
+/* expandable content panel for the active category */
+#commandDeck .cd-panel {
+  margin-top: 7px; padding: 9px 11px;
+  background: rgba(6, 11, 22, 0.6);
+  border: 1px solid rgba(90, 130, 190, 0.22); border-radius: 8px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.55);
+  display: none; text-align: left;
+}
+#commandDeck .cd-panel.open { display: block; }
+#commandDeck .cd-panel h4 {
+  margin: 0 0 7px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.22em; text-transform: uppercase; color: #9aa9cc;
+}
+#commandDeck .cd-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 6px;
+}
+#commandDeck .cd-card {
+  background: rgba(10, 16, 32, 0.5);
+  border: 1px solid rgba(90, 130, 190, 0.22); border-radius: 6px;
+  padding: 6px 9px; cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease;
+}
+#commandDeck .cd-card:hover { border-color: #ff7a1a; background: rgba(255, 122, 26, 0.06); }
+#commandDeck .cd-card .t { font-size: 12px; color: #e8f0ff; letter-spacing: 0.04em; margin-bottom: 2px; }
+#commandDeck .cd-card .s { font-size: 9px; color: #7d8db2; letter-spacing: 0.1em; text-transform: uppercase; }
+#commandDeck .cd-card .c { font-size: 10px; color: #9fb0d8; margin-top: 4px; font-variant-numeric: tabular-nums; }
+#commandDeck .cd-empty { font-size: 11px; color: #7d8db2; letter-spacing: 0.06em; }
+body.menu-open #commandDeck,
+body.pause-open #commandDeck { opacity: 0 !important; pointer-events: none !important; }
+
+/* ---- build placement ghost (follows the cursor while placing) ---- */
+#buildGhost {
+  position: fixed; z-index: 30; pointer-events: none; display: none;
+  transform: translate(-50%, -50%);
+  user-select: none;
+}
+#buildGhost.on { display: block; }
+#buildGhost .bg-ico {
+  width: 34px; height: 34px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 17px;
+  background: rgba(10, 16, 32, 0.75);
+  border: 1px solid rgba(127, 194, 255, 0.85);
+  color: #cfe6ff; box-shadow: 0 0 16px rgba(127, 194, 255, 0.5);
+}
+#buildGhost .bg-label {
+  margin-top: 4px; text-align: center; font-size: 9px;
+  letter-spacing: 0.18em; text-transform: uppercase; color: #cfe6ff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+}
+#buildGhost.valid .bg-ico { border-color: rgba(127, 255, 170, 0.95); box-shadow: 0 0 18px rgba(127, 255, 170, 0.6); }
+#buildGhost.invalid .bg-ico { border-color: rgba(255, 120, 120, 0.9); box-shadow: 0 0 18px rgba(255, 120, 120, 0.5); }
+
+/* ---- permanently placed structure icons (same size as the ghost) ---- */
+.placedMarker {
+  position: fixed; z-index: 14; pointer-events: none; display: none;
+  transform: translate(-50%, -50%);
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 17px;
+  background: rgba(10, 16, 32, 0.72);
+  border: 1px solid rgba(127, 194, 255, 0.8);
+  box-shadow: 0 0 14px rgba(127, 194, 255, 0.45);
+}
+.placedMarker.on { display: flex; }
+.placedMarker .pm-count {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 16px; height: 16px; padding: 0 3px;
+  display: flex; align-items: center; justify-content: center;
+  background: #ff7a1a; color: #0b0e1a;
+  border-radius: 8px; font-size: 10px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 8px rgba(255, 122, 26, 0.6);
+}
+/* highlighted while a matching structure is hovered over it (will stack) */
+.placedMarker.hover-target {
+  border-color: rgba(127, 255, 170, 0.95);
+  box-shadow: 0 0 18px rgba(127, 255, 170, 0.7);
+  background: rgba(16, 34, 26, 0.85);
+}
+
+/* ---- radial context menu (right-click a placed structure) ---- */
+#radialMenu {
+  position: fixed; z-index: 32; width: 0; height: 0;
+  pointer-events: none; display: none; user-select: none;
+}
+#radialMenu.open { display: block; }
+/* the divided ring: a circle split into 4 quadrants by 2 cross lines */
+#radialMenu .rm-ring {
+  position: absolute; left: -96px; top: -96px; width: 192px; height: 192px;
+  border-radius: 50%; pointer-events: none;
+  background:
+    linear-gradient(rgba(127,194,255,0.35), rgba(127,194,255,0.35)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(rgba(127,194,255,0.35), rgba(127,194,255,0.35)) 0 50% / 100% 1px no-repeat,
+    rgba(8, 14, 27, 0.55);
+  border: 1px solid rgba(127, 194, 255, 0.5);
+  box-shadow: 0 0 24px rgba(127, 194, 255, 0.18), inset 0 0 20px rgba(10, 16, 32, 0.6);
+}
+/* a small centre dot marks the hub (doesn't crowd the labels beside it) */
+#radialMenu .rm-center {
+  position: absolute; left: -3px; top: -3px; width: 6px; height: 6px;
+  border-radius: 50%; background: rgba(127, 194, 255, 0.85);
+  box-shadow: 0 0 8px rgba(127, 194, 255, 0.6);
+}
+/* each slot is a 0x0 anchor at a cardinal point: icon centred, label below */
+#radialMenu .rm-slot {
+  position: absolute; width: 0; height: 0; pointer-events: none;
+}
+#radialMenu .rm-opt {
+  position: absolute; left: -25px; top: -25px; width: 51px; height: 51px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: rgba(10, 16, 32, 0.92);
+  border: 1px solid rgba(127, 141, 184, 0.55);
+  color: #cfe6ff; font-size: 20px; cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  pointer-events: auto;
+}
+#radialMenu .rm-opt:hover {
+  border-color: #ff7a1a; background: rgba(255, 122, 26, 0.14); color: #ffd9b8;
+}
+#radialMenu .rm-txt {
+  position: absolute; left: 0; top: 33px; transform: translateX(-50%);
+  min-width: 80px; pointer-events: none; text-align: center;
+  color: #aebfdd; font-size: 9px; letter-spacing: 0.08em;
+  text-transform: uppercase; white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+}
 </style>
 </head>
 <body>
 <div id="hud">Zoom: <b id="lvl">Planet View</b> &nbsp;·&nbsp; scroll to fly out, drag to look</div>
 <div id="status"></div>
-<div id="hint">scroll down = zoom OUT (planet → system → galaxy → universe) · click a named galaxy to travel to it · after arriving, scroll in to fly into the galaxy, scroll out to the universe · <b>R</b> render mode · <b>P</b> capture PNG · <b>C</b> clean view</div>
+<svg id="telLineSvg"><line x1="0" y1="0" x2="0" y2="0"/></svg>
+<div id="telBox">
+  <div class="tel-card">
+    <div class="tel-name"></div>
+    <div class="tel-class"></div>
+    <div class="tel-stats"></div>
+    <div class="tel-pips"></div>
+  </div>
+  <div class="tel-dot"></div>
+</div>
+<div id="menu">
+  <div class="menu-inner">
+    <div class="menu-kicker">Deep Space Command</div>
+    <h1>STARBARON</h1>
+    <div class="menu-rule"></div>
+    <button class="menu-item primary" id="menuNew">New Game</button>
+    <button class="menu-item" id="menuPhoto">Photo Mode</button>
+    <div class="menu-controls">
+      <b>R</b> render mode &nbsp;·&nbsp; <b>P</b> capture PNG &nbsp;·&nbsp; <b>C</b> clean view &nbsp;·&nbsp; <b>ESC</b> menu
+    </div>
+  </div>
+</div>
+
+<div id="pauseMenu" class="closed">
+  <div class="pm-inner">
+    <div class="pm-kicker">Quantum Pause</div>
+    <div class="pm-title">STARBARON</div>
+    <div class="pm-rule"></div>
+    <button class="pm-item primary" id="pmResume">Resume</button>
+    <button class="pm-item" id="pmSettings">Settings</button>
+    <button class="pm-item" id="pmPhoto">Photo Mode</button>
+    <button class="pm-item" id="pmHelp">Controls</button>
+    <button class="pm-item" id="pmMainMenu">Return to Title</button>
+    <div class="pm-panel" id="pmSettingsPanel">
+      <h3>Graphics</h3>
+      <div class="pm-set"><label>Render scale</label>
+        <select id="pmRenderScale">
+          <option value="0.5">Low · 50%</option>
+          <option value="0.75">Medium · 75%</option>
+          <option value="1" selected>Native · 100%</option>
+          <option value="1.5">High · 150%</option>
+        </select>
+      </div>
+      <div class="pm-set"><label>Tone map</label>
+        <select id="pmToneMap">
+          <option value="none">None</option>
+          <option value="aces" selected>ACES filmic</option>
+          <option value="reinhard">Reinhard</option>
+        </select>
+      </div>
+      <div class="pm-set"><label>Bloom</label>
+        <select id="pmBloom">
+          <option value="0">Off</option>
+          <option value="0.12" selected>Subtle · 0.12</option>
+          <option value="0.25">Medium · 0.25</option>
+          <option value="0.5">Strong · 0.50</option>
+        </select>
+      </div>
+    </div>
+    <div class="pm-help" id="pmHelpPanel">
+      <b>Scroll</b> — zoom in / out (fly through the universe)<br>
+      <b>Drag</b> — look around<br>
+      <b>Click</b> — select a planet / travel to a galaxy<br>
+      <b>R</b> — render mode &nbsp; <b>P</b> — capture PNG<br>
+      <b>C</b> — clean view &nbsp; <b>ESC</b> — pause
+    </div>
+    <div class="pm-foot">ESC to cycle · StarBaron</div>
+  </div>
+</div>
+
+<div id="commandDeck">
+  <div class="cd-bar">
+    <div class="cd-segs">
+      <div class="cd-seg"><span class="k">Level</span><span class="v" id="cdLevel">—</span></div>
+      <div class="cd-sep"></div>
+      <div class="cd-seg"><span class="k">System</span><span class="v" id="cdSystem">—</span></div>
+      <div class="cd-sep"></div>
+      <div class="cd-seg"><span class="k">Focus</span><span class="v" id="cdFocus">—</span></div>
+    </div>
+    <div class="cd-tabs" id="cdTabs">
+      <button class="cd-tab active" data-tab="structures">Structures</button>
+      <button class="cd-tab" data-tab="fleet">Fleet</button>
+      <button class="cd-tab" data-tab="intel">Intel</button>
+      <button class="cd-tab" data-tab="economy">Economy</button>
+    </div>
+  </div>
+  <div class="cd-panel" id="cdPanel"></div>
+</div>
+
+<div id="buildGhost">
+  <div class="bg-ico"></div>
+  <div class="bg-label"></div>
+</div>
+
+<div id="radialMenu">
+  <div class="rm-ring"></div>
+  <div class="rm-center"></div>
+  <div class="rm-slot" data-act="edit" style="left:-68px; top:0;">
+    <div class="rm-opt">✏️</div><div class="rm-txt">Edit</div>
+  </div>
+  <div class="rm-slot" data-act="info" style="left:0; top:-68px;">
+    <div class="rm-opt">ℹ️</div><div class="rm-txt">Info</div>
+  </div>
+  <div class="rm-slot" data-act="fleet" style="left:68px; top:0;">
+    <div class="rm-opt">🚀</div><div class="rm-txt">Send Fleet</div>
+  </div>
+  <div class="rm-slot" data-act="demolish" style="left:0; top:68px;">
+    <div class="rm-opt">🗑️</div><div class="rm-txt">Demolish</div>
+  </div>
+</div>
+
 <div id="photoPanel">
   <div class="ppTitle">📷 PHOTO MODE</div>
   <div class="ppRow"><label class="ppLbl">Resolution</label>
@@ -98,7 +555,6 @@
   </div>
   <div class="ppStatus" id="ppStatus">Render mode off. Position the camera, then capture — or hit P.</div>
 </div>
-<div id="photoReopen" style="display:none">📷 PHOTO</div>
 <script type="importmap">
 { "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
@@ -896,7 +1352,9 @@ function zoomDist(z, d0) {
 
 // ---------- orbital motion (accelerated game-time, NOT real astronomy) ----------
 // ORBIT_TIME_SCALE is the single tuning dial for all orbital speed.
-const ORBIT_TIME_SCALE = 1;        // global multiplier — raise for faster orbits
+const ORBIT_TIME_SCALE = 0.1;       // global multiplier — 0.1 = ~10× slower,
+                                    // reads as a realistic solar system (inner
+                                    // planet ≈ 2 min/orbit, moon ≈ 1 min)
 const ORBIT_BASE_SPEED = 0.5;      // rad/s at radius 18 (inner reference)
 const MOON_BASE_SPEED = 0.9;       // rad/s at moon radius 3 (moon orbits)
 
@@ -1475,19 +1933,24 @@ function applySmallBodyLOD(group, z) {
       const moons = u.moons;
       if (moons) {
         for (const m of moons) {
-          // far: invisible; planet/system view: resolve; close: full detail
-          const k = 1 - smoothstep(1.05, 0.45, z); // 0 far → 1 close
+          // Moons are PERSISTENT: fully visible from planet view through the
+          // whole system view, fading only as the camera crosses into galaxy
+          // scale (where a moon is sub-pixel anyway). The original args were
+          // REVERSED (smoothstep(1.05, 0.45, z)) which made k=0 exactly at
+          // planet view — moons vanished the moment you got close enough to
+          // see them. Ascending edges + a late window fixes it.
+          const k = 1 - smoothstep(1.5, 1.9, z);
           m.scale.setScalar(0.001 + k * 1);
-          m.visible = k > 0.02;
+          m.visible = k > 0.05;
           // orbit tracks only at close planet view
           const t = m.userData.track;
           if (t) t.visible = z < 0.75;
         }
       }
       if (u.isAsteroid) {
-        const k = 1 - smoothstep(1.2, 0.6, z);
+        const k = 1 - smoothstep(1.5, 1.9, z);
         p.scale.setScalar(0.001 + k * 1);
-        p.visible = k > 0.02;
+        p.visible = k > 0.05;
       }
     }
   }
@@ -1544,6 +2007,7 @@ function startSystemTravel(sys) {
 const loadTime = performance.now();
 window.addEventListener('wheel', (e) => {
   e.preventDefault();
+  if (menuOpen || pauseOpen) return;
   if (performance.now() - loadTime < 600) return;
   if (travel.active) return; // zoom is locked while gliding — scrolling NEVER aborts a trip or returns home
   if (planetFocus.active || sysTravel.active) return; // zoom is locked while gliding
@@ -1560,6 +2024,22 @@ const el = renderer.domElement;
 el.addEventListener('mousedown', (e) => { dragging = true; lx = e.clientX; ly = e.clientY; });
 el.addEventListener('mouseup', () => { dragging = false; });
 el.addEventListener('click', (e) => {
+  if (menuOpen || pauseOpen) return;
+  // BUILD MODE: a structure is selected — this click either drops it on a
+  // planet or does nothing. Take precedence over focus/navigation.
+  if (placingStructure) {
+    const hit = raycastPlanetAt(e.clientX, e.clientY);
+    if (hit) {
+      const s = placingStructure;
+      commitPlacement(hit.object, hit.localPoint);
+      // SHIFT-click = continuous placement: re-arm the same structure so you
+      // can keep dropping copies without re-selecting from the deck.
+      if (e.shiftKey) beginPlacement(s);
+    } else {
+      statusEl.textContent = `${placingStructure.name} — click a planet to place (ESC to cancel).`;
+    }
+    return;
+  }
   const rect = el.getBoundingClientRect();
   const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1624,6 +2104,18 @@ el.addEventListener('click', (e) => {
     }
     startTravel(hit.object.userData.spriteIdx !== undefined ? hit.object : hit.object.parent);
   }
+});
+// right-click a placed structure → radial context menu (Edit/Info/Fleet/Demolish)
+el.addEventListener('contextmenu', (e) => {
+  if (menuOpen || pauseOpen || radialOpen) return;
+  const marker = findMarkerAt(e.clientX, e.clientY);
+  if (!marker) return; // let the default context menu show elsewhere (or suppress)
+  e.preventDefault();
+  openRadial(e.clientX, e.clientY, marker);
+});
+window.addEventListener('mousedown', (e) => {
+  // close the radial menu on any left-click outside it (its own clicks stopPropagation)
+  if (radialOpen && e.button === 0) closeRadial();
 });
 window.addEventListener('mousemove', (e) => {
   if (!dragging) return;
@@ -2384,7 +2876,484 @@ function animate() {
   } else {
     renderer.render(scene, camera);
   }
+
+  updatePlanetTelemetry();
+  updateCommandDeck();
+  trackBuildGhost();
+  trackPlacedMarkers();
 }
+
+// -------------------------------------------------------------------------
+// Planet telemetry panel (vision §18) — a thin info card + leader line that
+// follows the focused planet/moon/asteroid. Data is derived deterministically
+// from the seeded body (real radius + moon count where available; the rest are
+// plausible values computed from the body's own seeded fields so they are
+// stable per-planet). Screen position is projected fresh every frame.
+// -------------------------------------------------------------------------
+const telBox = document.getElementById('telBox');
+const telBoxCard = telBox.querySelector('.tel-card');
+const telNameEl = telBox.querySelector('.tel-name');
+const telClassEl = telBox.querySelector('.tel-class');
+const telStatsEl = telBox.querySelector('.tel-stats');
+const telPipsEl = telBox.querySelector('.tel-pips');
+const telLineSvg = document.getElementById('telLineSvg');
+const telLine = telLineSvg.querySelector('line');
+const telProj = new THREE.Vector3();
+let telLastPlanet = null;
+// menu-open state governs HUD chrome visibility; declared here (before the
+// first synchronous animate() call) so the render loop never hits a TDZ.
+let menuOpen = true;
+// ESC pause overlay state — separate from the boot title screen.
+let pauseOpen = false;
+
+// stable, deterministic derived-numeric helpers (seeded by the body name)
+function telHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+// radius (scene units) -> plausible km diameter (fluid and self-consistent)
+function telDiameterKm(radius) {
+  return Math.round(radius * 5900);
+}
+// radius -> class label (mirrors the vision's terran/terrestrial/gas taxonomy)
+function telClassNameFor(u) {
+  if (u.isStar) return 'G-CLASS STAR';
+  if (u.moons && u.moons.length > 6) return 'GAS GIANT';
+  if (u.radius > 3) return 'GAS GIANT';
+  if (u.radius > 2.1) return 'OCEAN WORLD';
+  if (u.radius > 1.4) return 'TERRESTRIAL';
+  return 'ROCKY WORLD';
+}
+function telGravity(diamKm) {
+  // roughly proportional to log of diameter, tuned to ~1.0 G at Earth size
+  const g = 0.55 + Math.log10(diamKm / 5900 + 1) * 1.1;
+  return g.toFixed(2) + ' G';
+}
+function telPeriodDays(orbitRadius) {
+  // inner orbits faster → fewer days
+  const d = Math.round(Math.pow(orbitRadius / 18, 1.5) * 36);
+  return d + ' DAYS';
+}
+function telTemp(radius, seed) {
+  const base = 260 - radius * 12; // kelvin-ish, then to C
+  const jitter = ((telHash(seed) % 50) / 50 - 0.5) * 30;
+  return Math.round((base + jitter) - 273) + '°C';
+}
+function telPips(u) {
+  // 3 pips: tier feel derived from radius (bigger = more pips)
+  return Math.min(3, Math.max(1, Math.ceil(u.radius / 2)));
+}
+function renderTelemetryContent(body, u) {
+  const nm = bodyName(body);
+  telNameEl.textContent = nm.replace(/\s*\(Home\)\s*$/, '');
+  telClassEl.textContent = telClassNameFor(u);
+  const diamKm = telDiameterKm(u.radius || 2);
+  const moons = (u.moons ? u.moons.length : (u.isMoon ? 1 : 0));
+  let rows = '';
+  const stats = [
+    ['Diameter', telDiameterKm(u.radius || 2).toLocaleString() + ' km'],
+    ['Gravity', telGravity(diamKm)],
+  ];
+  if (u.orbitRadius) stats.push(['Orbit period', telPeriodDays(u.orbitRadius)]);
+  stats.push(['Surface temp', telTemp(u.radius || 2, nm)]);
+  if (!u.isStar) stats.push(['Moons', String(moons)]);
+  for (const [k, v] of stats) {
+    rows += `<div class="tel-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  }
+  telStatsEl.innerHTML = rows;
+  const pips = telPips(u);
+  let pipHtml = '';
+  for (let i = 0; i < 3; i++) pipHtml += `<div class="pip${i < pips ? ' on' : ''}"></div>`;
+  telPipsEl.innerHTML = pipHtml;
+}
+
+function updatePlanetTelemetry() {
+  if (menuOpen || pauseOpen) {
+    telBox.style.opacity = '0';
+    return;
+  }
+  // show only at planet/system zoom when a body is the focus
+  const body = (currentZoom < 1.5) ? currentFocusBody() : null;
+  if (!body || !body.object) {
+    telBox.style.opacity = '0';
+    return;
+  }
+  const u = body.object.userData || {};
+  if (!u.isPlanet && !u.isMoon && !u.isAsteroid && !u.isStar) {
+    telBox.style.opacity = '0';
+    return;
+  }
+  if (body.object !== telLastPlanet) {
+    renderTelemetryContent(body, u);
+    telLastPlanet = body.object;
+  }
+  const wp = bodyWorldPos(body);
+  telProj.copy(wp).project(camera);
+  if (telProj.z > 1) { // behind camera
+    telBox.style.opacity = '0';
+    return;
+  }
+  const sx = (telProj.x * 0.5 + 0.5) * window.innerWidth;
+  const sy = (-telProj.y * 0.5 + 0.5) * window.innerHeight;
+
+  // place the anchor dot on the planet centre; the card floats to its LEFT
+  telBox.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0)`;
+  telBox.style.opacity = '1';
+
+  // On-screen radius of the body (px) → push the card clear of the planet limb.
+  // Project a point offset by the body's world radius along the camera-right
+  // axis, then measure the pixel distance to the projected centre.
+  const worldR = u.radius || 1;
+  const camRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  const edgeWorld = wp.clone().addScaledVector(camRight, worldR);
+  const edgeNdc = edgeWorld.clone().project(camera);
+  const edgePx = Math.hypot(
+    (edgeNdc.x * 0.5 + 0.5) * window.innerWidth - sx,
+    (-edgeNdc.y * 0.5 + 0.5) * window.innerHeight - sy,
+  );
+  const cardW = 208;
+  const gap = 24;   // visual breathing room between card and planet
+  let cardRight = edgePx + gap;         // card's right edge is this far left of centre
+  // Clamp so the card never leaves the left edge of the viewport (a planet can
+  // fill the screen at close zoom; keep the card readable).
+  const maxRight = sx - cardW - 10;
+  if (cardRight > maxRight) cardRight = Math.max(maxRight, 10);
+  const cardTop = -telBoxCard.offsetHeight / 2;
+  telBoxCard.style.right = cardRight.toFixed(1) + 'px';
+  telBoxCard.style.top = cardTop.toFixed(1) + 'px';
+
+  // leader line from the card's right edge to the dot (both planet-anchored)
+  const cardRect = telBoxCard.getBoundingClientRect();
+  const lx1 = cardRect.right, ly1 = cardRect.top + cardRect.height / 2;
+  telLine.setAttribute('x1', lx1.toFixed(1));
+  telLine.setAttribute('y1', ly1.toFixed(1));
+  telLine.setAttribute('x2', sx.toFixed(1));
+  telLine.setAttribute('y2', sy.toFixed(1));
+}
+
+// -------------------------------------------------------------------------
+// Bottom-center command deck (vision §19) — a compact contextual bar that
+// reads the LIVE game state (zoom level, active system, focused body) and
+// offers real navigation actions. DOM writes only; one cheap call per frame.
+// -------------------------------------------------------------------------
+const cdEl = document.getElementById('commandDeck');
+const cdLevel = document.getElementById('cdLevel');
+const cdSystem = document.getElementById('cdSystem');
+const cdFocus = document.getElementById('cdFocus');
+const cdTabs = document.getElementById('cdTabs');
+const cdPanel = document.getElementById('cdPanel');
+const cdTabsEls = Array.from(cdTabs.querySelectorAll('.cd-tab'));
+let cdLastLevel = '', cdLastSystem = '', cdLastFocus = '';
+let cdActiveTab = 'structures';
+
+function cdLevelName(z) {
+  if (z < 0.55) return 'Planet View';
+  if (z < 1.5) return 'Solar System';
+  if (z < 2.7) return 'Galaxy';
+  if (z < 3.8) return 'Universe';
+  if (z < 4.8) return 'Wide Universe';
+  return 'Vast Universe';
+}
+function cdSystemName() {
+  if (focusedGalaxy) return focusedGalaxy.name;
+  if (focusedSystem) return focusedSystem.name;
+  return 'Solara (Home)';
+}
+function updateCommandDeck() {
+  const z = clamp(currentZoom, 0, MAX_ZOOM);
+  const level = cdLevelName(z);
+  const sysName = cdSystemName();
+  const body = currentFocusBody();
+  const focusName = body ? bodyName(body) : '—';
+  if (level !== cdLastLevel) { cdLevel.textContent = level; cdLastLevel = level; }
+  if (sysName !== cdLastSystem) { cdSystem.textContent = sysName; cdLastSystem = sysName; }
+  if (focusName !== cdLastFocus) { cdFocus.textContent = focusName; cdLastFocus = focusName; }
+  // show the deck whenever we're actively in the universe (not menu/pause)
+  cdEl.classList.toggle('show', !menuOpen && !pauseOpen);
+}
+
+// ------------- category content model -------------
+// STRUCTURES uses the AUTHORITATIVE sim catalog (src/sim/structures/data.ts) —
+// exact ids, names, categories, base costs and build times. No invented data.
+// (Single-file game can't import the TS module, so the catalog is inlined and
+// kept in lockstep with the sim; revisit when the sim bridge lands.)
+const CD_STRUCTURES = [
+  { id: 'oreMine',        name: 'Ore Mine',        cat: 'Economy',    glyph: '⛏️', baseCost: 500,  buildTimeSec: 30 },
+  { id: 'tradeHub',       name: 'Trade Hub',       cat: 'Economy',    glyph: '📦', baseCost: 2000, buildTimeSec: 120 },
+  { id: 'housing',        name: 'Housing',         cat: 'Population', glyph: '🏠', baseCost: 300,  buildTimeSec: 20 },
+  { id: 'hydroponics',    name: 'Hydroponics',     cat: 'Population', glyph: '🌱', baseCost: 800,  buildTimeSec: 45 },
+  { id: 'barracks',       name: 'Barracks',        cat: 'Military',   glyph: '🪖', baseCost: 1500, buildTimeSec: 60 },
+  { id: 'shipyard',       name: 'Shipyard',        cat: 'Military',   glyph: '🚀', baseCost: 5000, buildTimeSec: 300 },
+  { id: 'defenseTurret',  name: 'Defense Turret',  cat: 'Defense',    glyph: '🔫', baseCost: 2000, buildTimeSec: 180 },
+];
+const CD_TABS_DATA = {
+  structures: { title: 'Structures', render: () => renderStructures() },
+  fleet:      { title: 'Fleet',      render: () => renderEmpty('Fleet command') },
+  intel:      { title: 'Intel',      render: () => renderEmpty('Intelligence') },
+  economy:    { title: 'Economy',    render: () => renderEmpty('Economy') },
+};
+function fmtCost(n) { return n >= 1000 ? (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'K' : String(n); }
+function renderStructures() {
+  const cards = CD_STRUCTURES.map((s) => `
+    <div class="cd-card" data-structure="${s.id}">
+      <div class="t">${s.glyph} ${s.name}</div>
+      <div class="s">${s.cat}</div>
+      <div class="c">${fmtCost(s.baseCost)} cr · ${s.buildTimeSec}s</div>
+    </div>`).join('');
+  return `<h4>Build Structures</h4><div class="cd-grid">${cards}</div>`;
+}
+function renderEmpty(kind) {
+  return `<h4>${kind}</h4><div class="cd-empty">Not yet available — systems coming online.</div>`;
+}
+function renderCdPanel(tab) {
+  const data = CD_TABS_DATA[tab];
+  cdPanel.innerHTML = data ? data.render() : '<div class="cd-empty">Unknown category.</div>';
+}
+function setCdTab(tab) {
+  cdActiveTab = tab;
+  for (const el of cdTabsEls) el.classList.toggle('active', el.dataset.tab === tab);
+  renderCdPanel(tab);
+  cdPanel.classList.add('open');
+}
+
+cdTabsEls.forEach((el) => el.addEventListener('click', () => setCdTab(el.dataset.tab)));
+
+// =========================================================================
+// BUILD PLACEMENT — select a structure → a ghost follows the cursor → click
+// a PLANET to drop it there. Future mechanics (cost/resource checks, build
+// timers, population, effects) layer on top of `placedStructures` later —
+// this is the placement UX + persistence layer.
+// =========================================================================
+const buildGhost = document.getElementById('buildGhost');
+const buildGhostIco = buildGhost.querySelector('.bg-ico');
+const buildGhostLabel = buildGhost.querySelector('.bg-label');
+let placingStructure = null;          // the CD_STRUCTURES entry being placed
+let ghostX = 0, ghostY = 0;           // last cursor position (screen px)
+let ghostOnCanvas = false;            // is the cursor over the 3D canvas?
+let placedStructures = [];            // [{ structureId, planetName, planetObject, localPoint, count }]
+let nextPlacementId = 1;              // unique id per placement stack
+
+// A placed structure becomes a FIXED-SIZE DOM icon (34px — identical to the
+// placement ghost) permanently anchored to the planet's projected screen
+// position. Tracked each frame so it rides the planet's orbit and zoom.
+// Multiple copies can STACK: a stack shares one marker + a ×N count badge.
+const placedMarkers = [];             // { id, structureId, planetObject, localPoint, el, count, countEl }
+function removePlacedMarker(marker) {
+  marker.el.remove();
+  const i = placedMarkers.indexOf(marker);
+  if (i >= 0) placedMarkers.splice(i, 1);
+}
+
+// angular similarity between two local-space surface points (both unit-ish
+// length on the sphere): dot near 1 = same spot → treat as a stack
+function sameSpot(a, b) {
+  return a.clone().normalize().dot(b.clone().normalize()) > 0.995;
+}
+
+function makePlacedIcon(structure, planetObject, count) {
+  const el = document.createElement('div');
+  el.className = 'placedMarker on';
+  el.textContent = structure.glyph;
+  el.title = `${structure.name} — ${planetObject.userData.name}`;
+  const countEl = document.createElement('div');
+  countEl.className = 'pm-count';
+  countEl.textContent = String(count);
+  el.appendChild(countEl);
+  document.body.appendChild(el);
+  return { el, countEl };
+}
+
+function trackPlacedMarkers() {
+  // only show markers while in system view (planets visible), never behind
+  // the menus or at galaxy/universe zoom (a structure is meaningless there)
+  const show = !menuOpen && !pauseOpen && currentZoom < 1.5;
+  for (const m of placedMarkers) {
+    if (!show) { m.el.style.display = 'none'; continue; }
+    // surface point in world space: local → world (rides orbit + planet rotation),
+    // then project to the screen at the exact click location
+    const wp = m.planetObject.localToWorld(m.localPoint.clone());
+    const v = new THREE.Vector3().copy(wp).project(camera);
+    if (v.z > 1) { m.el.style.display = 'none'; continue; } // behind camera
+    const sx = (v.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
+    m.el.style.display = 'flex';
+    m.el.style.left = sx.toFixed(1) + 'px';
+    m.el.style.top = sy.toFixed(1) + 'px';
+  }
+}
+
+function beginPlacement(structure) {
+  // if already placing a different structure, just swap the ghost
+  placingStructure = structure;
+  buildGhostIco.textContent = structure.glyph;
+  buildGhostLabel.textContent = structure.name;
+  buildGhost.classList.add('on');
+  statusEl.textContent = `${structure.name} — click a planet to place (ESC to cancel).`;
+}
+function cancelPlacement() {
+  placingStructure = null;
+  buildGhost.classList.remove('on');
+  buildGhost.classList.remove('valid', 'invalid');
+  clearStackHighlight();
+}
+function commitPlacement(planetObject, localPoint) {
+  if (!placingStructure) return;
+  const planetName = planetObject.userData.name;
+  const structure = placingStructure;
+  // STACK: same structure + same planet + nearly same surface spot → bump the
+  // existing stack's count instead of spawning an overlapping marker.
+  const stack = placedMarkers.find((m) =>
+    m.structureId === structure.id && m.planetObject === planetObject && sameSpot(m.localPoint, localPoint));
+  if (stack) {
+    stack.count += 1;
+    stack.countEl.textContent = String(stack.count);
+    const rec = placedStructures.find((p) => p.id === stack.id);
+    if (rec) rec.count = stack.count;
+    statusEl.textContent = `${structure.name} ×${stack.count} on ${planetName} (stacked).`;
+    cancelPlacement();
+    return;
+  }
+  // else: a NEW copy (can be the same structure again, just at a different spot)
+  const id = nextPlacementId++;
+  placedStructures.push({ id, structureId: structure.id, planetName, planetObject, localPoint, count: 1 });
+  const { el, countEl } = makePlacedIcon(structure, planetObject, 1);
+  placedMarkers.push({ id, structureId: structure.id, planetObject, localPoint, el, count: 1, countEl });
+  statusEl.textContent = `${structure.name} placed on ${planetName}.`;
+  cancelPlacement();
+}
+
+// delegated card click → begin placement
+cdPanel.addEventListener('click', (e) => {
+  const card = e.target.closest('.cd-card');
+  if (!card) return;
+  const s = CD_STRUCTURES.find((x) => x.id === card.dataset.structure);
+  if (s) beginPlacement(s);
+});
+setCdTab('structures');
+
+// ---- ghost follows the cursor over the canvas ----
+el.addEventListener('mousemove', (e) => {
+  ghostX = e.clientX; ghostY = e.clientY;
+  const rect = el.getBoundingClientRect();
+  ghostOnCanvas = e.clientX >= rect.left && e.clientX <= rect.right &&
+                  e.clientY >= rect.top && e.clientY <= rect.bottom;
+  // tint the ghost green when hovering a valid drop target (a planet); also
+  // highlight an existing matching marker nearby (it will stack onto it)
+  if (placingStructure) {
+    const t = raycastPlanetAt(e.clientX, e.clientY);
+    buildGhost.classList.toggle('valid', !!t);
+    buildGhost.classList.toggle('invalid', ghostOnCanvas && !t);
+    const target = findStackTarget(e.clientX, e.clientY);
+    for (const m of placedMarkers) m.el.classList.toggle('hover-target', m === target);
+  } else {
+    clearStackHighlight();
+  }
+});
+// keep the ghost glued to the cursor every frame (mousemove can be sparse)
+function trackBuildGhost() {
+  if (!placingStructure) return;
+  buildGhost.style.left = ghostX + 'px';
+  buildGhost.style.top = ghostY + 'px';
+}
+function raycastPlanetAt(px, py) {
+  const rect = el.getBoundingClientRect();
+  const ndcX = ((px - rect.left) / rect.width) * 2 - 1;
+  const ndcY = -((py - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+  const z = clamp(currentZoom, 0, MAX_ZOOM);
+  if (z >= 1.5) return null; // only place in system view
+  const sys = focusedGalaxy && focusedGalaxy.sysGroup ? focusedGalaxy.sysGroup : sysGroup;
+  const hits = raycaster.intersectObjects(sys.children, true);
+  const hit = hits.find((h) => h.object.userData && h.object.userData.isPlanet);
+  if (!hit) return null;
+  // surface point in the planet's LOCAL space — anchors the marker to the exact
+  // click location on the sphere so it rides the orbit AND the planet rotation
+  const localPoint = hit.object.worldToLocal(hit.point.clone());
+  return { object: hit.object, localPoint };
+}
+
+// When placing, highlight any existing marker of the SAME structure whose stack
+// point is at/near the cursor — a visual cue that the click will stack onto it.
+function findStackTarget(px, py) {
+  if (!placingStructure) return null;
+  let best = null, bestDist = 26; // screen-px reacharound a 36px marker
+  for (const m of placedMarkers) {
+    if (m.structureId !== placingStructure.id) continue;
+    const r = m.el.getBoundingClientRect();
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    const d = Math.hypot(px - cx, py - cy);
+    if (d < bestDist) { bestDist = d; best = m; }
+  }
+  return best;
+}
+function clearStackHighlight() {
+  for (const m of placedMarkers) m.el.classList.remove('hover-target');
+}
+
+// =========================================================================
+// RADIAL CONTEXT MENU — right-click a placed structure → circular menu:
+//   left = Edit · up = Info · right = Send Fleet · down = Demolish (TBD)
+// =========================================================================
+const radialMenu = document.getElementById('radialMenu');
+let radialTarget = null;   // the placedMarkers entry the menu is acting on
+let radialOpen = false;
+
+function findMarkerAt(px, py) {
+  let best = null, bestDist = 26; // 26px reach around a 36px marker
+  for (const m of placedMarkers) {
+    const r = m.el.getBoundingClientRect();
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    const d = Math.hypot(px - cx, py - cy);
+    if (d < bestDist) { bestDist = d; best = m; }
+  }
+  return best;
+}
+function openRadial(px, py, marker) {
+  radialTarget = marker;
+  radialOpen = true;
+  radialMenu.style.left = px + 'px';
+  radialMenu.style.top = py + 'px';
+  radialMenu.classList.add('open');
+}
+function closeRadial() {
+  radialOpen = false;
+  radialTarget = null;
+  radialMenu.classList.remove('open');
+}
+// find the structure def for a marker (for messages)
+function structureForMarker(marker) {
+  return CD_STRUCTURES.find((s) => s.id === marker.structureId);
+}
+function demolishStack(marker) {
+  // decrement a stack; remove the marker when it hits zero
+  marker.count -= 1;
+  const rec = placedStructures.find((p) => p.id === marker.id);
+  if (rec) rec.count = marker.count;
+  const s = structureForMarker(marker);
+  if (marker.count <= 0) {
+    removePlacedMarker(marker);
+    statusEl.textContent = `${s ? s.name : 'Structure'} demolished on ${marker.planetObject.userData.name}.`;
+  } else {
+    marker.countEl.textContent = String(marker.count);
+    statusEl.textContent = `${s ? s.name : 'Structure'} ×${marker.count} — one demolished.`;
+  }
+}
+const radialActions = {
+  edit: (m) => { const s = structureForMarker(m); statusEl.textContent = `${s ? s.name : 'Structure'} — edit interface TBD.`; },
+  info: (m) => { const s = structureForMarker(m); statusEl.textContent = s ? `${s.name} ${s.glyph} — ${s.cat} · ${fmtCost(s.baseCost)} cr · ${s.buildTimeSec}s · ×${m.count} on ${m.planetObject.userData.name}` : 'Unknown structure.'; },
+  fleet: (m) => { const s = structureForMarker(m); statusEl.textContent = `${s ? s.name : 'Structure'} — send fleet TBD (fleet command offline).`; },
+  demolish: (m) => demolishStack(m),
+};
+radialMenu.querySelectorAll('.rm-slot').forEach((opt) => {
+  opt.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const act = radialActions[opt.dataset.act];
+    if (act && radialTarget) act(radialTarget);
+    closeRadial();
+  });
+});
+
 animate();
 
 window.addEventListener('resize', () => {
@@ -2644,6 +3613,7 @@ function photoEnter() {
   photo.active = true;
   photoStatus('Render mode ON — boosting quality…');
   photoUpgrade();
+  photoApplyCleanUI(); // show the panel (photo mode active, clean off)
   photoEnsureComposer().then((ok) => {
     if (ok && photo.bloom) {
       photo.bloom.enabled = true;
@@ -2671,13 +3641,12 @@ function photoExit() {
   ppModeBtn.textContent = 'Render Mode: OFF';
   ppModeBtn.classList.remove('ppModeOn');
   photoStatus('Render mode off — gameplay quality restored.');
+  photoApplyCleanUI(); // hide the panel (photo mode no longer active)
 }
 
 // ---------- UI wiring ----------
 const hudEl = document.getElementById('hud');
-const hintEl = document.getElementById('hint');
 const photoPanel = document.getElementById('photoPanel');
-const photoReopen = document.getElementById('photoReopen');
 const ppRes = document.getElementById('ppRes');
 const ppSS = document.getElementById('ppSS');
 const ppClean = document.getElementById('ppClean');
@@ -2692,6 +3661,8 @@ const ppBloomRadV = document.getElementById('ppBloomRadV');
 const ppBloomThrV = document.getElementById('ppBloomThrV');
 const ppTone = document.getElementById('ppTone');
 function photoStatus(msg) { ppStatusEl.textContent = msg; }
+// photo mode starts inactive → hide the panel on boot (it only appears in photo mode)
+photoApplyCleanUI();
 
 // push the panel's bloom calibration into the live pass (no-op outside
 // render mode — the pass only exists while it's active)
@@ -2724,9 +3695,8 @@ function photoApplyCleanUI() {
   const clean = photo.clean;
   hudEl.style.display = clean ? 'none' : '';
   statusEl.style.display = clean ? 'none' : '';
-  hintEl.style.display = clean ? 'none' : '';
-  photoPanel.style.display = clean ? 'none' : '';
-  photoReopen.style.display = clean ? 'block' : 'none';
+  // the panel only exists while photo mode is active (entered from ESC menu/R)
+  photoPanel.style.display = (photo.active && !clean) ? '' : 'none';
 }
 
 ppModeBtn.addEventListener('click', () => { photo.active ? photoExit() : photoEnter(); });
@@ -2758,16 +3728,111 @@ ppClean.addEventListener('change', () => {
   photoApplyCleanUI();
   photoStatus(photo.clean ? 'Clean view — HUD/labels hidden. P still captures.' : 'Clean view off.');
 });
-photoReopen.addEventListener('click', () => {
+// clean-view reset — used when entering photo mode from the boot/ESC menu so
+// the panel is guaranteed visible (clean view is a photo-mode-only toggle)
+function photoResetClean() {
   ppClean.checked = false;
   photo.clean = false;
   photoApplyCleanUI();
   photoStatus('Clean view off.');
+}
+
+
+// ---------- main menu ----------
+const menuEl = document.getElementById('menu');
+menuOpen = true; // declared above with updatePlanetTelemetry (TDZ-safe for animate)
+document.body.classList.add('menu-open'); // boot with the menu up: hide HUD chrome
+function menuClose() {
+  menuOpen = false;
+  menuEl.classList.add('closed');
+  document.body.classList.remove('menu-open');
+}
+function menuOpenUI() {
+  menuOpen = true;
+  menuEl.classList.remove('closed');
+  document.body.classList.add('menu-open');
+}
+document.getElementById('menuNew').addEventListener('click', () => {
+  // fresh start: return to the home planet view
+  currentZoom = 0; zoomVel = 0; inputVel = 0;
+  menuClose();
+});
+document.getElementById('menuPhoto').addEventListener('click', () => {
+  menuClose();
+  if (!photo.active) photoEnter();
+  photoResetClean();
+});
+
+// ---------- ESC pause overlay ----------
+const pauseMenuEl = document.getElementById('pauseMenu');
+const pmSettingsPanel = document.getElementById('pmSettingsPanel');
+const pmHelpPanel = document.getElementById('pmHelpPanel');
+const pmRenderScale = document.getElementById('pmRenderScale');
+const pmToneMap = document.getElementById('pmToneMap');
+const pmBloom = document.getElementById('pmBloom');
+
+function pauseOpenUI() {
+  pauseOpen = true;
+  pauseMenuEl.classList.remove('closed');
+  document.body.classList.add('pause-open');
+  // sync settings controls to the ACTUAL live values so the menu reflects reality
+  pmRenderScale.value = String(renderer.getPixelRatio());
+  pmToneMap.value = photo.toneMap;
+  pmBloom.value = String(photo.bloomCfg.strength);
+  pmSettingsPanel.classList.remove('open');
+  pmHelpPanel.classList.remove('open');
+}
+function pauseClose() {
+  pauseOpen = false;
+  pauseMenuEl.classList.add('closed');
+  document.body.classList.remove('pause-open');
+}
+function pauseToggle() { pauseOpen ? pauseClose() : pauseOpenUI(); }
+
+document.getElementById('pmResume').addEventListener('click', pauseClose);
+document.getElementById('pmSettings').addEventListener('click', () => {
+  pmSettingsPanel.classList.toggle('open');
+  pmHelpPanel.classList.remove('open');
+});
+document.getElementById('pmHelp').addEventListener('click', () => {
+  pmHelpPanel.classList.toggle('open');
+  pmSettingsPanel.classList.remove('open');
+});
+document.getElementById('pmPhoto').addEventListener('click', () => {
+  pauseClose();
+  if (!photo.active) photoEnter();
+  photoResetClean();
+});
+document.getElementById('pmMainMenu').addEventListener('click', () => {
+  pauseClose();
+  menuOpenUI(); // back to the boot title screen
+});
+
+// settings — applied LIVE to the renderer (real, not cosmetic)
+pmRenderScale.addEventListener('change', () => {
+  renderer.setPixelRatio(parseFloat(pmRenderScale.value));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  // keep photo mode's live ratio in step so shifting quality doesn't jump
+  photo.basePixelRatio = parseFloat(pmRenderScale.value);
+});
+pmToneMap.addEventListener('change', () => {
+  photo.toneMap = pmToneMap.value;
+  photoApplyToneMap(); // live: both OutputPass and the plain renderer read toneMapping every frame
+});
+pmBloom.addEventListener('change', () => {
+  photo.bloomCfg.strength = parseFloat(pmBloom.value);
+  if (photo.active && photo.bloom) photo.bloom.strength = photo.bloomCfg.strength;
 });
 
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
   const k = e.key.toLowerCase();
+  // ESC: cancel an in-progress build placement first, else toggle pause
+  if (k === 'escape') {
+    if (placingStructure) { e.preventDefault(); cancelPlacement(); statusEl.textContent = 'Placement cancelled.'; return; }
+    e.preventDefault(); menuOpen ? menuClose() : pauseToggle(); return;
+  }
+  if (menuOpen || pauseOpen) return;
   if (k === 'r') { e.preventDefault(); photo.active ? photoExit() : photoEnter(); }
   else if (k === 'p') { e.preventDefault(); doCapture(); }
   else if (k === 'c') {
